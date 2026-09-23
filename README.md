@@ -1,36 +1,333 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Web3 Security Agent & Defender
 
-## Getting Started
+> AI-powered security agent for detecting and defending against malicious tokens, phishing transactions, and wallet drainers on Solana.
 
-First, run the development server:
+## 🛡️ Overview
+
+**AI Web3 Security Agent & Defender** is a Solana-focused security platform designed to protect users **before they sign a transaction**.
+
+The system combines blockchain data, deterministic security rules, transaction simulation, and AI-powered analysis to identify potentially malicious activity and explain the risk in a clear and actionable way.
+
+### Core Security Flow
+
+```text
+Blockchain Data
+       ↓
+Pre-Transaction Simulation
+       ↓
+Deterministic Risk Engine
+       ↓
+AI Security Analysis
+       ↓
+Risk Explanation
+       ↓
+Actionable Defense
+```
+
+## 🎯 Problem
+
+Web3 users can unknowingly interact with:
+
+* Phishing transactions
+* Wallet drainers
+* Malicious smart contracts/programs
+* Scam tokens
+* Suspicious token accounts
+* High-risk token authorities
+* Unexpected asset transfers
+
+Traditional wallet interfaces often show transaction data without explaining **what the transaction actually does to the user's assets**.
+
+This project aims to make transaction security understandable before the user signs.
+
+## 🔐 Security Layers
+
+### 1. Wallet & Token Security Scanner
+
+Analyzes wallet assets and identifies potentially suspicious tokens using blockchain and token-risk signals.
+
+### 2. Pre-Transaction Simulation
+
+Simulates a transaction before signing and analyzes:
+
+* Account balance changes
+* Token balance changes
+* Transaction instructions
+* Program interactions
+* Destination addresses
+* Transaction errors
+* Unexpected asset outflows
+
+### 3. Deterministic Risk Engine
+
+Combines security signals into transparent risk levels:
+
+```text
+CRITICAL
+HIGH
+MEDIUM
+LOW
+```
+
+Example signals include:
+
+* Unexpected balance outflow
+* Active Mint Authority
+* Active Freeze Authority
+* Token-2022 Permanent Delegate
+* Extremely low liquidity
+* Recent liquidity removal
+* New token / insufficient data
+* Suspicious destination
+* Risky program interaction
+
+### 4. AI Security Agent
+
+The AI layer explains technical security findings in human-readable language and helps users understand:
+
+> What is this transaction doing?
+
+> What could I lose?
+
+> Why is it risky?
+
+> What should I do next?
+
+## 🧠 AI Security Tools
+
+The planned agent architecture includes tools such as:
+
+```text
+get_wallet_tokens()
+analyze_token_contract()
+simulate_transaction()
+find_scam_tokens()
+execute_burn_transaction()
+```
+
+Additional analysis capabilities may include transaction decoding, destination inspection, and balance-change analysis.
+
+## 🧹 Burn & Reclaim
+
+The platform includes a defensive cleanup flow for eligible unwanted or suspicious token accounts.
+
+```text
+Suspicious Token Detected
+          ↓
+User Review
+          ↓
+Burn Token
+          ↓
+Token Balance = 0
+          ↓
+Close Token Account
+          ↓
+Reclaim Eligible Lamports
+          ↓
+User Wallet
+```
+
+All destructive actions are intended to require explicit user confirmation.
+
+Private keys and seed phrases are never required by the platform.
+
+## 🏗️ Tech Stack
+
+### Frontend
+
+* Next.js
+* React
+* TypeScript
+* Tailwind CSS
+* shadcn/ui
+* Lucide Icons
+
+### Blockchain
+
+* Solana
+* Helius
+* RugCheck
+
+### AI
+
+* OpenAI API
+* Vercel AI SDK
+
+### Development
+
+* Git
+* GitHub
+* ESLint
+
+## 📁 Project Structure
+
+```text
+solana-ai-defender/
+│
+├── app/
+│   ├── api/
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+│
+├── components/
+│   ├── security/
+│   ├── transaction/
+│   ├── wallet/
+│   ├── ui/
+│   └── SecurityHeader.tsx
+│
+├── lib/
+│   ├── ai/
+│   ├── security/
+│   └── solana/
+│
+├── public/
+│
+├── .env.example
+├── .env.local
+├── components.json
+├── next.config.ts
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+## 🚀 Getting Started
+
+### Requirements
+
+* Node.js 24+
+* npm
+* Git
+
+### Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/MERTFARUKDARENDELI/solana-ai-defender.git
+```
+
+Enter the project directory:
+
+```bash
+cd solana-ai-defender
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create your local environment file:
+
+```bash
+copy .env.example .env.local
+```
+
+Add the required API keys to `.env.local`.
+
+Example:
+
+```env
+NEXT_PUBLIC_APP_NAME="AI Web3 Security Agent"
+
+HELIUS_API_KEY=
+RUGCHECK_API_KEY=
+OPENAI_API_KEY=
+```
+
+Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🔒 Environment & Security
 
-## Learn More
+Never commit real API keys.
 
-To learn more about Next.js, take a look at the following resources:
+The project uses:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```text
+.env.local
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+for local secrets.
 
-## Deploy on Vercel
+The repository only contains:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+.env.example
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+with empty example values.
+
+**Never share private keys or seed phrases.**
+
+## 🧪 Development
+
+Run the linter:
+
+```bash
+npm run lint
+```
+
+Create a production build:
+
+```bash
+npm run build
+```
+
+## 🗺️ Development Roadmap
+
+### MVP
+
+* [x] Project infrastructure
+* [x] Next.js + TypeScript
+* [x] Tailwind CSS
+* [x] shadcn/ui
+* [ ] Solana / Helius integration
+* [ ] Token security scanner
+* [ ] Deterministic risk engine
+* [ ] Transaction decoder
+* [ ] Pre-transaction simulation
+* [ ] Transaction risk analysis
+* [ ] AI security agent
+* [ ] Scam token detection
+* [ ] Burn & Reclaim
+* [ ] Wallet connection
+* [ ] Security dashboard
+
+### Future
+
+* [ ] Wallet security score
+* [ ] Portfolio risk analysis
+* [ ] Whale intelligence
+* [ ] Security alerts
+* [ ] Realtime wallet monitoring
+* [ ] Phishing protection
+* [ ] Security reports
+* [ ] Advanced AI security chat
+* [ ] Production deployment
+* [ ] Security audit
+
+## ⚠️ Disclaimer
+
+This project is developed for educational, research, and hackathon purposes.
+
+Blockchain interactions can involve irreversible asset transfers. Users should independently verify transactions before signing them.
+
+No security system can guarantee detection of every malicious transaction or token.
+
+## 📄 License
+
+License information will be added as the project matures.
