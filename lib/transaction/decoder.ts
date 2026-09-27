@@ -1,0 +1,459 @@
+import {
+  decodeInstruction as decodeTokenInstruction,
+  TokenInstruction,
+} from "@solana/spl-token";
+import {
+  ComputeBudgetInstruction,
+  PublicKey,
+  SystemInstruction,
+  TransactionInstruction,
+  type AccountKeysFromLookups,
+  type VersionedTransaction,
+} from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  COMPUTE_BUDGET_PROGRAM_ID,
+  MEMO_PROGRAM_ID,
+  MEMO_V1_PROGRAM_ID,
+  programInfo,
+  SYSTEM_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@/lib/solana/constants";
+import type {
+  DecodedAccountMeta,
+  DecodedInstruction,
+  DecodedTransaction,
+  InstructionAccountRef,
+} from "./types";
+import { authorityTypeName, decodeToken2022Extension, TOKEN_2022_FIRST_EXTENSION_IX } from "./token2022";
+
+/**
+ * Deterministic, isomorphic transaction decoder (legacy + v0).
+ * It reports only what the bytes say; instructions of unknown programs are
+ * listed with their accounts but their intent is never guessed.
+ */
+
+export const U64_MAX = 18_446_744_073_709_551_615n;
+const DEFAULT_CU_PER_INSTRUCTION = 200_000n;
+const MAX_CU = 1_400_000n;
+
+/**
+ * Upper-bound priority fee (lamports) implied by the transaction's own
+ * ComputeBudget instructions: ceil(price µlamports × CU limit / 1e6).
+ */
+export function estimatePriorityFeeLamports(decoded: DecodedTransaction): bigint {
+  // v1 states the total priority fee in the message itself.
+  if (decoded.version === 1) return BigInt(decoded.transactionConfig?.priorityFeeLamports ?? "0");
+  let price = 0n;
+  let limit: bigint | null = null;
+  for (const i of decoded.instructions) {
+    if (i.type === "computeBudget:setComputeUnitPrice" && i.info.microLamports) price = BigInt(i.info.microLamports);
+    if (i.type === "computeBudget:setComputeUnitLimit" && i.info.units) limit = BigInt(i.info.units);
+  }
+  if (price === 0n) return 0n;
+  const nonBudget = BigInt(decoded.instructions.filter((i) => !i.type.startsWith("computeBudget:")).length);
+  const units = limit ?? (nonBudget * DEFAULT_CU_PER_INSTRUCTION > MAX_CU ? MAX_CU : nonBudget * DEFAULT_CU_PER_INSTRUCTION);
+  return (price * units + 999_999n) / 1_000_000n;
+}
+
+export function formatTxVersion(version: DecodedTransaction["version"]): string {
+  return version === "legacy" ? "legacy" : `v${version}`;
+}
+
+export interface DecodeOptions {
+  /** Resolved lookup-table addresses (e.g. from getTransaction meta.loadedAddresses). */
+  loadedAddresses?: { writable: string[]; readonly: string[] };
+}
+
+const TOKEN_IX_NAMES: Partial<Record<TokenInstruction, string>> = {
+  [TokenInstruction.InitializeMint]: "initializeMint",
+  [TokenInstruction.InitializeAccount]: "initializeAccount",
+  [TokenInstruction.Transfer]: "transfer",
+  [TokenInstruction.Approve]: "approve",
+  [TokenInstruction.Revoke]: "revoke",
+  [TokenInstruction.SetAuthority]: "setAuthority",
+  [TokenInstruction.MintTo]: "mintTo",
+  [TokenInstruction.Burn]: "burn",
+  [TokenInstruction.CloseAccount]: "closeAccount",
+  [TokenInstruction.FreezeAccount]: "freezeAccount",
+  [TokenInstruction.ThawAccount]: "thawAccount",
+  [TokenInstruction.TransferChecked]: "transferChecked",
+  [TokenInstruction.ApproveChecked]: "approveChecked",
+  [TokenInstruction.MintToChecked]: "mintToChecked",
+  [TokenInstruction.BurnChecked]: "burnChecked",
+  [TokenInstruction.InitializeAccount2]: "initializeAccount2",
+  [TokenInstruction.SyncNative]: "syncNative",
+  [TokenInstruction.InitializeAccount3]: "initializeAccount3",
+  [TokenInstruction.InitializeMint2]: "initializeMint2",
+};
+
+function b58(k: PublicKey): string {
+  return k.toBase58();
+}
+
+function resolveKeys(tx: VersionedTransaction, options: DecodeOptions): {
+  keys: Array<string | null>;
+  resolved: boolean;
+} {
+  const msg = tx.message;
+  const staticKeys = msg.staticAccountKeys.map(b58);
+  const lookups = "addressTableLookups" in msg ? msg.addressTableLookups : [];
+  if (lookups.length === 0) return { keys: staticKeys, resolved: true };
+
+  const writableCount = lookups.reduce((n, l) => n + l.writableIndexes.length, 0);
+  const readonlyCount = lookups.reduce((n, l) => n + l.readonlyIndexes.length, 0);
+  const loaded = options.loadedAddresses;
+  if (loaded && loaded.writable.length === writableCount && loaded.readonly.length === readonlyCount) {
+    return { keys: [...staticKeys, ...loaded.writable, ...loaded.readonly], resolved: true };
+  }
+  return {
+    keys: [...staticKeys, ...Array<null>(writableCount + readonlyCount).fill(null)],
+    resolved: false,
+  };
+}
+
+export function lookupAccountsFrom(loaded: { writable: string[]; readonly: string[] }): AccountKeysFromLookups {
+  return {
+    writable: loaded.writable.map((k) => new PublicKey(k)),
+    readonly: loaded.readonly.map((k) => new PublicKey(k)),
+  };
+}
+
+export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptions = {}): DecodedTransaction {
+  const msg = tx.message;
+  const { keys, resolved } = resolveKeys(tx, options);
+  const numSigners = msg.header.numRequiredSignatures;
+
+  const accounts: DecodedAccountMeta[] = keys.map((address, index) => ({
+    index,
+    address,
+    signer: index < numSigners,
+    writable: msg.isAccountWritable(index),
+    source: index < msg.staticAccountKeys.length ? "static" : "lookup",
+  }));
+
+  const out: DecodedTransaction = {
+    version: msg.version === 0 ? 0 : msg.version === 1 ? 1 : "legacy",
+    transactionConfig: "transactionConfig" in msg ? {
+      computeUnitLimit: msg.transactionConfig.computeUnitLimit,
+      heapSize: msg.transactionConfig.heapSize,
+      loadedAccountsDataSizeLimit: msg.transactionConfig.loadedAccountsDataSizeLimit,
+      priorityFeeLamports: msg.transactionConfig.priorityFee === null ? null : String(msg.transactionConfig.priorityFee),
+    } : null,
+    feePayer: keys[0] as string,
+    signers: accounts.filter((a) => a.signer).map((a) => a.address as string),
+    signaturesPresent: tx.signatures.filter((s) => s.some((b) => b !== 0)).length,
+    recentBlockhash: msg.recentBlockhash,
+    accounts,
+    instructions: [],
+    programs: [],
+    solTransfers: [],
+    tokenTransfers: [],
+    approvals: [],
+    authorityChanges: [],
+    closes: [],
+    usesDurableNonce: false,
+    lookupTablesResolved: resolved,
+    undecodedInstructions: [],
+    innerInstructions: [],
+    innerInstructionsSource: "NONE",
+  };
+
+  msg.compiledInstructions.forEach((cix, index) => {
+    const programId = keys[cix.programIdIndex];
+    const refs = (names: string[]): InstructionAccountRef[] =>
+      cix.accountKeyIndexes.map((ki, i) => ({
+        name: names[i] ?? `account${i}`,
+        address: keys[ki] ?? null,
+        signer: accounts[ki]?.signer ?? false,
+        writable: accounts[ki]?.writable ?? false,
+      }));
+
+    const base = (type: string, parsed: boolean, names: string[] = [], info: Record<string, string | null> = {}): DecodedInstruction => {
+      const p = programInfo(programId ?? "");
+      return {
+        index,
+        programId: programId ?? "unresolved",
+        programName: p.name,
+        programTrust: programId ? p.trust : "unknown",
+        type,
+        parsed,
+        accounts: refs(names),
+        info,
+        dataLength: cix.data.length,
+      };
+    };
+
+    if (!programId) {
+      out.instructions.push(base("unresolved-program", false));
+      out.undecodedInstructions.push(index);
+      return;
+    }
+
+    const allResolved = cix.accountKeyIndexes.every((ki) => keys[ki] !== null);
+    const ix = allResolved
+      ? new TransactionInstruction({
+          programId: new PublicKey(programId),
+          keys: cix.accountKeyIndexes.map((ki) => ({
+            pubkey: new PublicKey(keys[ki] as string),
+            isSigner: accounts[ki].signer,
+            isWritable: accounts[ki].writable,
+          })),
+          data: Buffer.from(cix.data),
+        })
+      : null;
+
+    let decoded: DecodedInstruction | null = null;
+    try {
+      if (ix && programId === SYSTEM_PROGRAM_ID) decoded = decodeSystem(ix, index, out, base);
+      else if (ix && (programId === TOKEN_PROGRAM_ID || programId === TOKEN_2022_PROGRAM_ID)) decoded = decodeToken(ix, index, out, base);
+      else if (ix && programId === COMPUTE_BUDGET_PROGRAM_ID) decoded = decodeComputeBudget(ix, base);
+      else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(cix.data, base);
+      else if (programId === MEMO_PROGRAM_ID || programId === MEMO_V1_PROGRAM_ID) {
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(cix.data).slice(0, 200);
+        decoded = base("memo", true, [], { memo: text });
+      }
+    } catch {
+      decoded = null;
+    }
+
+    if (!decoded) {
+      const known = programInfo(programId).trust !== "unknown";
+      decoded = base(known ? `${programInfo(programId).name}:undecoded` : "unknown", false);
+      out.undecodedInstructions.push(index);
+    } else if (!decoded.parsed) {
+      // Identified instruction family whose payload is not decoded (e.g. confidential transfers).
+      out.undecodedInstructions.push(index);
+    }
+    out.instructions.push(decoded);
+  });
+
+  const seen = new Set<string>();
+  for (const ixn of out.instructions) {
+    if (seen.has(ixn.programId)) continue;
+    seen.add(ixn.programId);
+    out.programs.push({ programId: ixn.programId, name: ixn.programName, trust: ixn.programTrust });
+  }
+  return out;
+}
+
+function emptyEffects(from: DecodedTransaction): DecodedTransaction {
+  return { ...from, instructions: [], programs: [], solTransfers: [], tokenTransfers: [], approvals: [], authorityChanges: [], closes: [], undecodedInstructions: [], innerInstructions: [] };
+}
+
+/**
+ * Decodes one inner (CPI) instruction from raw program id, resolved accounts
+ * and data. Effects (transfers, approvals, authority changes, closes) are
+ * appended to `out` with `cpi: true` and the parent instruction index.
+ */
+export function decodeInnerRaw(
+  programId: string,
+  accounts: string[],
+  data: Uint8Array,
+  parentIndex: number,
+  stackHeight: number | null,
+  out: DecodedTransaction,
+): DecodedInstruction {
+  const p = programInfo(programId);
+  const base: BaseFn = (type, parsed, names = [], info = {}) => ({
+    index: out.innerInstructions.length,
+    programId,
+    programName: p.name,
+    programTrust: p.trust,
+    type,
+    parsed,
+    accounts: accounts.map((address, i) => ({ name: names[i] ?? `account${i}`, address, signer: false, writable: false })),
+    info,
+    dataLength: data.length,
+    parentIndex,
+    stackHeight,
+  });
+  const scratch = emptyEffects(out);
+  let decoded: DecodedInstruction | null = null;
+  try {
+    const ix = new TransactionInstruction({
+      programId: new PublicKey(programId),
+      keys: accounts.map((a) => ({ pubkey: new PublicKey(a), isSigner: false, isWritable: false })),
+      data: Buffer.from(data),
+    });
+    if (programId === SYSTEM_PROGRAM_ID) decoded = decodeSystem(ix, parentIndex, scratch, base);
+    else if (programId === TOKEN_PROGRAM_ID || programId === TOKEN_2022_PROGRAM_ID) decoded = decodeToken(ix, parentIndex, scratch, base);
+    else if (programId === COMPUTE_BUDGET_PROGRAM_ID) decoded = decodeComputeBudget(ix, base);
+    else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(data, base);
+  } catch {
+    decoded = null;
+  }
+  if (!decoded) decoded = base(p.trust === "unknown" ? "unknown" : `${p.name}:undecoded`, false);
+  mergeCpiEffects(out, scratch);
+  return decoded;
+}
+
+/** Copies effect records from `from` into `out`, flagged as CPI. */
+export function mergeCpiEffects(out: DecodedTransaction, from: Pick<DecodedTransaction, "solTransfers" | "tokenTransfers" | "approvals" | "authorityChanges" | "closes">) {
+  out.solTransfers.push(...from.solTransfers.map((x) => ({ ...x, cpi: true })));
+  out.tokenTransfers.push(...from.tokenTransfers.map((x) => ({ ...x, cpi: true })));
+  out.approvals.push(...from.approvals.map((x) => ({ ...x, cpi: true })));
+  out.authorityChanges.push(...from.authorityChanges.map((x) => ({ ...x, cpi: true })));
+  out.closes.push(...from.closes.map((x) => ({ ...x, cpi: true })));
+}
+
+type BaseFn = (type: string, parsed: boolean, names?: string[], info?: Record<string, string | null>) => DecodedInstruction;
+
+function decodeSystem(ix: TransactionInstruction, index: number, out: DecodedTransaction, base: BaseFn): DecodedInstruction | null {
+  const type = SystemInstruction.decodeInstructionType(ix);
+  switch (type) {
+    case "Transfer": {
+      const d = SystemInstruction.decodeTransfer(ix);
+      const lamports = BigInt(d.lamports).toString();
+      out.solTransfers.push({ instruction: index, from: b58(d.fromPubkey), to: b58(d.toPubkey), lamports });
+      return base("system:transfer", true, ["from", "to"], { from: b58(d.fromPubkey), to: b58(d.toPubkey), lamports });
+    }
+    case "TransferWithSeed": {
+      const d = SystemInstruction.decodeTransferWithSeed(ix);
+      const lamports = BigInt(d.lamports).toString();
+      out.solTransfers.push({ instruction: index, from: b58(d.fromPubkey), to: b58(d.toPubkey), lamports });
+      return base("system:transferWithSeed", true, ["from", "base", "to"], { from: b58(d.fromPubkey), to: b58(d.toPubkey), lamports });
+    }
+    case "Create": {
+      const d = SystemInstruction.decodeCreateAccount(ix);
+      const lamports = BigInt(d.lamports).toString();
+      out.solTransfers.push({ instruction: index, from: b58(d.fromPubkey), to: b58(d.newAccountPubkey), lamports });
+      return base("system:createAccount", true, ["from", "newAccount"], { from: b58(d.fromPubkey), newAccount: b58(d.newAccountPubkey), lamports, space: String(d.space), owner: b58(d.programId) });
+    }
+    case "Assign": {
+      const d = SystemInstruction.decodeAssign(ix);
+      out.authorityChanges.push({ instruction: index, kind: "system-assign", account: b58(d.accountPubkey), authorityType: "ProgramOwner", currentAuthority: SYSTEM_PROGRAM_ID, newAuthority: b58(d.programId) });
+      return base("system:assign", true, ["account"], { account: b58(d.accountPubkey), newOwnerProgram: b58(d.programId) });
+    }
+    case "AdvanceNonceAccount": {
+      const d = SystemInstruction.decodeNonceAdvance(ix);
+      if (index === 0) out.usesDurableNonce = true;
+      return base("system:advanceNonce", true, ["nonce", "recentBlockhashes", "authority"], { nonce: b58(d.noncePubkey), authority: b58(d.authorizedPubkey) });
+    }
+    case "WithdrawNonceAccount": {
+      const d = SystemInstruction.decodeNonceWithdraw(ix);
+      const lamports = BigInt(d.lamports).toString();
+      out.solTransfers.push({ instruction: index, from: b58(d.noncePubkey), to: b58(d.toPubkey), lamports });
+      return base("system:withdrawNonce", true, ["nonce", "to"], { nonce: b58(d.noncePubkey), to: b58(d.toPubkey), lamports });
+    }
+    case "AuthorizeNonceAccount": {
+      const d = SystemInstruction.decodeNonceAuthorize(ix);
+      out.authorityChanges.push({ instruction: index, kind: "system-assign", account: b58(d.noncePubkey), authorityType: "NonceAuthority", currentAuthority: b58(d.authorizedPubkey), newAuthority: b58(d.newAuthorizedPubkey) });
+      return base("system:authorizeNonce", true, ["nonce", "authority"], { nonce: b58(d.noncePubkey), newAuthority: b58(d.newAuthorizedPubkey) });
+    }
+    default:
+      return base(`system:${type.charAt(0).toLowerCase()}${type.slice(1)}`, true);
+  }
+}
+
+function decodeToken(ix: TransactionInstruction, index: number, out: DecodedTransaction, base: BaseFn): DecodedInstruction | null {
+  const programId = ix.programId.toBase58();
+  const program = programId === TOKEN_2022_PROGRAM_ID ? "token-2022" : "spl-token";
+  const prefix = program === "token-2022" ? "token-2022" : "token";
+
+  // Discriminators >= 25 are Token-2022 extensions. The classic SPL Token
+  // program has no such instructions: leave them undecoded there.
+  if (ix.data.length > 0 && ix.data[0] >= TOKEN_2022_FIRST_EXTENSION_IX) {
+    if (program !== "token-2022") return null;
+    const accounts = ix.keys.map((k) => b58(k.pubkey));
+    const x = decodeToken2022Extension(new Uint8Array(ix.data), accounts);
+    if (!x) return null;
+    if (x.transfer) {
+      const t = x.transfer;
+      out.tokenTransfers.push({ instruction: index, program, source: t.source, destination: t.destination, authority: t.authority, amountRaw: t.amountRaw, mint: t.mint, decimals: t.decimals });
+    }
+    return base(`${prefix}:${x.name}`, x.parsed, x.accountNames, x.info);
+  }
+
+  // Base instructions the spl-token library does not decode (seen in every ATA creation on mainnet).
+  // GetAccountDataSize: SPL Token takes no payload; Token-2022 may list u16 extension types.
+  if (ix.data[0] === TokenInstruction.GetAccountDataSize && ix.keys.length >= 1 && (ix.data.length === 1 || (program === "token-2022" && (ix.data.length - 1) % 2 === 0))) {
+    const exts = Array.from({ length: (ix.data.length - 1) / 2 }, (_, i) => String(ix.data[1 + i * 2] | (ix.data[2 + i * 2] << 8)));
+    return base(`${prefix}:getAccountDataSize`, true, ["mint"], { mint: b58(ix.keys[0].pubkey), extensionTypes: exts.join(",") || null });
+  }
+  if (ix.data[0] === TokenInstruction.InitializeImmutableOwner && ix.data.length === 1 && ix.keys.length >= 1) {
+    return base(`${prefix}:initializeImmutableOwner`, true, ["account"], { account: b58(ix.keys[0].pubkey) });
+  }
+
+  const d = decodeTokenInstruction(ix, ix.programId);
+  const name = TOKEN_IX_NAMES[d.data.instruction as TokenInstruction] ?? `ix${d.data.instruction}`;
+  const t = `${prefix}:${name}`;
+
+  switch (d.data.instruction) {
+    case TokenInstruction.Transfer: {
+      const k = (d as import("@solana/spl-token").DecodedTransferInstruction).keys;
+      const amount = (d.data as { amount: bigint }).amount.toString();
+      out.tokenTransfers.push({ instruction: index, program, source: b58(k.source.pubkey), destination: b58(k.destination.pubkey), authority: b58(k.owner.pubkey), amountRaw: amount, mint: null, decimals: null });
+      return base(t, true, ["source", "destination", "authority"], { source: b58(k.source.pubkey), destination: b58(k.destination.pubkey), authority: b58(k.owner.pubkey), amount });
+    }
+    case TokenInstruction.TransferChecked: {
+      const x = d as import("@solana/spl-token").DecodedTransferCheckedInstruction;
+      const amount = x.data.amount.toString();
+      out.tokenTransfers.push({ instruction: index, program, source: b58(x.keys.source.pubkey), destination: b58(x.keys.destination.pubkey), authority: b58(x.keys.owner.pubkey), amountRaw: amount, mint: b58(x.keys.mint.pubkey), decimals: x.data.decimals });
+      return base(t, true, ["source", "mint", "destination", "authority"], { source: b58(x.keys.source.pubkey), mint: b58(x.keys.mint.pubkey), destination: b58(x.keys.destination.pubkey), authority: b58(x.keys.owner.pubkey), amount, decimals: String(x.data.decimals) });
+    }
+    case TokenInstruction.Approve:
+    case TokenInstruction.ApproveChecked: {
+      const x = d as import("@solana/spl-token").DecodedApproveInstruction;
+      const amount = (d.data as { amount: bigint }).amount;
+      out.approvals.push({ instruction: index, account: b58(x.keys.account.pubkey), delegate: b58(x.keys.delegate.pubkey), owner: b58(x.keys.owner.pubkey), amountRaw: amount.toString(), unlimited: amount === U64_MAX });
+      return base(t, true, d.data.instruction === TokenInstruction.Approve ? ["account", "delegate", "owner"] : ["account", "mint", "delegate", "owner"], { account: b58(x.keys.account.pubkey), delegate: b58(x.keys.delegate.pubkey), owner: b58(x.keys.owner.pubkey), amount: amount.toString() });
+    }
+    case TokenInstruction.Revoke: {
+      const x = d as import("@solana/spl-token").DecodedRevokeInstruction;
+      return base(t, true, ["account", "owner"], { account: b58(x.keys.account.pubkey), owner: b58(x.keys.owner.pubkey) });
+    }
+    case TokenInstruction.SetAuthority: {
+      const x = d as import("@solana/spl-token").DecodedSetAuthorityInstruction;
+      const kind = authorityTypeName(x.data.authorityType, program);
+      const newAuthority = x.data.newAuthority ? b58(x.data.newAuthority) : null;
+      out.authorityChanges.push({ instruction: index, kind: "token-authority", account: b58(x.keys.account.pubkey), authorityType: kind, currentAuthority: b58(x.keys.currentAuthority.pubkey), newAuthority });
+      return base(t, true, ["account", "currentAuthority"], { account: b58(x.keys.account.pubkey), authorityType: kind, currentAuthority: b58(x.keys.currentAuthority.pubkey), newAuthority });
+    }
+    case TokenInstruction.CloseAccount: {
+      const x = d as import("@solana/spl-token").DecodedCloseAccountInstruction;
+      out.closes.push({ instruction: index, account: b58(x.keys.account.pubkey), destination: b58(x.keys.destination.pubkey), authority: b58(x.keys.authority.pubkey) });
+      return base(t, true, ["account", "destination", "authority"], { account: b58(x.keys.account.pubkey), destination: b58(x.keys.destination.pubkey), authority: b58(x.keys.authority.pubkey) });
+    }
+    case TokenInstruction.Burn:
+    case TokenInstruction.BurnChecked: {
+      const x = d as import("@solana/spl-token").DecodedBurnInstruction;
+      const amount = (d.data as { amount: bigint }).amount.toString();
+      return base(t, true, ["account", "mint", "owner"], { account: b58(x.keys.account.pubkey), mint: b58(x.keys.mint.pubkey), owner: b58(x.keys.owner.pubkey), amount, decimals: "decimals" in d.data ? String((d.data as { decimals: number }).decimals) : null });
+    }
+    case TokenInstruction.MintTo:
+    case TokenInstruction.MintToChecked: {
+      const x = d as import("@solana/spl-token").DecodedMintToInstruction;
+      return base(t, true, ["mint", "destination", "authority"], { mint: b58(x.keys.mint.pubkey), destination: b58(x.keys.destination.pubkey), authority: b58(x.keys.authority.pubkey), amount: (d.data as { amount: bigint }).amount.toString() });
+    }
+    case TokenInstruction.FreezeAccount:
+    case TokenInstruction.ThawAccount: {
+      const x = d as import("@solana/spl-token").DecodedFreezeAccountInstruction;
+      return base(t, true, ["account", "mint", "authority"], { account: b58(x.keys.account.pubkey), mint: b58(x.keys.mint.pubkey), authority: b58(x.keys.authority.pubkey) });
+    }
+    default:
+      return base(t, true);
+  }
+}
+
+function decodeComputeBudget(ix: TransactionInstruction, base: BaseFn): DecodedInstruction | null {
+  const type = ComputeBudgetInstruction.decodeInstructionType(ix);
+  if (type === "SetComputeUnitPrice") {
+    const d = ComputeBudgetInstruction.decodeSetComputeUnitPrice(ix);
+    return base("computeBudget:setComputeUnitPrice", true, [], { microLamports: BigInt(d.microLamports).toString() });
+  }
+  if (type === "SetComputeUnitLimit") {
+    const d = ComputeBudgetInstruction.decodeSetComputeUnitLimit(ix);
+    return base("computeBudget:setComputeUnitLimit", true, [], { units: String(d.units) });
+  }
+  return base(`computeBudget:${type}`, true);
+}
+
+function decodeAta(data: Uint8Array, base: BaseFn): DecodedInstruction | null {
+  const names = ["payer", "associatedAccount", "wallet", "mint", "systemProgram", "tokenProgram"];
+  if (data.length === 0 || data[0] === 0) return base("ata:create", true, names);
+  if (data[0] === 1) return base("ata:createIdempotent", true, names);
+  if (data[0] === 2) return base("ata:recoverNested", true);
+  return null;
+}

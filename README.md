@@ -1,333 +1,152 @@
 # AI Web3 Security Agent & Defender
 
-> AI-powered security agent for detecting and defending against malicious tokens, phishing transactions, and wallet drainers on Solana.
+> **Simulate before you sign. Detect scams. Clean your wallet.**
+>
+> We don't just show risks. We simulate attacks before they happen, and help users clean their wallets.
 
-## 🛡️ Overview
+A Solana security tool that scans wallets, tokens, NFTs/cNFTs and transactions with a **deterministic, evidence-based risk engine**, simulates transactions before signing, explains the results with an AI agent that cannot change them, and helps users burn, close and revoke eligible token accounts — signed only in their own wallet.
 
-**AI Web3 Security Agent & Defender** is a Solana-focused security platform designed to protect users **before they sign a transaction**.
+> ⚠️ Hackathon / research project. The code aims for production-quality engineering, but it is **not a production-ready product**: the cleanup signing path has not been executed on-chain yet, and wallet/browser behavior has not been tested on real devices. See [Limitations](#limitations) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-The system combines blockchain data, deterministic security rules, transaction simulation, and AI-powered analysis to identify potentially malicious activity and explain the risk in a clear and actionable way.
+## What works today
 
-### Core Security Flow
+| Feature | State |
+|---|---|
+| Wallet scan (SOL, SPL + Token-2022 accounts, NFTs/cNFTs via Helius DAS) | Verified against mainnet |
+| Token security (authorities, Token-2022 extensions, RugCheck liquidity/holders, on-chain concentration, phishing names) | Verified against mainnet |
+| cNFT / NFT spam & phishing-lure detection | Verified against mainnet |
+| Transaction decode (legacy + v0 with lookup tables) | Verified against mainnet |
+| Pre-sign simulation with balance/state diffs | Verified against mainnet |
+| Transaction risk (outflows, drains, approvals, authority changes, durable nonce…) | Unit-tested + mainnet |
+| Cleanup: eligibility, unsigned tx build, simulation, fee check, reclaim estimate | Verified (prepare/simulate only) |
+| Cleanup: wallet signing → submit → confirm → post-state check | Implemented, **not yet executed on-chain** |
+| AI Security Agent | Implemented + mock-tested; live model blocked by an invalid API key in this environment |
+| Demo Mode (no wallet needed) | Verified, deterministic |
 
-```text
-Blockchain Data
-       ↓
-Pre-Transaction Simulation
-       ↓
-Deterministic Risk Engine
-       ↓
-AI Security Analysis
-       ↓
-Risk Explanation
-       ↓
-Actionable Defense
-```
-
-## 🎯 Problem
-
-Web3 users can unknowingly interact with:
-
-* Phishing transactions
-* Wallet drainers
-* Malicious smart contracts/programs
-* Scam tokens
-* Suspicious token accounts
-* High-risk token authorities
-* Unexpected asset transfers
-
-Traditional wallet interfaces often show transaction data without explaining **what the transaction actually does to the user's assets**.
-
-This project aims to make transaction security understandable before the user signs.
-
-## 🔐 Security Layers
-
-### 1. Wallet & Token Security Scanner
-
-Analyzes wallet assets and identifies potentially suspicious tokens using blockchain and token-risk signals.
-
-### 2. Pre-Transaction Simulation
-
-Simulates a transaction before signing and analyzes:
-
-* Account balance changes
-* Token balance changes
-* Transaction instructions
-* Program interactions
-* Destination addresses
-* Transaction errors
-* Unexpected asset outflows
-
-### 3. Deterministic Risk Engine
-
-Combines security signals into transparent risk levels:
+## Architecture
 
 ```text
-CRITICAL
-HIGH
-MEDIUM
-LOW
+Browser (Next.js client)                      Server (Next.js route handlers)                 External
+─────────────────────────                     ────────────────────────────────                ────────
+Wallet (Wallet Standard) ─ public key only ─▶  /api/wallet/scan ─┐
+Dashboard / Tx / Demo UI  ─────────────────▶  /api/token         │   lib/solana   ── RPC client ─▶ Helius RPC ─(fallback)▶ public RPC
+                                              /api/transaction   ├─▶ lib/token    ── RugCheck (external opinion)
+AI chat ───────────────────────────────────▶  /api/ai/chat       │   lib/transaction (decode · simulate · effects)
+                                              /api/cleanup/*     │   lib/security (rules · deterministic engine)
+Confirmation screen:                          /api/demo          │   lib/cleanup (capabilities · intent · prepare · submit)
+  decode bytes → verify vs intent → hash                          └─▶ lib/ai (read-only tools · sanitize · evidence contract) ─▶ OpenAI
+  → wallet.signTransaction → re-hash
+  → /api/cleanup/submit (re-verify, relay)
 ```
 
-Example signals include:
+Flow: **Wallet → Blockchain data → Token security → Transaction decode → Simulation → Risk engine → AI explanation → User warning → Scam detection → Cleanup eligibility → Burn / Revoke / Close / Reclaim**
 
-* Unexpected balance outflow
-* Active Mint Authority
-* Active Freeze Authority
-* Token-2022 Permanent Delegate
-* Extremely low liquidity
-* Recent liquidity removal
-* New token / insufficient data
-* Suspicious destination
-* Risky program interaction
+### Key design rules
 
-### 4. AI Security Agent
+- **Risk level and analysis status are separate.** Levels: `SAFE · LOW · MEDIUM · HIGH · CRITICAL`, plus `UNKNOWN` ("Unrated"). Status: `COMPLETE · PARTIAL · INSUFFICIENT_DATA · UNAVAILABLE`. `SAFE` is only possible when every required check completed; missing data yields `UNKNOWN`, never `SAFE`.
+- **Every risk signal must reference evidence** (source, observed value, rule). The engine throws if a signal has no evidence.
+- **Data sources are labelled**: on-chain RPC, Helius DAS, RugCheck (external opinion), simulation, decoder, deterministic rule, DEMO.
+- **Simulation success ≠ safe.** It only means the transaction would execute.
+- **Unknown address / program / domain ≠ malicious.** It is shown as "unverified".
+- **u64 values are decimal strings end-to-end**; no `number` conversions of lamports or token amounts.
 
-The AI layer explains technical security findings in human-readable language and helps users understand:
+## Security model
 
-> What is this transaction doing?
+| Invariant | How it is enforced |
+|---|---|
+| Server never signs | The server only builds **unsigned** transactions and relays bytes the user's wallet signed. No keypairs exist server-side. |
+| AI never signs | AI tools are read-only (`get_wallet_security_overview`, `find_scam_tokens`, `analyze_token`, `analyze_transaction`, `get_cleanup_options`); a test asserts no signing/sending tool exists. |
+| No private keys / seed phrases | No input for them anywhere; chat warns if a seed-phrase-like text is pasted. |
+| No transaction without user confirmation | Confirmation screen + explicit acknowledgement; wallet approval required. |
+| Confirmed tx == signed tx | The confirmation screen decodes the actual bytes; `verifyCleanupTransaction` rebuilds the expected instructions from the displayed intent and blocks on any change of program, accounts, mint, amount, destination, authority, fee payer or extra instructions. The message hash is checked before signing, after signing (wallet must not modify it) and again on the server → `SECURITY BLOCK`. |
+| Simulation before signing | Cleanup can only be signed if simulation succeeded, was not stale and showed the expected effect (account closed / delegate removed). |
+| Insufficient data ≠ SAFE | Engine + tests; provider failures degrade to `PARTIAL` / `INSUFFICIENT_DATA`. |
+| Fallback capability checks | Helius DAS methods never fall back to public RPC; enhanced data is reported unavailable instead. |
+| cNFT ≠ SPL cleanup | cNFTs are `UNSUPPORTED` for burn/close (Bubblegum + Merkle proof not implemented). |
+| Untrusted metadata | Token/NFT names, descriptions, memos and logs are wrapped as `{"untrusted": …}` for the AI, hidden Unicode stripped, injection attempts flagged; AI citations to non-existent evidence are removed. |
+| Secrets | Server-only env vars; client bundle scanned for keys; logger redacts keys, seeds, `api-key=` URLs and `sk-…` strings; wallet addresses masked in logs. |
+| Abuse | zod validation on every route, body size caps, per-route rate limits, RPC timeouts with bounded exponential backoff. |
+| Clickjacking of the signing screen | `X-Frame-Options: DENY` + `frame-ancestors 'none'`. |
 
-> What could I lose?
+## Supported / unsupported operations
 
-> Why is it risky?
+| Asset | Burn & close | Close (empty) | Revoke delegate |
+|---|---|---|---|
+| SPL Token | Supported | Supported | Supported |
+| Token-2022 | Partially (blocked by withheld fees, confidential balances, paused mint, unknown mint state → manual review) | Partially | Supported (account delegate; a mint **Permanent Delegate cannot be revoked** by holders) |
+| Wrapped SOL | Never burned | Supported (unwraps) | Supported |
+| Metaplex NFT / pNFT | Requires manual review (needs Metaplex burn) | Manual review | Supported (not for frozen pNFTs) |
+| Compressed NFT (cNFT) | **Unsupported** | Not applicable | **Unsupported** |
+| Frozen account | Unsupported | Unsupported | Unsupported |
+| Foreign close authority | Unsupported | Unsupported | — |
 
-> What should I do next?
+Reclaim values are **estimates, not guaranteed profit**: rent is only returned if the transaction succeeds, and the network fee is paid either way. If the wallet can't cover the fee the UI stops with: *"İşlem yapmak için cüzdanınızda yeterli SOL bulunmamaktadır."*
 
-## 🧠 AI Security Tools
+## Demo Mode
 
-The planned agent architecture includes tools such as:
+`/demo` runs without a wallet. A synthetic, deterministic wallet (scam token with phishing name, Token-2022 permanent-delegate token, frozen honeypot, active delegation, empty account, phishing cNFT) and a suspicious transaction (**50 USDC to an unknown address + unlimited approval**) are processed by the **real** parsers, risk rules, decoder, capability matrix and integrity verifier. Every evidence item is labelled `DEMO`, nothing touches a blockchain, and signing is disabled — the cleanup demo shows the same confirmation screen and integrity check, then applies a demo outcome.
 
-```text
-get_wallet_tokens()
-analyze_token_contract()
-simulate_transaction()
-find_scam_tokens()
-execute_burn_transaction()
-```
+Demo walkthrough: **Wallet scan → Risk detection → Suspicious transaction (simulation, 50 USDC outflow) → Scam & cNFT detection → Cleanup (burn / close / revoke / reclaim; unsupported cases shown honestly)**.
 
-Additional analysis capabilities may include transaction decoding, destination inspection, and balance-change analysis.
+## Getting started
 
-## 🧹 Burn & Reclaim
-
-The platform includes a defensive cleanup flow for eligible unwanted or suspicious token accounts.
-
-```text
-Suspicious Token Detected
-          ↓
-User Review
-          ↓
-Burn Token
-          ↓
-Token Balance = 0
-          ↓
-Close Token Account
-          ↓
-Reclaim Eligible Lamports
-          ↓
-User Wallet
-```
-
-All destructive actions are intended to require explicit user confirmation.
-
-Private keys and seed phrases are never required by the platform.
-
-## 🏗️ Tech Stack
-
-### Frontend
-
-* Next.js
-* React
-* TypeScript
-* Tailwind CSS
-* shadcn/ui
-* Lucide Icons
-
-### Blockchain
-
-* Solana
-* Helius
-* RugCheck
-
-### AI
-
-* OpenAI API
-* Vercel AI SDK
-
-### Development
-
-* Git
-* GitHub
-* ESLint
-
-## 📁 Project Structure
-
-```text
-solana-ai-defender/
-│
-├── app/
-│   ├── api/
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx
-│
-├── components/
-│   ├── security/
-│   ├── transaction/
-│   ├── wallet/
-│   ├── ui/
-│   └── SecurityHeader.tsx
-│
-├── lib/
-│   ├── ai/
-│   ├── security/
-│   └── solana/
-│
-├── public/
-│
-├── .env.example
-├── .env.local
-├── components.json
-├── next.config.ts
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-## 🚀 Getting Started
-
-### Requirements
-
-* Node.js 24+
-* npm
-* Git
-
-### Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/MERTFARUKDARENDELI/solana-ai-defender.git
-```
-
-Enter the project directory:
-
-```bash
-cd solana-ai-defender
-```
-
-Install dependencies:
+Requirements: Node.js 24+, npm.
 
 ```bash
 npm install
+cp .env.example .env.local   # Windows: copy .env.example .env.local
+npm run dev                  # http://localhost:3000
 ```
 
-Create your local environment file:
+Environment (`.env.example` documents all options):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `HELIUS_API_KEY` | recommended | Primary RPC + DAS (metadata, NFTs, cNFTs). Without it, only public-RPC data is available and results are PARTIAL. |
+| `OPENAI_API_KEY` | optional | AI agent. Without it, deterministic summaries are shown. |
+| `OPENAI_MODEL` | optional | Defaults to `gpt-4.1-mini`. |
+| `SOLANA_CLUSTER` / `NEXT_PUBLIC_SOLANA_CLUSTER` | optional | `mainnet-beta` (default) or `devnet`. **Test cleanup on devnet first.** |
+| `SOLANA_FALLBACK_RPC_URL`, `SOLANA_DISABLE_PUBLIC_FALLBACK`, `RUGCHECK_DISABLED` | optional | Resilience controls. |
+
+Scripts:
 
 ```bash
-copy .env.example .env.local
-```
-
-Add the required API keys to `.env.local`.
-
-Example:
-
-```env
-NEXT_PUBLIC_APP_NAME="AI Web3 Security Agent"
-
-HELIUS_API_KEY=
-RUGCHECK_API_KEY=
-OPENAI_API_KEY=
-```
-
-Start the development server:
-
-```bash
-npm run dev
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-## 🔒 Environment & Security
-
-Never commit real API keys.
-
-The project uses:
-
-```text
-.env.local
-```
-
-for local secrets.
-
-The repository only contains:
-
-```text
-.env.example
-```
-
-with empty example values.
-
-**Never share private keys or seed phrases.**
-
-## 🧪 Development
-
-Run the linter:
-
-```bash
-npm run lint
-```
-
-Create a production build:
-
-```bash
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint app components lib tests
+npm test            # vitest (99 deterministic tests, no network)
 npm run build
 ```
 
-## 🗺️ Development Roadmap
+## API
 
-### MVP
+| Route | Description |
+|---|---|
+| `GET /api/health` | Capability flags (never secrets) |
+| `GET /api/wallet?address=` | Normalized wallet snapshot |
+| `GET /api/wallet/scan?address=` | Full security scan (tokens, assets, wallet risk, cleanup eligibility, metrics) |
+| `GET /api/wallet/history?address=` | Recent signatures |
+| `GET /api/token?mint=` | Deep token analysis |
+| `POST /api/transaction/analyze` | `{ input, walletAddress? }` → decode + simulate + risk |
+| `POST /api/cleanup/prepare` | `{ owner, tokenAccount, action }` → unsigned tx + simulation + confirmation data |
+| `POST /api/cleanup/submit` | `{ signedTransaction, expectedMessageHash, intent }` → re-verified relay + confirmation |
+| `POST /api/ai/chat` | `{ messages, walletAddress?, demo? }` |
+| `GET /api/demo`, `POST /api/demo/cleanup` | Demo data |
 
-* [x] Project infrastructure
-* [x] Next.js + TypeScript
-* [x] Tailwind CSS
-* [x] shadcn/ui
-* [ ] Solana / Helius integration
-* [ ] Token security scanner
-* [ ] Deterministic risk engine
-* [ ] Transaction decoder
-* [ ] Pre-transaction simulation
-* [ ] Transaction risk analysis
-* [ ] AI security agent
-* [ ] Scam token detection
-* [ ] Burn & Reclaim
-* [ ] Wallet connection
-* [ ] Security dashboard
+All responses use `{ success, data, error }`; bigint values are serialized as strings.
 
-### Future
+## Limitations
 
-* [ ] Wallet security score
-* [ ] Portfolio risk analysis
-* [ ] Whale intelligence
-* [ ] Security alerts
-* [ ] Realtime wallet monitoring
-* [ ] Phishing protection
-* [ ] Security reports
-* [ ] Advanced AI security chat
-* [ ] Production deployment
-* [ ] Security audit
+- **Cleanup signing path not executed on-chain.** Prepare + simulation were verified on mainnet; wallet signing, submission and confirmation still need a devnet run with a real wallet.
+- Wallet connection not tested with real Phantom/Solflare extensions or mobile in-app browsers.
+- AI agent verified only with a mock model (the configured OpenAI key was rejected).
+- Wallet scans analyze at most 40 tokens (fungible first); the rest are shown as "Unrated" and the analysis is PARTIAL.
+- Some spam-heavy wallets carry NFTs with multi-megabyte metadata that exceed Helius' response cap; NFT/cNFT results are then partial or unavailable and reported as such.
+- RugCheck is an external opinion source; when it has no market data, liquidity/holders are unknown (not "low").
+- Rate limiting and caching are in-memory (per instance).
+- Transaction risk has no address-reputation data; unknown destinations are only "unverified".
+- `npm audit` reports advisories in transitive Solana dependencies (`bigint-buffer`, `uuid`, `stream-json`); `bigint-buffer` runs in pure-JS fallback here.
+- Not implemented yet: address intelligence, market data, alerts, realtime monitoring, URL phishing checker, exportable reports.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
-This project is developed for educational, research, and hackathon purposes.
-
-Blockchain interactions can involve irreversible asset transfers. Users should independently verify transactions before signing them.
-
-No security system can guarantee detection of every malicious transaction or token.
-
-## 📄 License
-
-License information will be added as the project matures.
+No security tool can detect every malicious token or transaction. Results are evidence-based signals, not guarantees; you make the final decision. This app never asks for private keys or seed phrases.
