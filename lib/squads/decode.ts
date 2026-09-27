@@ -159,7 +159,9 @@ function validateMessage(m: SquadsMessage): SquadsMessage {
     throw new RangeError("Inconsistent message header");
   }
   for (const ix of m.instructions) {
-    if (ix.programIdIndex >= m.accountKeys.length) throw new RangeError("Program id outside static account keys");
+    // Unlike regular v0 messages, a vault message may load its program ids from lookup tables:
+    // the multisig program executes each instruction by CPI.
+    if (ix.programIdIndex >= total) throw new RangeError("Program id index out of range");
     if (ix.accountIndexes.some((i) => i >= total)) throw new RangeError("Account index out of range");
   }
   return m;

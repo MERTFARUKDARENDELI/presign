@@ -70,9 +70,9 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
 
   // Name undecoded calls from their programs' on-chain IDLs, then load what any multisig action authorizes.
   const anchorIdl = await enrichWithAnchorIdl(decoded);
-  const multisig = await analyzeMultisig(tx, decoded);
-
   const perspectiveWallet = walletAddress ?? decoded.feePayer;
+  const multisig = await analyzeMultisig(tx, decoded, perspectiveWallet);
+
   const risk = evaluateTransactionRisk({ decoded, effects, wallet: perspectiveWallet, tokenAccountOwners: owners, effectsStatus, multisig });
 
   logger.info("tx.analyzed", { kind: parsed.kind, level: risk.level, status: risk.status, instructions: decoded.instructions.length, multisig: multisig !== null });

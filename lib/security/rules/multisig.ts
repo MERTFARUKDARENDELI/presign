@@ -1,14 +1,15 @@
 import type { MultisigAnalysis, PrivilegedAction } from "@/lib/multisig/types";
+import type { MultisigAccount } from "@/lib/squads/types";
 import { formatLamports } from "@/lib/token/amount";
-import type { DecodedTransaction } from "@/lib/transaction/types";
-import type { RiskSignal } from "../risk";
+import { buildAssessment } from "../engine";
+import type { RiskAssessment, RiskSignal } from "../risk";
 import type { AnalysisStatus, DataSourceStatus, Evidence } from "../types";
 
 type EvFn = (e: Omit<Evidence, "id">) => string;
 
 /**
- * Deterministic rules for Squads multisig transactions, evaluated from the
- * signer's point of view: what does my signature authorize, can it be used
+ * Deterministic rules for Squads multisigs, evaluated from the signer's point
+ * of view: what does this signature (or proposal) authorize, can it be used
  * later, and who controls the protocol afterwards. Every signal cites the
  * instruction, account or IDL field it is based on.
  */
@@ -22,6 +23,9 @@ const short = (a: string | null | undefined) => (a ? `${a.slice(0, 4)}…${a.sli
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const GOVERNANCE_KINDS = new Set(["create-vault-transaction", "create-config-transaction", "create-proposal", "activate-proposal", "execute", "multisig-config"]);
+
+/** Payload signals already covered with better context by the privileged-action rules, or not meaningful for a vault. */
+const PAYLOAD_SIGNALS_SKIPPED = /^(TX_(MINT_AUTHORITY_CHANGE|UPGRADE_AUTHORITY_CHANGE|TOKEN_ACCOUNT_OWNER_CHANGE|WALLET_OWNER_REASSIGN|CLOSE_AUTHORITY_CHANGE|NONCE_AUTHORITY_CHANGE|DURABLE_NONCE|UNKNOWN_PROGRAM|SIMULATION_FAILED|RENT_DEPOSIT))/;
 
 const AUTHORITY_LABEL: Record<PrivilegedAction["kind"], string> = {
   "program-upgrade": "program code",
@@ -45,15 +49,21 @@ function actionEvidence(p: PrivilegedAction, ev: EvFn): string {
   });
 }
 
+function configEvidence(ms: { multisig: string | null }, account: MultisigAccount, ev: EvFn): string {
+  const voters = account.members.filter((m) => m.permissions.includes("Vote")).length;
+  return ev({ source: "SQUADS_ACCOUNT", label: `Multisig ${short(ms.multisig)} configuration`, observed: `threshold ${account.threshold} of ${voters} voting member(s), time lock ${account.timeLock}s, config authority ${account.configAuthority ?? "none (autonomous)"}`, condition: "current on-chain state" });
+}
+
 export interface MultisigRuleInput {
   ms: MultisigAnalysis;
-  decoded: DecodedTransaction;
-  /** The signer this analysis is for (perspective wallet). */
-  signer: string;
+  /** The member this analysis is for (perspective wallet), when known. */
+  signer: string | null;
+  /** Durable nonce of the analyzed transaction; null when it has none or there is no transaction (proposal inspection). */
+  nonce: { nonce: string | null; authority: string | null } | null;
 }
 
 export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: RiskSignal[], statuses: AnalysisStatus[], sources: DataSourceStatus[]) {
-  const { ms, decoded, signer } = input;
+  const { ms, signer, nonce } = input;
   const account = ms.account;
 
   sources.push({ source: "SQUADS_ACCOUNT", status: ms.accountStatus === "OK" ? "OK" : ms.accountStatus === "NOT_FOUND" ? "SKIPPED" : "FAILED", detail: ms.accountStatus === "OK" ? `Multisig ${short(ms.multisig)}: ${account?.threshold} of ${account?.members.length}, time lock ${account?.timeLock}s` : ms.accountStatus === "NOT_FOUND" ? "Multisig account not found on this cluster" : "Multisig account could not be loaded" });
@@ -63,18 +73,14 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
     ev({ source: "TRANSACTION_DECODER", label: "Squads instructions not decodable", observed: ms.malformed.join(", "), condition: "unknown or malformed Squads instruction data" });
   }
 
-  const squadsIxEvidence = ev({
-    source: "TRANSACTION_DECODER",
-    label: `Squads multisig ${short(ms.multisig)}`,
-    observed: ms.instructions.map((i) => `#${i.index} ${i.name}${i.vote ? ` (${i.vote})` : ""}`).join(", "),
-    condition: "multisig actions authorized by this signature",
-  });
+  const squadsIxEvidence = ms.instructions.length
+    ? ev({ source: "TRANSACTION_DECODER", label: `Squads multisig ${short(ms.multisig)}`, observed: ms.instructions.map((i) => `#${i.index} ${i.name}${i.vote ? ` (${i.vote})` : ""}`).join(", "), condition: "multisig actions authorized by this signature" })
+    : ev({ source: "SQUADS_ACCOUNT", label: `Squads multisig ${short(ms.multisig)}`, observed: ms.proposals.map((p) => `proposal #${p.transactionIndex ?? "?"} (${p.account?.status ?? p.status})`).join(", ") || "proposal", condition: "proposal loaded from chain" });
 
   // 1. Durable nonce + governance action: the signature can be held and replayed at any later time.
   const governance = ms.instructions.filter((i) => GOVERNANCE_KINDS.has(i.kind) || i.vote === "approve");
-  if (decoded.usesDurableNonce && governance.length > 0) {
-    const nonce = decoded.instructions[0];
-    const nonceId = ev({ source: "TRANSACTION_DECODER", label: "Instruction #0 AdvanceNonceAccount", observed: `nonce ${nonce?.info.nonce ?? "?"}, authority ${nonce?.info.authority ?? "?"}`, condition: "durable nonce: the signed transaction does not expire" });
+  if (nonce && governance.length > 0) {
+    const nonceId = ev({ source: "TRANSACTION_DECODER", label: "Instruction #0 AdvanceNonceAccount", observed: `nonce ${nonce.nonce ?? "?"}, authority ${nonce.authority ?? "?"}`, condition: "durable nonce: the signed transaction does not expire" });
     signals.push({
       code: "MS_DURABLE_NONCE_GOVERNANCE",
       title: "Multisig approval that never expires",
@@ -120,13 +126,28 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
     }
   }
 
-  // Treasury movements out of the vault (decoded, not simulated).
+  // Asset movements out of the vault: from the payload's simulation when it ran, otherwise from the decoded instructions.
+  let movesAssets = false;
   for (const p of ms.payloads) {
     if (!p.decoded || !p.vault) continue;
+    const simulated = p.effects?.success === true && p.risk;
+    if (simulated) {
+      for (const s of p.risk!.signals) {
+        if (PAYLOAD_SIGNALS_SKIPPED.test(s.code) || s.severity === "LOW") continue;
+        movesAssets = true;
+        const ids = s.evidenceIds.flatMap((eid) => {
+          const e = p.risk!.evidence.find((x) => x.id === eid);
+          return e ? [ev({ source: e.source, label: `Vault ${short(p.vault)} — ${e.label}`, observed: e.observed, condition: e.condition })] : [];
+        });
+        if (ids.length) signals.push({ code: `VAULT_${s.code}:${p.transaction ?? p.vault}`, title: `Vault: ${s.title}`, description: `If the proposal executes: ${s.description.replace(/your wallet/gi, "the vault").replace(/\byour\b/gi, "the vault's")}`, severity: s.severity, evidenceIds: ids });
+      }
+      continue;
+    }
     const controlled = new Set(ms.controlled);
     const sol = p.decoded.solTransfers.filter((t) => t.from === p.vault && !controlled.has(t.to));
     const tokens = p.decoded.tokenTransfers.filter((t) => t.authority === p.vault);
     if (sol.length || tokens.length) {
+      movesAssets = true;
       const parts = [...sol.map((t) => `${formatLamports(t.lamports)} SOL → ${t.to}`), ...tokens.map((t) => `${t.amountRaw} raw of ${t.mint ?? "unknown mint"} → token account ${t.destination}`)];
       const id = ev({ source: "TRANSACTION_DECODER", label: `Transfers from vault ${short(p.vault)}`, observed: parts.join("; ").slice(0, 400), condition: "assets leave the multisig vault" });
       signals.push({ code: `MS_VAULT_OUTFLOW:${p.transaction ?? p.vault}`, title: "Assets leave the multisig vault", description: "The proposal transfers funds out of the vault. Confirm each recipient and amount with the proposer through a separate channel.", severity: "MEDIUM", evidenceIds: [id] });
@@ -135,13 +156,26 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
 
   // 3. Payload completeness: approving something that cannot be seen is never "no risk".
   for (const p of ms.payloads) {
-    if (p.status === "DECODED") continue;
-    statuses.push(p.status === "UNAVAILABLE" ? "INSUFFICIENT_DATA" : "PARTIAL");
-    const id = ev({ source: p.source === "EXECUTION_CPI" ? "SIMULATION" : "TRANSACTION_DECODER", label: `Proposal contents (${p.source.toLowerCase().replace(/_/g, " ")})`, observed: p.status, condition: p.detail ?? "not fully decoded" });
-    if (p.status === "UNAVAILABLE" || p.status === "MALFORMED") {
-      signals.push({ code: `MS_PAYLOAD_UNVERIFIED:${p.transaction ?? "?"}`, title: "Proposal contents could not be verified", description: "You would be authorizing a vault transaction whose instructions could not be loaded and decoded. Do not approve what you cannot see.", severity: "HIGH", evidenceIds: [id] });
-    } else {
-      signals.push({ code: `MS_PAYLOAD_PARTIAL:${p.transaction ?? "?"}`, title: "Part of the proposal could not be decoded", description: "Some instructions of the proposal are not decoded; their effect is unknown.", severity: "LOW", evidenceIds: [id] });
+    if (p.source === "EXECUTION_CPI") continue;
+    if (p.foreignSigners?.length) {
+      const id = ev({ source: "TRANSACTION_DECODER", label: `Proposal #${p.transactionIndex ?? "?"} required signers`, observed: p.foreignSigners.join(", "), condition: "not the vault or one of this transaction's ephemeral signers" });
+      signals.push({ code: `MS_FOREIGN_SIGNER:${p.transaction ?? "?"}`, title: "Proposal needs a signature the multisig cannot give", description: `The vault transaction requires ${p.foreignSigners.map(short).join(", ")} to sign. The multisig can only sign for its vault and ephemeral signers, so it will fail at execution — or it is not what it appears to be.`, severity: "MEDIUM", evidenceIds: [id] });
+    }
+    if (p.status !== "DECODED") {
+      statuses.push(p.status === "UNAVAILABLE" ? "INSUFFICIENT_DATA" : "PARTIAL");
+      const id = ev({ source: "TRANSACTION_DECODER", label: `Proposal contents (${p.source.toLowerCase().replace(/_/g, " ")})`, observed: p.status, condition: p.detail ?? "not fully decoded" });
+      if (p.status === "UNAVAILABLE" || p.status === "MALFORMED") {
+        signals.push({ code: `MS_PAYLOAD_UNVERIFIED:${p.transaction ?? "?"}`, title: "Proposal contents could not be verified", description: "You would be authorizing a vault transaction whose instructions could not be loaded and decoded. Do not approve what you cannot see.", severity: "HIGH", evidenceIds: [id] });
+      } else {
+        signals.push({ code: `MS_PAYLOAD_PARTIAL:${p.transaction ?? "?"}`, title: "Part of the proposal could not be decoded", description: "Some instructions of the proposal are not decoded; their effect is unknown.", severity: "LOW", evidenceIds: [id] });
+      }
+    }
+    if (p.decoded && p.effects === null) {
+      statuses.push("PARTIAL");
+      ev({ source: "SIMULATION", label: `Proposal #${p.transactionIndex ?? "?"} simulation`, observed: p.simulationNote ?? "not run", condition: "vault asset movements are known only from decoded instructions" });
+    } else if (p.effects && !p.effects.success) {
+      statuses.push("PARTIAL");
+      ev({ source: "SIMULATION", label: `Proposal #${p.transactionIndex ?? "?"} simulation`, observed: p.effects.error ?? "failed", condition: "the proposal would fail if executed now; balance changes unknown" });
     }
   }
 
@@ -149,9 +183,9 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
   if (account) {
     const voters = account.members.filter((m) => m.permissions.includes("Vote")).length;
     let accEvidence: string | null = null;
-    const accId = () => (accEvidence ??= ev({ source: "SQUADS_ACCOUNT", label: `Multisig ${short(ms.multisig)} configuration`, observed: `threshold ${account.threshold} of ${voters} voting member(s), time lock ${account.timeLock}s, config authority ${account.configAuthority ?? "none (autonomous)"}`, condition: "current on-chain state" }));
+    const accId = () => (accEvidence ??= configEvidence(ms, account, ev));
     const dangerous = privileged.some((p) => p.kind !== "admin-action") || signals.some((s) => s.code === "MS_DURABLE_NONCE_GOVERNANCE");
-    if (account.timeLock === 0 && (privileged.length > 0 || governance.length > 0)) {
+    if (account.timeLock === 0 && (privileged.length > 0 || governance.length > 0 || movesAssets)) {
       signals.push({ code: "MS_NO_TIME_LOCK", title: "No time lock", description: "Once the threshold is reached the proposal can execute immediately — nobody gets a window to notice and react.", severity: dangerous ? "HIGH" : "MEDIUM", evidenceIds: [accId()] });
     }
     if (voters > 0 && account.threshold * 100 < voters * MULTISIG_THRESHOLDS.minorityPct) {
@@ -164,7 +198,7 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
     // Your approval completes the threshold.
     for (const pr of ms.proposals) {
       const voting = ms.instructions.some((i) => i.vote === "approve" && i.proposal === pr.address && i.member === signer);
-      if (!voting || !pr.account) continue;
+      if (!voting || !pr.account || !signer) continue;
       const already = pr.account.approved.filter((k) => k !== signer).length;
       if (already + 1 >= account.threshold) {
         const id = ev({ source: "SQUADS_ACCOUNT", label: `Proposal ${short(pr.address)} approvals`, observed: `${already} of ${account.threshold} before your vote`, condition: "your approval reaches the threshold" });
@@ -173,7 +207,7 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
     }
   }
 
-  // 5. Configuration changes proposed or executed by this transaction.
+  // 5. Configuration changes proposed or executed.
   for (const [i, { origin, action }] of ms.configActions.entries()) {
     const id = ev({ source: "TRANSACTION_DECODER", label: `Config change (${origin})`, observed: JSON.stringify(action).slice(0, 300), condition: "multisig membership, threshold or time lock changes" });
     const cur = account;
@@ -207,4 +241,58 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
         break;
     }
   }
+}
+
+function reduceStatuses(statuses: AnalysisStatus[]): AnalysisStatus {
+  if (statuses.includes("UNAVAILABLE") || statuses.includes("INSUFFICIENT_DATA")) return "INSUFFICIENT_DATA";
+  return statuses.every((s) => s === "COMPLETE") ? "COMPLETE" : "PARTIAL";
+}
+
+function evidenceSink(prefix: string) {
+  const evidence: Evidence[] = [];
+  let n = 0;
+  const ev: EvFn = (e) => {
+    const id = `${prefix}:e${++n}`;
+    evidence.push({ id, ...e });
+    return id;
+  };
+  return { evidence, ev };
+}
+
+/** Risk of a proposal inspected on its own (no transaction to sign yet). */
+export function evaluateProposalRisk(ms: MultisigAnalysis, signer: string | null = null, now?: Date): RiskAssessment {
+  const { evidence, ev } = evidenceSink("proposal");
+  const signals: RiskSignal[] = [];
+  const statuses: AnalysisStatus[] = ["COMPLETE"];
+  const sources: DataSourceStatus[] = [];
+  multisigSignals({ ms, signer, nonce: null }, ev, signals, statuses, sources);
+  if (ms.payloads.length === 0 && ms.configActions.length === 0) statuses.push("INSUFFICIENT_DATA");
+  return buildAssessment({ category: "proposal", signals, evidence, sources, status: reduceStatuses(statuses), now });
+}
+
+/** Standing configuration risks of a multisig, independent of any proposal. */
+export function evaluateMultisigPosture(multisig: string, account: MultisigAccount | null, now?: Date): RiskAssessment {
+  const { evidence, ev } = evidenceSink("posture");
+  const signals: RiskSignal[] = [];
+  if (!account) {
+    return buildAssessment({ category: "multisig", signals, evidence, sources: [{ source: "SQUADS_ACCOUNT", status: "FAILED", detail: "Multisig account could not be loaded" }], status: "UNAVAILABLE", now });
+  }
+  const id = configEvidence({ multisig }, account, ev);
+  const voters = account.members.filter((m) => m.permissions.includes("Vote")).length;
+  const executors = account.members.filter((m) => m.permissions.includes("Execute")).length;
+  if (account.members.length === 1 || (account.threshold === 1 && voters > 1)) {
+    signals.push({ code: "POSTURE_SINGLE_SIGNATURE", title: "One signature is enough", description: account.members.length === 1 ? "The multisig has a single member: it is a single key with extra steps." : `Any one of ${voters} voting members can pass a proposal alone.`, severity: "HIGH", evidenceIds: [id] });
+  } else if (voters > 0 && account.threshold * 100 < voters * MULTISIG_THRESHOLDS.minorityPct) {
+    signals.push({ code: "POSTURE_MINORITY_THRESHOLD", title: "A minority of members can execute", description: `${account.threshold} of ${voters} voting members are enough to pass any proposal.`, severity: "MEDIUM", evidenceIds: [id] });
+  }
+  if (account.timeLock === 0) {
+    signals.push({ code: "POSTURE_NO_TIME_LOCK", title: "No time lock", description: "Approved proposals can execute immediately. A time lock gives members and monitoring a window to catch a malicious proposal before it runs.", severity: "MEDIUM", evidenceIds: [id] });
+  }
+  if (account.configAuthority) {
+    signals.push({ code: "POSTURE_CONTROLLED", title: "Configuration controlled by a single key", description: `Config authority ${account.configAuthority} can change members, threshold and time lock without a vote.`, severity: "HIGH", evidenceIds: [id] });
+  }
+  if (executors === 0) {
+    signals.push({ code: "POSTURE_NO_EXECUTOR", title: "No member can execute", description: "No member has the Execute permission; approved proposals cannot run.", severity: "LOW", evidenceIds: [id] });
+  }
+  return buildAssessment({ category: "multisig", signals, evidence, sources: [{ source: "SQUADS_ACCOUNT", status: "OK", detail: `${account.members.length} member(s)` }], status: "COMPLETE", now });
 }

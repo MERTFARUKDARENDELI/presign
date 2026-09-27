@@ -58,6 +58,13 @@ export const transactionInputSchema = z.object({
   walletAddress: publicKeySchema.optional(),
 });
 
+/** Squads proposal / multisig inspection: a link, an address, or "<multisig> #<index>". */
+export const multisigInspectSchema = z.object({
+  input: z.string().trim().min(1, "Paste a Squads link or address.").max(500, "Input is too long."),
+  /** Member whose perspective is used (fee payer in simulation, "your vote" checks). */
+  signer: publicKeySchema.optional(),
+});
+
 /** Unsigned raw integer amount (u64) as a decimal string. */
 export const u64StringSchema = z
   .string()

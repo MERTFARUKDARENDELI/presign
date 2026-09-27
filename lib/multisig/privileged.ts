@@ -14,6 +14,8 @@ import type { AuthorityControl, PrivilegedAction } from "./types";
 const AUTHORITY_TRANSFER_IX = /^(set|update|change|transfer|accept|propose|nominate|assign|rotate)_(new_)?(pending_)?(super_)?(admin|authority|owner|governance|governor|guardian|upgrade_authority|multisig|council)s?$/;
 /** Pubkey arguments that carry the new authority. */
 const AUTHORITY_ARG = /^(new_?)?(pending_?)?(super_?)?(admin|authority|owner|governance|governor|guardian)$/i;
+/** IDL account names that mark the signer as the program's privileged role. */
+const ADMIN_ACCOUNT = /^(admin|authority|owner|governance|governor|guardian|super_?admin|[a-z]+_?(admin|authority))$/i;
 /** Administrative (non-transfer) instruction names worth a signer's attention. */
 const ADMIN_IX = /(admin|authority|owner|upgrade|governance|guardian|pause|emergency|whitelist|allowlist|blacklist|oracle|config|param|fee|freeze|migrate|withdraw_(fees|protocol|treasury|insurance))/;
 
@@ -68,8 +70,12 @@ function classify(ix: DecodedInstruction, origin: string, controlled: ReadonlySe
       source: "ANCHOR_IDL",
     };
   }
-  if (ADMIN_IX.test(snake)) {
-    return { ...base, kind: "admin-action", action: name, target: null, control: null, authorityField: null, source: "ANCHOR_IDL" };
+  // A call the multisig itself signs is an exercise of its authority, whatever the instruction is named;
+  // so is a call whose IDL names its signer as the program's admin or authority.
+  const signedByMultisig = ix.accounts.some((a) => a.signer && a.address !== null && controlled.has(a.address));
+  const adminSigner = ix.accounts.find((a) => a.signer && ADMIN_ACCOUNT.test(a.name));
+  if (ADMIN_IX.test(snake) || signedByMultisig || adminSigner) {
+    return { ...base, kind: "admin-action", action: name, target: null, control: null, authorityField: signedByMultisig ? "signed by the multisig vault" : adminSigner ? `signer account "${adminSigner.name}"` : null, source: "ANCHOR_IDL" };
   }
   return null;
 }

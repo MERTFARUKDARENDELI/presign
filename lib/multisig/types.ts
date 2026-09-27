@@ -1,5 +1,7 @@
+import type { RiskAssessment } from "@/lib/security/risk";
+import type { AnalysisStatus } from "@/lib/security/types";
 import type { ConfigAction, MultisigAccount, ProposalAccount } from "@/lib/squads/types";
-import type { DecodedTransaction } from "@/lib/transaction/types";
+import type { DecodedTransaction, TransactionEffects } from "@/lib/transaction/types";
 
 /** Serializable result of analyzing the Squads multisig side of a transaction. */
 
@@ -43,6 +45,17 @@ export interface VaultPayload {
   detail: string | null;
   decoded: DecodedTransaction | null;
   privileged: PrivilegedAction[];
+  /** Simulation of the vault executing this payload now (fee paid by an executing member). */
+  effects?: TransactionEffects | null;
+  effectsStatus?: AnalysisStatus;
+  /** Address that paid the fee in the simulation (not part of the proposal). */
+  simulatedFeePayer?: string | null;
+  /** Why the payload could not be simulated, when it was not. */
+  simulationNote?: string | null;
+  /** Required signers the multisig cannot sign for (neither the vault nor this transaction's ephemeral signers). */
+  foreignSigners?: string[];
+  /** Deterministic risk of the payload from the vault's perspective (asset outflows, approvals). */
+  risk?: RiskAssessment | null;
 }
 
 export interface MultisigInstructionRef {

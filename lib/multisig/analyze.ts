@@ -1,8 +1,6 @@
 import "server-only";
 import type { VersionedTransaction } from "@solana/web3.js";
-import { enrichWithAnchorIdl } from "@/lib/anchor/source";
 import { logger } from "@/lib/api/logger";
-import { rpcCall } from "@/lib/solana/client";
 import { SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import {
   decodeConfigTransactionAccount,
@@ -12,53 +10,77 @@ import {
   decodeTransactionBufferAccount,
   decodeVaultTransactionAccount,
   parseTransactionMessage,
-  toVersionedTransaction,
 } from "@/lib/squads/decode";
 import { controlledAddresses, transactionPda, vaultPda } from "@/lib/squads/pda";
-import type { SquadsInstruction, SquadsMessage } from "@/lib/squads/types";
-import { decodeTransaction } from "@/lib/transaction/decoder";
-import { resolveLookupTables } from "@/lib/transaction/simulate";
+import type { MultisigAccount, SquadsInstruction } from "@/lib/squads/types";
 import type { DecodedTransaction } from "@/lib/transaction/types";
+import { fetchSquadsAccount, type SquadsFetch } from "./chain";
+import { buildVaultPayload, type PayloadContext } from "./payload";
 import { findPrivilegedActions } from "./privileged";
 import type { MultisigAnalysis, ProposalRef, VaultPayload } from "./types";
 
 /**
- * Multisig layer of the analysis pipeline. For every Squads instruction in the
- * analyzed transaction it loads what a signer is actually agreeing to — the
- * multisig configuration, the proposal and the vault transaction it will
- * execute — and decodes that payload with the same decoder as any other
+ * Multisig layer of the transaction pipeline. For every Squads instruction in
+ * the analyzed transaction it loads what a signer is actually agreeing to —
+ * the multisig configuration, the proposal and the vault transaction it will
+ * execute — then decodes and simulates that payload like any other
  * transaction. Anything that cannot be loaded is reported, never assumed.
  */
 
-type FetchResult = { status: "OK"; data: Uint8Array } | { status: "NOT_FOUND" } | { status: "FAILED" } | { status: "WRONG_OWNER" };
-
-async function fetchSquadsAccount(address: string): Promise<FetchResult> {
+export async function loadMultisigAccount(address: string): Promise<{ account: MultisigAccount | null; status: MultisigAnalysis["accountStatus"] }> {
+  const acc = await fetchSquadsAccount(address);
+  if (acc.status !== "OK") return { account: null, status: acc.status === "FAILED" ? "FAILED" : "NOT_FOUND" };
   try {
-    const res = await rpcCall<{ value: { data: [string, string]; owner: string } | null }>("getAccountInfo", [address, { encoding: "base64", commitment: "confirmed" }]);
-    const v = res.result?.value;
-    if (!v) return { status: "NOT_FOUND" };
-    // Only accounts owned by the Squads program can be Squads state.
-    if (v.owner !== SQUADS_V4_PROGRAM_ID) return { status: "WRONG_OWNER" };
-    return { status: "OK", data: Uint8Array.from(Buffer.from(v.data[0], "base64")) };
+    return { account: decodeMultisigAccount(acc.data), status: "OK" };
   } catch {
-    return { status: "FAILED" };
+    return { account: null, status: "FAILED" };
   }
 }
 
-async function decodePayloadMessage(message: SquadsMessage): Promise<{ decoded: DecodedTransaction; status: VaultPayload["status"]; detail: string | null }> {
-  const tx = toVersionedTransaction(message);
-  const lookups = await resolveLookupTables(tx);
-  const decoded = decodeTransaction(tx, lookups ? { loadedAddresses: lookups } : {});
-  await enrichWithAnchorIdl(decoded);
-  const partial = !decoded.lookupTablesResolved || decoded.undecodedInstructions.length > 0;
-  return {
-    decoded,
-    status: partial ? "PARTIAL" : "DECODED",
-    detail: !decoded.lookupTablesResolved ? "Address lookup tables of the proposal could not be resolved." : decoded.undecodedInstructions.length ? `${decoded.undecodedInstructions.length} instruction(s) of the proposal could not be decoded.` : null,
-  };
+export function proposalRefFrom(address: string, acc: SquadsFetch): ProposalRef {
+  if (acc.status !== "OK") return { address, transactionIndex: null, status: acc.status === "FAILED" ? "FAILED" : "NOT_FOUND", account: null };
+  try {
+    const account = decodeProposalAccount(acc.data);
+    return { address, transactionIndex: account.transactionIndex, status: "OK", account };
+  } catch {
+    return { address, transactionIndex: null, status: "FAILED", account: null };
+  }
 }
 
-export async function analyzeMultisig(tx: VersionedTransaction, decoded: DecodedTransaction): Promise<MultisigAnalysis | null> {
+/** Members that can execute come first: in reality one of them pays the execution fee. */
+export function feePayerCandidates(account: MultisigAccount | null, preferred: string[] = []): string[] {
+  const executors = account?.members.filter((m) => m.permissions.includes("Execute")).map((m) => m.key) ?? [];
+  return [...new Set([...preferred, ...executors, ...(account?.members.map((m) => m.key) ?? [])])];
+}
+
+/** Payload stored in a VaultTransaction / ConfigTransaction account. Config actions are appended to `configActions`. */
+export async function payloadFromTransactionAccount(
+  txAddr: string,
+  transactionIndex: string | null,
+  acc: SquadsFetch,
+  ctx: Omit<PayloadContext, "label">,
+  configActions: MultisigAnalysis["configActions"],
+): Promise<VaultPayload | null> {
+  const empty: VaultPayload = { source: "TRANSACTION_ACCOUNT", transaction: txAddr, transactionIndex, vaultIndex: null, vault: null, status: "UNAVAILABLE", detail: null, decoded: null, privileged: [] };
+  if (acc.status !== "OK") {
+    return { ...empty, detail: acc.status === "NOT_FOUND" ? "The proposal's transaction account does not exist (not created yet, or already closed after execution)." : "The proposal's transaction account could not be loaded." };
+  }
+  try {
+    const vt = decodeVaultTransactionAccount(acc.data);
+    const vault = vaultPda(vt.multisig, vt.vaultIndex);
+    return await buildVaultPayload({ source: "TRANSACTION_ACCOUNT", transaction: txAddr, transactionIndex: vt.index, vaultIndex: vt.vaultIndex, vault }, vt.message, { ...ctx, label: `proposal #${vt.index}, ` }, vt.ephemeralSignerCount);
+  } catch {
+    try {
+      const ct = decodeConfigTransactionAccount(acc.data);
+      for (const action of ct.actions) configActions.push({ origin: `config transaction #${ct.index}`, action });
+      return null;
+    } catch {
+      return { ...empty, status: "MALFORMED", detail: "The proposal's transaction account could not be decoded." };
+    }
+  }
+}
+
+export async function analyzeMultisig(tx: VersionedTransaction, decoded: DecodedTransaction, signer: string | null = null): Promise<MultisigAnalysis | null> {
   const keys = decoded.accounts.map((a) => a.address);
   const squads: Array<{ index: number; ix: SquadsInstruction }> = [];
   const malformed: number[] = [];
@@ -72,16 +94,16 @@ export async function analyzeMultisig(tx: VersionedTransaction, decoded: Decoded
       malformed.push(index);
     }
   });
-  const hasExecutionCpi = decoded.innerInstructions.some((i) => i.parentIndex !== undefined && keys[tx.message.compiledInstructions[i.parentIndex]?.programIdIndex] === SQUADS_V4_PROGRAM_ID);
   if (squads.length === 0 && malformed.length === 0) return null;
 
   const multisig = squads.find((s) => s.ix.accounts.multisig)?.ix.accounts.multisig ?? null;
   const controlled = multisig ? controlledAddresses(multisig) : [];
+  const loaded = multisig ? await loadMultisigAccount(multisig) : { account: null, status: "NOT_FOUND" as const };
   const out: MultisigAnalysis = {
     programId: SQUADS_V4_PROGRAM_ID,
     multisig,
-    account: null,
-    accountStatus: "FAILED",
+    account: loaded.account,
+    accountStatus: loaded.status,
     instructions: squads.map(({ index, ix }) => ({
       index,
       name: ix.name,
@@ -97,125 +119,64 @@ export async function analyzeMultisig(tx: VersionedTransaction, decoded: Decoded
     controlled,
     malformed,
   };
-
-  if (multisig) {
-    const acc = await fetchSquadsAccount(multisig);
-    if (acc.status === "OK") {
-      try {
-        out.account = decodeMultisigAccount(acc.data);
-        out.accountStatus = "OK";
-      } catch {
-        out.accountStatus = "FAILED";
-      }
-    } else {
-      out.accountStatus = acc.status === "FAILED" ? "FAILED" : "NOT_FOUND";
-    }
-  }
-  const members = new Set(out.account?.members.map((m) => m.key) ?? []);
-  const controlledSet = new Set(controlled);
+  const ctx: Omit<PayloadContext, "label"> = {
+    controlled: new Set(controlled),
+    members: new Set(out.account?.members.map((m) => m.key) ?? []),
+    feePayers: feePayerCandidates(out.account, signer ? [signer] : []),
+  };
 
   // Proposals referenced by this transaction. Those created here are not on-chain yet (pre-sign).
   const created = new Map(squads.filter((s) => s.ix.name === "proposalCreate").map((s) => [s.ix.accounts.proposal ?? "", s.ix.transactionIndex]));
   for (const address of [...new Set(squads.map((s) => s.ix.accounts.proposal).filter((p): p is string => Boolean(p)))]) {
-    if (created.has(address)) {
-      out.proposals.push({ address, transactionIndex: created.get(address) ?? null, status: "CREATED_IN_THIS_TX", account: null });
-      continue;
-    }
-    const acc = await fetchSquadsAccount(address);
-    let ref: ProposalRef = { address, transactionIndex: null, status: acc.status === "OK" ? "FAILED" : acc.status === "FAILED" ? "FAILED" : "NOT_FOUND", account: null };
-    if (acc.status === "OK") {
-      try {
-        const account = decodeProposalAccount(acc.data);
-        ref = { address, transactionIndex: account.transactionIndex, status: "OK", account };
-      } catch {
-        // stays FAILED
-      }
-    }
-    out.proposals.push(ref);
+    out.proposals.push(created.has(address) ? { address, transactionIndex: created.get(address) ?? null, status: "CREATED_IN_THIS_TX", account: null } : proposalRefFrom(address, await fetchSquadsAccount(address)));
   }
 
-  // Payloads carried directly by instruction arguments.
+  // Payloads carried directly by instruction arguments (or a transaction buffer).
   const payloadFor = new Set<string>();
   for (const { index, ix } of squads) {
-    if (ix.kind === "create-vault-transaction" || ix.name === "batchAddTransaction") {
+    if (ix.kind === "create-vault-transaction") {
       const transaction = ix.accounts.transaction ?? null;
       const transactionIndex = [...created.values()].find((i) => i && multisig && transactionPda(multisig, i) === transaction) ?? null;
-      const vaultIndex = ix.vaultIndex;
-      const payload: VaultPayload = { source: "INSTRUCTION", transaction, transactionIndex, vaultIndex, vault: multisig && vaultIndex !== null ? vaultPda(multisig, vaultIndex) : null, status: "UNAVAILABLE", detail: null, decoded: null, privileged: [] };
+      const vault = multisig && ix.vaultIndex !== null ? vaultPda(multisig, ix.vaultIndex) : null;
+      const base = { source: "INSTRUCTION" as VaultPayload["source"], transaction, transactionIndex, vaultIndex: ix.vaultIndex, vault };
       let message = ix.message;
       if (!message && ix.accounts.transactionBuffer) {
-        payload.source = "BUFFER_ACCOUNT";
+        base.source = "BUFFER_ACCOUNT";
         const buf = await fetchSquadsAccount(ix.accounts.transactionBuffer);
         try {
           message = buf.status === "OK" ? parseTransactionMessage(decodeTransactionBufferAccount(buf.data).buffer) : null;
         } catch {
           message = null;
         }
-        if (!message) payload.detail = "The proposal is stored in a transaction buffer that could not be loaded.";
       }
-      if (message) {
-        try {
-          Object.assign(payload, await decodePayloadMessage(message));
-        } catch {
-          payload.status = "MALFORMED";
-          payload.detail = "The proposal's transaction message could not be decoded.";
-        }
-      }
+      const payload = message
+        ? await buildVaultPayload(base, message, { ...ctx, label: transactionIndex ? `proposal #${transactionIndex}, ` : "proposal, " }, Number(ix.extra.ephemeralSigners ?? 0))
+        : { ...base, status: "UNAVAILABLE" as const, detail: base.source === "BUFFER_ACCOUNT" ? "The proposal is stored in a transaction buffer that could not be loaded." : "The proposal carries no transaction message.", decoded: null, privileged: [] };
       if (transaction) payloadFor.add(transaction);
       out.payloads.push(payload);
       logger.info("multisig.payload", { index, source: payload.source, status: payload.status });
     }
-    if (ix.configActions.length) {
-      for (const action of ix.configActions) out.configActions.push({ origin: `instruction ${index} (${ix.name})`, action });
-    }
+    for (const action of ix.configActions) out.configActions.push({ origin: `instruction ${index} (${ix.name})`, action });
   }
 
   // Payloads of existing proposals this transaction votes on or executes: load them from chain.
-  const toLoad = new Map<string, { transactionIndex: string | null }>();
+  const toLoad = new Map<string, string | null>();
   for (const { ix } of squads) {
     if (!multisig || !["vote", "execute", "activate-proposal"].includes(ix.kind)) continue;
     const proposal = out.proposals.find((p) => p.address === ix.accounts.proposal);
     const txAddr = ix.accounts.transaction ?? (proposal?.transactionIndex ? transactionPda(multisig, proposal.transactionIndex) : null);
-    if (txAddr && !payloadFor.has(txAddr)) toLoad.set(txAddr, { transactionIndex: proposal?.transactionIndex ?? null });
+    if (txAddr && !payloadFor.has(txAddr)) toLoad.set(txAddr, proposal?.transactionIndex ?? null);
   }
-  for (const [txAddr, meta] of toLoad) {
-    const acc = await fetchSquadsAccount(txAddr);
-    const payload: VaultPayload = { source: "TRANSACTION_ACCOUNT", transaction: txAddr, transactionIndex: meta.transactionIndex, vaultIndex: null, vault: null, status: "UNAVAILABLE", detail: null, decoded: null, privileged: [] };
-    if (acc.status !== "OK") {
-      payload.detail = acc.status === "NOT_FOUND" ? "The proposal's transaction account does not exist (not created yet, or already closed after execution)." : "The proposal's transaction account could not be loaded.";
-      out.payloads.push(payload);
-      continue;
-    }
-    try {
-      const vt = decodeVaultTransactionAccount(acc.data);
-      payload.transactionIndex = vt.index;
-      payload.vaultIndex = vt.vaultIndex;
-      payload.vault = vaultPda(vt.multisig, vt.vaultIndex);
-      Object.assign(payload, await decodePayloadMessage(vt.message));
-      out.payloads.push(payload);
-    } catch {
-      try {
-        const ct = decodeConfigTransactionAccount(acc.data);
-        for (const action of ct.actions) out.configActions.push({ origin: `config transaction #${ct.index}`, action });
-      } catch {
-        payload.status = "MALFORMED";
-        payload.detail = "The proposal's transaction account could not be decoded.";
-        out.payloads.push(payload);
-      }
-    }
+  for (const [txAddr, transactionIndex] of toLoad) {
+    const payload = await payloadFromTransactionAccount(txAddr, transactionIndex, await fetchSquadsAccount(txAddr), ctx, out.configActions);
+    if (payload) out.payloads.push(payload);
   }
 
   // Already-executed or simulated execution: the vault's calls appear as CPIs of the execute instruction.
-  if (hasExecutionCpi) {
-    const execIdx = new Set(squads.filter((s) => s.ix.kind === "execute").map((s) => s.index));
-    const cpi = findPrivilegedActions(decoded, "", controlledSet, members, (i) => i.parentIndex !== undefined && execIdx.has(i.parentIndex) && i.programId !== SQUADS_V4_PROGRAM_ID);
-    if (cpi.length) out.payloads.push({ source: "EXECUTION_CPI", transaction: null, transactionIndex: null, vaultIndex: null, vault: null, status: "DECODED", detail: decoded.innerInstructionsSource === "EXECUTED" ? "Observed in the executed transaction record." : "Observed in simulation.", decoded: null, privileged: cpi });
-  }
-
-  for (const p of out.payloads) {
-    if (!p.decoded) continue;
-    const label = p.transactionIndex ? `proposal #${p.transactionIndex}, ` : "proposal, ";
-    p.privileged = findPrivilegedActions(p.decoded, label, controlledSet, members);
+  const execIdx = new Set(squads.filter((s) => s.ix.kind === "execute").map((s) => s.index));
+  const cpi = findPrivilegedActions(decoded, "", ctx.controlled, ctx.members, (i) => i.parentIndex !== undefined && execIdx.has(i.parentIndex) && i.programId !== SQUADS_V4_PROGRAM_ID);
+  if (cpi.length) {
+    out.payloads.push({ source: "EXECUTION_CPI", transaction: null, transactionIndex: null, vaultIndex: null, vault: null, status: "DECODED", detail: decoded.innerInstructionsSource === "EXECUTED" ? "Observed in the executed transaction record." : "Observed in simulation.", decoded: null, privileged: cpi });
   }
   return out;
 }

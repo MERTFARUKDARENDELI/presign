@@ -165,7 +165,10 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
 
   token2022Signals(decoded, wallet, ev, signals, unknownProgramEvidence);
   memoLinkSignals(decoded, ev, signals);
-  if (input.multisig) multisigSignals({ ms: input.multisig, decoded, signer: wallet }, ev, signals, statuses, sources);
+  if (input.multisig) {
+    const nonce = decoded.usesDurableNonce ? { nonce: decoded.instructions[0]?.info.nonce ?? null, authority: decoded.instructions[0]?.info.authority ?? null } : null;
+    multisigSignals({ ms: input.multisig, signer: wallet, nonce }, ev, signals, statuses, sources);
+  }
 
   // ---------- Effects (simulation / executed) ----------
   if (!effects) {
