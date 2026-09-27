@@ -15,6 +15,8 @@ const SOURCE_LABEL: Record<DataSource, string> = {
   RUGCHECK: "RugCheck (external)",
   SIMULATION: "Simulation",
   TRANSACTION_DECODER: "Transaction decoder",
+  ANCHOR_IDL: "Program's on-chain IDL",
+  SQUADS_ACCOUNT: "Squads multisig account (on-chain)",
   DETERMINISTIC_RULE: "Deterministic rule",
   DEMO: "DEMO data",
 };

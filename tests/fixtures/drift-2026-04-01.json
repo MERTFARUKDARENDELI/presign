@@ -1,0 +1,387 @@
+{
+  "source": "Solana mainnet-beta via getTransaction (read-only), fetched 2026-09-27",
+  "transactions": [
+    {
+      "signature": "2HvMSgDEfKhNryYZKhjowrBY55rUx5MWtcWkG9hqxZCFBaTiahPwfynP1dxBSRk9s5UTVc8LFeS4Btvkm9pc2C4H",
+      "slot": 410344005,
+      "blockTime": 1775059518,
+      "transaction": "AUCbqUv9bezB4PKRp6mNFLAJ/lIXgK33Uih97FI+VMTA9Y8MZ8cWwR+FRJDHlQefmgkg4z/vyB3lU3gOIrZlJgIBAAMIH9hYErV4XikPqBdSr/B4HAoZn+DpP/Vw6mMapZAUpcsT2p4izt5hqfe4kl1EN90o6b7usccoiGr6aqfJsm6oGRTyMg4dsRyihUh47CbojtjK+VicBfxLmexQWw5HHRWDZfzsRo8uJGh5TA4AJvmFhb6ppRwyd17HyFrmkQfruNn8076t9/m/97Bb74GUNE6z/PJdKB9WR+buAYgPE8T4NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoHEzkfiI2i4sVVeyIevCS78fvu2bKP1L79o1Kyct6gGp9UXGSxWjuCKhF9z0peIzwNcMUWyGrNE2AYuqUAAAPoJrVNT30Q+LEw4ZvEYFP/ZAzLHmvzmgm1T448+BYUnBAUDAwcABAQAAAAGBQECAAAFowEw+k6o0OLa0wAAlAAAAAEBAQOQT8iVPc/J87UXmJPuEvycRFytiJqVfWHPuNvMFy9qT0o+70sDyCpxWZ6gehbuS89tzjE1fYRgsqwb1MOphgydCVTbvp7JYMmKeik/4hM2lm/hgNFRrkuBeVYfiYVKU/YBAgIAASgAobAo1Ty4s+TvXifglhVGqtRnSazAkuA8Gox8EYfoh8wkXbnPK8qamQAABgUBBAAABRHcPEngHmxPnwcAAAAAAAAAAAYDAQAECZAlpIi82Cr4AA==",
+      "meta": {
+        "err": null,
+        "fee": 5000,
+        "loadedAddresses": {
+          "writable": [],
+          "readonly": []
+        },
+        "innerInstructions": [
+          {
+            "index": 1,
+            "instructions": [
+              {
+                "programIdIndex": 5,
+                "accounts": [
+                  0,
+                  2
+                ],
+                "data": "11117TXo5FP4bXmEJRsWejhkmg4A6ERoEcQAzQM8LJcHeoiaFiXF6uTCbqRgGmYrFSQdks",
+                "stackHeight": 2
+              }
+            ]
+          },
+          {
+            "index": 2,
+            "instructions": [
+              {
+                "programIdIndex": 5,
+                "accounts": [
+                  0,
+                  4
+                ],
+                "data": "11112B6R242kTmdJWEUkVTHoaFvym1QC1q224Vwbe3cyd1qVQkuCC6q1Cs6bm5dDVaUTAo",
+                "stackHeight": 2
+              }
+            ]
+          }
+        ],
+        "logMessages": [
+          "Program 11111111111111111111111111111111 invoke [1]",
+          "Program 11111111111111111111111111111111 success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: VaultTransactionCreate",
+          "Program 11111111111111111111111111111111 invoke [2]",
+          "Program 11111111111111111111111111111111 success",
+          "Program log: transaction index: 7",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 25244 of 602850 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: ProposalCreate",
+          "Program 11111111111111111111111111111111 invoke [2]",
+          "Program 11111111111111111111111111111111 success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 14148 of 577606 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: ProposalApprove",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 9591 of 563458 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success"
+        ],
+        "preBalances": [
+          342979947,
+          2958000,
+          0,
+          1447680,
+          0,
+          1,
+          2141440,
+          42706560
+        ],
+        "postBalances": [
+          335632147,
+          2958000,
+          2623920,
+          1447680,
+          4718880,
+          1,
+          2141440,
+          42706560
+        ]
+      }
+    },
+    {
+      "signature": "4BKBmAJn6TdsENij7CsVbyMVLJU1tX27nfrMM1zgKv1bs2KJy6Am2NqdA3nJm4g9C6eC64UAf5sNs974ygB9RsN1",
+      "slot": 410344009,
+      "blockTime": 1775059519,
+      "transaction": "AZ7x68WfdgL92E6FOpudAaUd22P0MgIu9+VyvApksJRx0iZ6AS0HZ+wxpqsiuV437NZP3uL6EINL5gJK1Udi6QoBAAYLUUkEz7FfLaJjygMX5cDGGgvNfu9lTnGt5EUq42wAKo1KPu9LA8gqcVmeoHoW7kvPbc4xNX2EYLKsG9TDqYYMnZBPyJU9z8nztReYk+4S/JxEXK2ImpV9Yc+428wXL2pPzJDOxGOxYgUeKqXn+B9ykwj35IqmqnNj79y+Fl67ZQH8076t9/m/97Bb74GUNE6z/PJdKB9WR+buAYgPE8T4NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE9qeIs7eYan3uJJdRDfdKOm+7rHHKIhq+mqnybJuqBkU8jIOHbEcooVIeOwm6I7YyvlYnAX8S5nsUFsORx0VgwlU276eyWDJinopP+ITNpZv4YDRUa5LgXlWH4mFSlP2BoHEzkfiI2i4sVVeyIevCS78fvu2bKP1L79o1Kyct6gGp9UXGSxWjuCKhF9z0peIzwNcMUWyGrNE2AYuqUAAAM4akCj91T+pyjf3uPgYecSepeQVNwg7z9tO/Usf8OuYAwUDAwoABAQAAAAJAwYABAmQJaSIvNgq+AAJBwYEBwACAQgIwgihV5mkGas=",
+      "meta": {
+        "err": null,
+        "fee": 5000,
+        "loadedAddresses": {
+          "writable": [],
+          "readonly": []
+        },
+        "innerInstructions": [
+          {
+            "index": 2,
+            "instructions": [
+              {
+                "programIdIndex": 8,
+                "accounts": [
+                  2,
+                  1
+                ],
+                "data": "92xxaYiShjsmLGJqsyPJtMWDcXxXyHLPntKuNv1qpc7vRWWHnYqM1Sp",
+                "stackHeight": 2
+              }
+            ]
+          }
+        ],
+        "logMessages": [
+          "Program 11111111111111111111111111111111 invoke [1]",
+          "Program 11111111111111111111111111111111 success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: ProposalApprove",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 10353 of 402850 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: VaultTransactionExecute",
+          "Program dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH invoke [2]",
+          "Program log: Instruction: UpdateAdmin",
+          "Program log: admin: AiLGdNitMjv8n5HMS7HAdV2kaeJZZFd4jdfn5xp1PKrW -> H7PiGqqUaanBovwKgEtreJbKmQe6dbq6VTrw6guy7ZgL",
+          "Program dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH consumed 36950 of 371938 compute units",
+          "Program dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 58770 of 392497 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success"
+        ],
+        "preBalances": [
+          16326033,
+          7795213,
+          51000000,
+          1447680,
+          4718880,
+          1,
+          2958000,
+          2623920,
+          49151453,
+          2141440,
+          42706560
+        ],
+        "postBalances": [
+          16321033,
+          7795213,
+          51000000,
+          1447680,
+          4718880,
+          1,
+          2958000,
+          2623920,
+          49151453,
+          2141440,
+          42706560
+        ]
+      }
+    }
+  ],
+  "note": "Drift Protocol exploit, 2026-04-01. Tx 1: a Security Council member pre-signed durable-nonce tx that creates + approves the malicious Squads vault transaction. Tx 2: a second member pre-signed approval + execution (CPI: Drift updateAdmin).",
+  "anchorIdl": {
+    "programId": "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH",
+    "idlAddress": "8BKPjRu7Hvd6Y2J67EdLx9MsrZFQwEMVwYg7NeVbAPF8",
+    "name": "drift",
+    "version": "2.150.0",
+    "note": "subset of the on-chain Anchor IDL (fetched 2026-09-27)",
+    "instructions": [
+      {
+        "name": "initializeSpotMarket",
+        "accounts": [
+          {
+            "name": "spotMarket",
+            "isMut": true,
+            "isSigner": false
+          },
+          {
+            "name": "spotMarketMint",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "spotMarketVault",
+            "isMut": true,
+            "isSigner": false
+          },
+          {
+            "name": "insuranceFundVault",
+            "isMut": true,
+            "isSigner": false
+          },
+          {
+            "name": "driftSigner",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "state",
+            "isMut": true,
+            "isSigner": false
+          },
+          {
+            "name": "oracle",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "admin",
+            "isMut": true,
+            "isSigner": true
+          },
+          {
+            "name": "rent",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "systemProgram",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "tokenProgram",
+            "isMut": false,
+            "isSigner": false
+          }
+        ],
+        "args": [
+          {
+            "name": "optimalUtilization",
+            "type": "u32"
+          },
+          {
+            "name": "optimalBorrowRate",
+            "type": "u32"
+          },
+          {
+            "name": "maxBorrowRate",
+            "type": "u32"
+          },
+          {
+            "name": "oracleSource",
+            "type": {
+              "defined": "OracleSource"
+            }
+          },
+          {
+            "name": "initialAssetWeight",
+            "type": "u32"
+          },
+          {
+            "name": "maintenanceAssetWeight",
+            "type": "u32"
+          },
+          {
+            "name": "initialLiabilityWeight",
+            "type": "u32"
+          },
+          {
+            "name": "maintenanceLiabilityWeight",
+            "type": "u32"
+          },
+          {
+            "name": "imfFactor",
+            "type": "u32"
+          },
+          {
+            "name": "liquidatorFee",
+            "type": "u32"
+          },
+          {
+            "name": "ifLiquidationFee",
+            "type": "u32"
+          },
+          {
+            "name": "activeStatus",
+            "type": "bool"
+          },
+          {
+            "name": "assetTier",
+            "type": {
+              "defined": "AssetTier"
+            }
+          },
+          {
+            "name": "scaleInitialAssetWeightStart",
+            "type": "u64"
+          },
+          {
+            "name": "withdrawGuardThreshold",
+            "type": "u64"
+          },
+          {
+            "name": "orderTickSize",
+            "type": "u64"
+          },
+          {
+            "name": "orderStepSize",
+            "type": "u64"
+          },
+          {
+            "name": "ifTotalFactor",
+            "type": "u32"
+          },
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "updateSpotMarketOracle",
+        "accounts": [
+          {
+            "name": "admin",
+            "isMut": false,
+            "isSigner": true
+          },
+          {
+            "name": "state",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "spotMarket",
+            "isMut": true,
+            "isSigner": false
+          },
+          {
+            "name": "oracle",
+            "isMut": false,
+            "isSigner": false
+          },
+          {
+            "name": "oldOracle",
+            "isMut": false,
+            "isSigner": false
+          }
+        ],
+        "args": [
+          {
+            "name": "oracle",
+            "type": "publicKey"
+          },
+          {
+            "name": "oracleSource",
+            "type": {
+              "defined": "OracleSource"
+            }
+          },
+          {
+            "name": "skipInvariantCheck",
+            "type": "bool"
+          }
+        ]
+      },
+      {
+        "name": "updateAdmin",
+        "accounts": [
+          {
+            "name": "admin",
+            "isMut": false,
+            "isSigner": true
+          },
+          {
+            "name": "state",
+            "isMut": true,
+            "isSigner": false
+          }
+        ],
+        "args": [
+          {
+            "name": "admin",
+            "type": "publicKey"
+          }
+        ]
+      }
+    ]
+  }
+}

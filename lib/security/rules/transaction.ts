@@ -1,3 +1,4 @@
+import type { MultisigAnalysis } from "@/lib/multisig/types";
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@/lib/solana/constants";
 import { formatLamports, formatRawAmount } from "@/lib/token/amount";
 import { estimatePriorityFeeLamports, formatTxVersion } from "@/lib/transaction/decoder";
@@ -8,6 +9,7 @@ import type { RiskAssessment, RiskSignal } from "../risk";
 import { hasLink, scanText } from "../text-signals";
 import type { AnalysisStatus, DataSourceStatus, Evidence } from "../types";
 import { assessLinksInText, urlEvidenceText, worstUrlLevel } from "../url-reputation";
+import { multisigSignals } from "./multisig";
 
 type EvFn = (e: Omit<Evidence, "id">) => string;
 
@@ -71,6 +73,8 @@ export interface TxRuleInput {
   tokenAccountOwners?: Record<string, string>;
   /** Extra status for effect collection (e.g. INSUFFICIENT_DATA when simulation could not run). */
   effectsStatus: AnalysisStatus;
+  /** Squads multisig layer (proposal contents, configuration), when the transaction touches a multisig. */
+  multisig?: MultisigAnalysis | null;
   demo?: boolean;
   now?: Date;
 }
@@ -118,6 +122,10 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
       const id = ev({ source: "TRANSACTION_DECODER", label: `Instruction #${ch.instruction} nonce authority`, observed: ch.newAuthority, condition: "authority leaves wallet" });
       signals.push({ code: "TX_NONCE_AUTHORITY_CHANGE", title: "Nonce authority change", description: "Control of a durable nonce account moves to another address.", severity: "HIGH", evidenceIds: [id] });
     }
+    if (ch.kind === "program-upgrade-authority" && ch.currentAuthority === wallet && ch.newAuthority !== wallet) {
+      const id = ev({ source: "TRANSACTION_DECODER", label: `Instruction #${ch.instruction} BPF loader SetAuthority`, observed: `${ch.account} → ${ch.newAuthority ?? "none (immutable)"}`, condition: "upgrade authority held by wallet is reassigned" });
+      signals.push({ code: "TX_UPGRADE_AUTHORITY_CHANGE", title: ch.newAuthority ? "Program upgrade authority transfer" : "Program made immutable", description: ch.newAuthority ? "Control over upgrading a program you own moves to another address — whoever holds it can replace the program's code." : "Removes the upgrade authority permanently; the program can never be upgraded again.", severity: ch.newAuthority ? "CRITICAL" : "HIGH", evidenceIds: [id] });
+    }
     if (ch.kind === "token-authority" && ch.currentAuthority === wallet && ch.newAuthority !== wallet) {
       const id = ev({ source: "TRANSACTION_DECODER", label: `Instruction #${ch.instruction} SetAuthority(${ch.authorityType})`, observed: `${ch.account} → ${ch.newAuthority ?? "none"}`, condition: "authority held by wallet is reassigned" });
       if (ch.authorityType === "AccountOwner") {
@@ -157,6 +165,7 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
 
   token2022Signals(decoded, wallet, ev, signals, unknownProgramEvidence);
   memoLinkSignals(decoded, ev, signals);
+  if (input.multisig) multisigSignals({ ms: input.multisig, decoded, signer: wallet }, ev, signals, statuses, sources);
 
   // ---------- Effects (simulation / executed) ----------
   if (!effects) {
@@ -186,6 +195,24 @@ function reduce(statuses: AnalysisStatus[]): AnalysisStatus {
   return statuses.every((s) => s === "COMPLETE") ? "COMPLETE" : "PARTIAL";
 }
 
+/** Rent-exempt minimum (lamports) for an account of `space` bytes: (space + 128) × 3480 × 2. */
+export function rentExemptMinimum(space: bigint): bigint {
+  return (space + 128n) * 6960n;
+}
+
+/** Lamports the wallet deposits into accounts created by program calls, capped at each account's rent-exempt minimum. */
+function rentDeposits(decoded: DecodedTransaction, wallet: string): bigint {
+  let total = 0n;
+  for (const i of decoded.innerInstructions) {
+    if (i.type !== "system:createAccount" || (i.info.source ?? i.info.from) !== wallet) continue;
+    if (!i.info.lamports || !/^\d+$/.test(i.info.lamports) || !i.info.space || !/^\d+$/.test(i.info.space)) continue;
+    const lamports = BigInt(i.info.lamports);
+    const cap = rentExemptMinimum(BigInt(i.info.space));
+    total += lamports < cap ? lamports : cap;
+  }
+  return total;
+}
+
 function evaluateEffects(
   effects: TransactionEffects,
   input: TxRuleInput,
@@ -203,14 +230,19 @@ function evaluateEffects(
     // Only top-level transfers count as "explained"; CPI transfers are moved by a program on your behalf.
     const destinations = decoded.solTransfers.filter((t) => t.from === wallet && !t.cpi);
     const cpiDestinations = decoded.solTransfers.filter((t) => t.from === wallet && t.cpi);
-    // Priority fees set by the tx itself are fees, not asset outflow.
-    const explained = destinations.reduce((s, t) => s + BigInt(t.lamports), 0n) + (decoded.feePayer === wallet ? estimatePriorityFeeLamports(decoded) : 0n);
+    // Priority fees set by the tx itself are fees, not asset outflow. Rent for accounts a program
+    // creates on the wallet's behalf (e.g. a multisig proposal) is explained up to the rent-exempt
+    // minimum for the account's size — anything above that is still unexplained outflow.
+    const rent = rentDeposits(decoded, wallet);
+    const explained = destinations.reduce((s, t) => s + BigInt(t.lamports), 0n) + (decoded.feePayer === wallet ? estimatePriorityFeeLamports(decoded) : 0n) + rent;
     const allDest = [...destinations, ...cpiDestinations];
     const destText = allDest.length
       ? [...new Set(allDest.map((d) => `${d.to}${d.cpi ? " (via program call)" : ""}`))].join(", ")
       : "not visible in instructions";
     const id = ev({ source: effSource, label: "Net SOL leaving your wallet", observed: `${formatLamports(outflow.toString())} SOL → ${destText}`, condition: "wallet SOL decreases beyond network fee" });
-    if (explained >= outflow) {
+    if (explained >= outflow && destinations.length === 0 && rent > 0n) {
+      signals.push({ code: "TX_RENT_DEPOSIT", title: "SOL deposited as account rent", description: "SOL moves into newly created account(s) as their rent-exempt deposit, not to another wallet.", severity: "LOW", evidenceIds: [id] });
+    } else if (explained >= outflow) {
       signals.push({ code: "TX_SOL_OUTFLOW", title: "SOL leaves your wallet", description: "SOL is sent to the listed destination. Destination addresses without a known label are unverified, not necessarily malicious — confirm you intend to pay them.", severity: "MEDIUM", evidenceIds: [id] });
     } else {
       signals.push({ code: "TX_UNEXPECTED_SOL_OUTFLOW", title: "Unexpected SOL outflow", description: "More SOL leaves your wallet than the visible transfer instructions explain (moved by a program call).", severity: "HIGH", evidenceIds: [id] });

@@ -1,6 +1,8 @@
 import "server-only";
 import { VersionedTransaction } from "@solana/web3.js";
+import { enrichWithAnchorIdl } from "@/lib/anchor/source";
 import { AppError, isAppError } from "@/lib/api/errors";
+import { analyzeMultisig } from "@/lib/multisig/analyze";
 import { logger } from "@/lib/api/logger";
 import { evaluateTransactionRisk } from "@/lib/security/rules/transaction";
 import type { AnalysisStatus } from "@/lib/security/types";
@@ -30,6 +32,7 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
   const parsed = parseTransactionInput(rawInput);
   if (parsed.kind === "invalid") throw new AppError("INVALID_TRANSACTION", parsed.reason);
 
+  let tx: VersionedTransaction;
   let decoded: DecodedTransaction;
   let effects: TransactionEffects | null = null;
   let effectsStatus: AnalysisStatus = "COMPLETE";
@@ -40,7 +43,7 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
   if (parsed.kind === "signature") {
     signature = parsed.signature;
     const executed = await fetchExecutedTransaction(parsed.signature);
-    const tx = VersionedTransaction.deserialize(executed.bytes);
+    tx = VersionedTransaction.deserialize(executed.bytes);
     decoded = decodeTransaction(tx, { loadedAddresses: executed.meta.loadedAddresses });
     applyInnerInstructions(decoded, executed.meta.innerInstructions, "EXECUTED");
     const keys = decoded.accounts.map((a) => a.address ?? "");
@@ -48,7 +51,7 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
     effects = fromMeta.effects;
     owners = fromMeta.tokenAccountOwners;
   } else {
-    const tx = parsed.transaction;
+    tx = parsed.transaction;
     messageHash = await messageHashOfTx(parsed.bytes);
     const lookups = await resolveLookupTables(tx);
     decoded = decodeTransaction(tx, lookups ? { loadedAddresses: lookups } : {});
@@ -65,10 +68,14 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
     }
   }
 
-  const perspectiveWallet = walletAddress ?? decoded.feePayer;
-  const risk = evaluateTransactionRisk({ decoded, effects, wallet: perspectiveWallet, tokenAccountOwners: owners, effectsStatus });
+  // Name undecoded calls from their programs' on-chain IDLs, then load what any multisig action authorizes.
+  const anchorIdl = await enrichWithAnchorIdl(decoded);
+  const multisig = await analyzeMultisig(tx, decoded);
 
-  logger.info("tx.analyzed", { kind: parsed.kind, level: risk.level, status: risk.status, instructions: decoded.instructions.length });
+  const perspectiveWallet = walletAddress ?? decoded.feePayer;
+  const risk = evaluateTransactionRisk({ decoded, effects, wallet: perspectiveWallet, tokenAccountOwners: owners, effectsStatus, multisig });
+
+  logger.info("tx.analyzed", { kind: parsed.kind, level: risk.level, status: risk.status, instructions: decoded.instructions.length, multisig: multisig !== null });
 
   return {
     inputKind: parsed.kind,
@@ -81,6 +88,8 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
     effects,
     effectsStatus,
     risk,
+    multisig,
+    anchorIdl,
     demo: false,
   };
 }

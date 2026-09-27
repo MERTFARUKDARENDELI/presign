@@ -12,6 +12,7 @@ import {
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  BPF_LOADER_UPGRADEABLE_ID,
   COMPUTE_BUDGET_PROGRAM_ID,
   MEMO_PROGRAM_ID,
   MEMO_V1_PROGRAM_ID,
@@ -20,6 +21,8 @@ import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@/lib/solana/constants";
+import { SQUADS_IX_ACCOUNTS, SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
+import { decodeSquadsInstruction } from "@/lib/squads/decode";
 import type {
   DecodedAccountMeta,
   DecodedInstruction,
@@ -204,12 +207,15 @@ export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptio
         })
       : null;
 
+    const accountKeys = cix.accountKeyIndexes.map((ki) => keys[ki] ?? null);
     let decoded: DecodedInstruction | null = null;
     try {
       if (ix && programId === SYSTEM_PROGRAM_ID) decoded = decodeSystem(ix, index, out, base);
       else if (ix && (programId === TOKEN_PROGRAM_ID || programId === TOKEN_2022_PROGRAM_ID)) decoded = decodeToken(ix, index, out, base);
       else if (ix && programId === COMPUTE_BUDGET_PROGRAM_ID) decoded = decodeComputeBudget(ix, base);
       else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(cix.data, base);
+      else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(cix.data, accountKeys, index, out, base);
+      else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(cix.data, accountKeys, base);
       else if (programId === MEMO_PROGRAM_ID || programId === MEMO_V1_PROGRAM_ID) {
         const text = new TextDecoder("utf-8", { fatal: false }).decode(cix.data).slice(0, 200);
         decoded = base("memo", true, [], { memo: text });
@@ -220,7 +226,7 @@ export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptio
 
     if (!decoded) {
       const known = programInfo(programId).trust !== "unknown";
-      decoded = base(known ? `${programInfo(programId).name}:undecoded` : "unknown", false);
+      decoded = { ...base(known ? `${programInfo(programId).name}:undecoded` : "unknown", false), rawData: Buffer.from(cix.data).toString("base64") };
       out.undecodedInstructions.push(index);
     } else if (!decoded.parsed) {
       // Identified instruction family whose payload is not decoded (e.g. confidential transfers).
@@ -281,10 +287,12 @@ export function decodeInnerRaw(
     else if (programId === TOKEN_PROGRAM_ID || programId === TOKEN_2022_PROGRAM_ID) decoded = decodeToken(ix, parentIndex, scratch, base);
     else if (programId === COMPUTE_BUDGET_PROGRAM_ID) decoded = decodeComputeBudget(ix, base);
     else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(data, base);
+    else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(data, accounts, parentIndex, scratch, base);
+    else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(data, accounts, base);
   } catch {
     decoded = null;
   }
-  if (!decoded) decoded = base(p.trust === "unknown" ? "unknown" : `${p.name}:undecoded`, false);
+  if (!decoded) decoded = { ...base(p.trust === "unknown" ? "unknown" : `${p.name}:undecoded`, false), rawData: Buffer.from(data).toString("base64") };
   mergeCpiEffects(out, scratch);
   return decoded;
 }
@@ -448,6 +456,60 @@ function decodeComputeBudget(ix: TransactionInstruction, base: BaseFn): DecodedI
     return base("computeBudget:setComputeUnitLimit", true, [], { units: String(d.units) });
   }
   return base(`computeBudget:${type}`, true);
+}
+
+/**
+ * BPF Upgradeable Loader (bincode, u32 LE tag). Upgrades and upgrade-authority
+ * changes are the most privileged actions a program owner can take.
+ */
+function decodeBpfLoader(data: Uint8Array, accounts: Array<string | null>, index: number, out: DecodedTransaction, base: BaseFn): DecodedInstruction | null {
+  if (data.length < 4) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const a = (i: number) => accounts[i] ?? null;
+  switch (view.getUint32(0, true)) {
+    case 0:
+      return base("bpfLoader:initializeBuffer", true, ["buffer", "authority"], { buffer: a(0), authority: a(1) });
+    case 1:
+      return base("bpfLoader:write", true, ["buffer", "authority"], { buffer: a(0), authority: a(1) });
+    case 2:
+      return base("bpfLoader:deployWithMaxDataLen", true, ["payer", "programData", "program", "buffer", "rent", "clock", "systemProgram", "authority"], { program: a(2), buffer: a(3), authority: a(7) });
+    case 3:
+      return base("bpfLoader:upgrade", true, ["programData", "program", "buffer", "spill", "rent", "clock", "authority"], { program: a(1), programData: a(0), buffer: a(2), authority: a(6) });
+    case 4:
+    case 7: {
+      const checked = view.getUint32(0, true) === 7;
+      // SetAuthority: a missing third account makes the program (or buffer) immutable.
+      const newAuthority = a(2);
+      out.authorityChanges.push({ instruction: index, kind: "program-upgrade-authority", account: a(0) ?? "unresolved", authorityType: "UpgradeAuthority", currentAuthority: a(1), newAuthority });
+      return base(checked ? "bpfLoader:setAuthorityChecked" : "bpfLoader:setAuthority", true, ["account", "currentAuthority", "newAuthority"], { account: a(0), currentAuthority: a(1), newAuthority });
+    }
+    case 5:
+      return base("bpfLoader:close", true, ["account", "recipient", "authority", "program"], { account: a(0), recipient: a(1), authority: a(2), program: a(3) });
+    case 6:
+    case 9:
+      return base(view.getUint32(0, true) === 6 ? "bpfLoader:extendProgram" : "bpfLoader:extendProgramChecked", true, ["programData", "program"], { program: a(1), additionalBytes: data.length >= 8 ? String(view.getUint32(4, true)) : null });
+    case 8:
+      return base("bpfLoader:migrate", true, ["programData", "program", "authority"], { program: a(1), authority: a(2) });
+    default:
+      return null;
+  }
+}
+
+/** Squads v4 multisig instructions; the vault payload itself is decoded separately (lib/multisig). */
+function decodeSquads(data: Uint8Array, accounts: Array<string | null>, base: BaseFn): DecodedInstruction | null {
+  const s = decodeSquadsInstruction(data, accounts);
+  if (!s) return null;
+  const info: Record<string, string | null> = { ...s.extra };
+  for (const k of ["multisig", "proposal", "transaction", "member", "creator", "configAuthority"]) {
+    if (k in s.accounts) info[k] = s.accounts[k];
+  }
+  if (s.vote) info.vote = s.vote;
+  if (s.transactionIndex) info.transactionIndex = s.transactionIndex;
+  if (s.vaultIndex !== null) info.vaultIndex = String(s.vaultIndex);
+  if (s.message) info.vaultInstructions = String(s.message.instructions.length);
+  if (s.configActions.length) info.configActions = s.configActions.map((c) => c.type).join(", ");
+  if (s.memo !== null) info.memo = s.memo;
+  return base(`squads:${s.name}`, true, SQUADS_IX_ACCOUNTS[s.name] ?? [], info);
 }
 
 function decodeAta(data: Uint8Array, base: BaseFn): DecodedInstruction | null {

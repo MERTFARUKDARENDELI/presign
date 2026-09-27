@@ -47,6 +47,8 @@ export const KNOWN_PROGRAMS: Record<string, KnownProgram> = {
   [VOTE_PROGRAM_ID]: { name: "Vote Program", trust: "core" },
   [BPF_LOADER_UPGRADEABLE_ID]: { name: "BPF Upgradeable Loader", trust: "core" },
   [BUBBLEGUM_PROGRAM_ID]: { name: "Metaplex Bubblegum (cNFT)", trust: "known" },
+  SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf: { name: "Squads Multisig v4", trust: "known" },
+  dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH: { name: "Drift Protocol v2", trust: "known" },
   metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s: { name: "Metaplex Token Metadata", trust: "known" },
   JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4: { name: "Jupiter Aggregator v6", trust: "known" },
   whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: { name: "Orca Whirlpools", trust: "known" },

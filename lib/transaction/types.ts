@@ -1,3 +1,5 @@
+import type { IdlEnrichment } from "@/lib/anchor/source";
+import type { MultisigAnalysis } from "@/lib/multisig/types";
 import type { RiskAssessment } from "@/lib/security/risk";
 import type { AnalysisStatus } from "@/lib/security/types";
 
@@ -36,6 +38,8 @@ export interface DecodedInstruction {
   /** For inner (CPI) instructions: index of the top-level instruction that invoked it. */
   parentIndex?: number;
   stackHeight?: number | null;
+  /** Base64 instruction data, kept only for undecoded instructions so a later pass (Anchor IDL) can decode them. */
+  rawData?: string;
 }
 
 export interface SolTransfer {
@@ -76,7 +80,7 @@ export interface AuthorityChange {
   instruction: number;
   /** True when performed by a program via CPI (inner instruction of `instruction`). */
   cpi?: boolean;
-  kind: "token-authority" | "system-assign";
+  kind: "token-authority" | "system-assign" | "program-upgrade-authority";
   account: string;
   authorityType: string;
   currentAuthority: string | null;
@@ -193,6 +197,10 @@ export interface TransactionAnalysis {
   effects: TransactionEffects | null;
   effectsStatus: AnalysisStatus;
   risk: RiskAssessment;
+  /** Squads multisig layer: configuration, proposals and decoded vault payloads. Null when no multisig is involved. */
+  multisig: MultisigAnalysis | null;
+  /** Programs whose instructions were named from their on-chain Anchor IDL. */
+  anchorIdl: IdlEnrichment[];
   demo: boolean;
 }
 

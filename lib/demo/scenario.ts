@@ -230,7 +230,7 @@ export function buildDemoTransaction(): { base64: string; analysis: TransactionA
 
   return {
     base64: bytesToBase64(bytes),
-    analysis: { inputKind: "demo", signature: null, messageHash: null, cluster: "devnet", perspectiveWallet: W, perspectiveSource: "provided", decoded, effects, effectsStatus: "COMPLETE", risk, demo: true },
+    analysis: { inputKind: "demo", signature: null, messageHash: null, cluster: "devnet", perspectiveWallet: W, perspectiveSource: "provided", decoded, effects, effectsStatus: "COMPLETE", risk, multisig: null, anchorIdl: [], demo: true },
   };
 }
 
