@@ -1,4 +1,6 @@
+import type { Gate } from "@/lib/agent/gate";
 import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
+import type { SignerBrief } from "./brief";
 import type { AnalysisStatus } from "@/lib/security/types";
 import type { ConfigAction, MultisigAccount, ProposalAccount, ProposalStatusName } from "@/lib/squads/types";
 import type { DecodedTransaction, TransactionEffects } from "@/lib/transaction/types";
@@ -102,6 +104,10 @@ export interface ProposalInspection {
   stale: boolean;
   analysis: MultisigAnalysis;
   risk: RiskAssessment;
+  /** Plain-language proposal brief. */
+  brief: SignerBrief | null;
+  /** Deterministic action for automated signers. */
+  gate: Gate;
   cluster: "mainnet-beta" | "devnet";
   inspectedAt: string;
 }

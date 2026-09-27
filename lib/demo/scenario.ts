@@ -15,6 +15,7 @@ import type { TokenSecurityReport } from "@/lib/token/report";
 import type { MintInfo, TokenAccountState } from "@/lib/token/types";
 import { decodeTransaction, U64_MAX } from "@/lib/transaction/decoder";
 import { bytesToBase64 } from "@/lib/transaction/input";
+import { gateFor } from "@/lib/agent/gate";
 import type { TransactionAnalysis, TransactionEffects } from "@/lib/transaction/types";
 import { buildWalletScanFromParts, type WalletSecurityScan } from "@/lib/wallet/scan-core";
 import type { WalletSnapshot } from "@/lib/wallet/types";
@@ -230,7 +231,7 @@ export function buildDemoTransaction(): { base64: string; analysis: TransactionA
 
   return {
     base64: bytesToBase64(bytes),
-    analysis: { inputKind: "demo", signature: null, messageHash: null, cluster: "devnet", perspectiveWallet: W, perspectiveSource: "provided", decoded, effects, effectsStatus: "COMPLETE", risk, multisig: null, anchorIdl: [], demo: true },
+    analysis: { inputKind: "demo", signature: null, messageHash: null, cluster: "devnet", perspectiveWallet: W, perspectiveSource: "provided", decoded, effects, effectsStatus: "COMPLETE", risk, multisig: null, anchorIdl: [], brief: null, gate: gateFor(risk.level, risk.status), demo: true },
   };
 }
 

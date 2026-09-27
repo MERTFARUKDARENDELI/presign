@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components lib tests",
+    "lint": "eslint app components lib tests watchtower mcp",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "watchtower": "node watchtower/main.ts",
+    "mcp": "node mcp/server.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.73",

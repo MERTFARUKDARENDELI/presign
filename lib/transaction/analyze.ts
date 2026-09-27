@@ -1,6 +1,8 @@
 import "server-only";
 import { VersionedTransaction } from "@solana/web3.js";
+import { gateFor } from "@/lib/agent/gate";
 import { enrichWithAnchorIdl } from "@/lib/anchor/source";
+import { buildSignerBrief } from "@/lib/multisig/brief";
 import { AppError, isAppError } from "@/lib/api/errors";
 import { analyzeMultisig } from "@/lib/multisig/analyze";
 import { logger } from "@/lib/api/logger";
@@ -77,6 +79,7 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
 
   logger.info("tx.analyzed", { kind: parsed.kind, level: risk.level, status: risk.status, instructions: decoded.instructions.length, multisig: multisig !== null });
 
+  const brief = buildSignerBrief({ mode: parsed.kind === "signature" ? "executed" : "presign", multisig, usesDurableNonce: decoded.usesDurableNonce, messageHash });
   return {
     inputKind: parsed.kind,
     signature,
@@ -90,6 +93,8 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
     risk,
     multisig,
     anchorIdl,
+    brief,
+    gate: gateFor(risk.level, risk.status),
     demo: false,
   };
 }

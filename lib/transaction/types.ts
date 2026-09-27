@@ -1,4 +1,6 @@
+import type { Gate } from "@/lib/agent/gate";
 import type { IdlEnrichment } from "@/lib/anchor/source";
+import type { SignerBrief } from "@/lib/multisig/brief";
 import type { MultisigAnalysis } from "@/lib/multisig/types";
 import type { RiskAssessment } from "@/lib/security/risk";
 import type { AnalysisStatus } from "@/lib/security/types";
@@ -201,6 +203,10 @@ export interface TransactionAnalysis {
   multisig: MultisigAnalysis | null;
   /** Programs whose instructions were named from their on-chain Anchor IDL. */
   anchorIdl: IdlEnrichment[];
+  /** Plain-language multisig brief (null when no multisig is involved). */
+  brief: SignerBrief | null;
+  /** Deterministic action for automated signers. */
+  gate: Gate;
   demo: boolean;
 }
 

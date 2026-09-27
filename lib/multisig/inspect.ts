@@ -1,5 +1,7 @@
 import "server-only";
+import { gateFor } from "@/lib/agent/gate";
 import { AppError } from "@/lib/api/errors";
+import { buildSignerBrief } from "./brief";
 import { logger } from "@/lib/api/logger";
 import { evaluateMultisigPosture, evaluateProposalRisk } from "@/lib/security/rules/multisig";
 import { getCluster } from "@/lib/solana/config";
@@ -57,7 +59,8 @@ export async function inspectProposal(multisig: string, index: string, signer: s
   const stale = loaded.account ? BigInt(index) <= BigInt(loaded.account.staleTransactionIndex) : false;
   const risk = evaluateProposalRisk(analysis, signer);
   logger.info("multisig.inspected", { kind: transactionKind, level: risk.level, status: risk.status });
-  return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, cluster: getCluster(), inspectedAt: new Date().toISOString() };
+  const brief = buildSignerBrief({ mode: "proposal", multisig: analysis, usesDurableNonce: false, messageHash: null, proposal: { transactionIndex: index, stale, transactionKind } });
+  return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, brief, gate: gateFor(risk.level, risk.status), cluster: getCluster(), inspectedAt: new Date().toISOString() };
 }
 
 export async function inspectMultisig(multisig: string, signer: string | null = null): Promise<MultisigOverview> {
