@@ -1,18 +1,18 @@
 import "server-only";
 import { AppError } from "@/lib/api/errors";
 import { logger } from "@/lib/api/logger";
-import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
 import { evaluateMultisigPosture, evaluateProposalRisk } from "@/lib/security/rules/multisig";
 import { getCluster } from "@/lib/solana/config";
 import { SQUADS_ACCOUNT_DISCRIMINATOR, SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import { hex } from "@/lib/squads/borsh";
 import { decodeConfigTransactionAccount, decodeProposalAccount, decodeVaultTransactionAccount } from "@/lib/squads/decode";
 import { controlledAddresses, proposalPda, transactionPda, vaultPda } from "@/lib/squads/pda";
-import type { MultisigAccount, ProposalStatusName } from "@/lib/squads/types";
 import { feePayerCandidates, loadMultisigAccount, payloadFromTransactionAccount, proposalRefFrom } from "./analyze";
 import { fetchSquadsAccounts, type SquadsFetch } from "./chain";
 import { parseInspectInput } from "./input";
-import type { MultisigAnalysis } from "./types";
+import type { InspectResult, MultisigAnalysis, MultisigOverview, ProposalInspection, ProposalSummary } from "./types";
+
+export type { InspectResult, MultisigOverview, ProposalInspection, ProposalSummary };
 
 /**
  * Proposal inspection without a transaction to sign: what a pending (or past)
@@ -20,47 +20,6 @@ import type { MultisigAnalysis } from "./types";
  * This is the view a signer needs *before* they open their wallet.
  */
 
-export interface ProposalInspection {
-  multisig: string;
-  transactionIndex: string;
-  proposalAddress: string;
-  transactionAddress: string;
-  transactionKind: "vault" | "config" | "missing";
-  stale: boolean;
-  analysis: MultisigAnalysis;
-  risk: RiskAssessment;
-  cluster: "mainnet-beta" | "devnet";
-  inspectedAt: string;
-}
-
-export interface ProposalSummary {
-  transactionIndex: string;
-  proposalAddress: string;
-  transactionAddress: string;
-  status: ProposalStatusName | "NO_PROPOSAL" | "NOT_FOUND" | "UNREADABLE";
-  statusTimestamp: string | null;
-  approvals: number;
-  rejections: number;
-  stale: boolean;
-  /** Set for pending proposals, which are fully inspected. */
-  verdict: RiskVerdict | null;
-  topSignal: string | null;
-}
-
-export interface MultisigOverview {
-  multisig: string;
-  account: MultisigAccount | null;
-  accountStatus: MultisigAnalysis["accountStatus"];
-  vaults: string[];
-  posture: RiskAssessment;
-  proposals: ProposalSummary[];
-  /** Pending proposals beyond the inspection cap are listed without a verdict. */
-  inspectedLimit: number;
-  cluster: "mainnet-beta" | "devnet";
-  inspectedAt: string;
-}
-
-export type InspectResult = { kind: "proposal"; inspection: ProposalInspection } | { kind: "multisig"; overview: MultisigOverview };
 
 /** Most recent proposals listed in an overview, and how many pending ones get a full inspection. */
 export const OVERVIEW_LIMITS = { recent: 15, inspect: 5 } as const;

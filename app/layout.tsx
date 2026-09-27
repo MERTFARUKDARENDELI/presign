@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import SecurityHeader from "@/components/SecurityHeader";
 import WalletProviders from "@/components/providers/WalletProviders";
+import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Web3 Security Agent & Defender",
-  description: "Simulate before you sign. Detect scams. Clean your wallet. Solana wallet, token and transaction security.",
+  title: `${BRAND.name} — ${BRAND.tagline}`,
+  description: BRAND.description,
 };
 
 export const viewport: Viewport = {
@@ -37,7 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <SecurityHeader />
             <main className="flex flex-1 flex-col py-6">{children}</main>
             <footer className="border-t border-zinc-800 pt-5 text-center text-xs text-zinc-600">
-              AI Web3 Security Agent &amp; Defender · Solana · This tool never asks for private keys or seed phrases. Risk results are evidence-based signals, not guarantees — you make the final decision.
+              {BRAND.name} · Solana · Open source (Apache-2.0) · Read-only: never asks for private keys or seed phrases and never signs. Results are evidence-based signals, not guarantees — the decision is yours.
             </footer>
           </div>
         </WalletProviders>

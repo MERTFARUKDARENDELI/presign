@@ -1,6 +1,6 @@
-import type { RiskAssessment } from "@/lib/security/risk";
+import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
 import type { AnalysisStatus } from "@/lib/security/types";
-import type { ConfigAction, MultisigAccount, ProposalAccount } from "@/lib/squads/types";
+import type { ConfigAction, MultisigAccount, ProposalAccount, ProposalStatusName } from "@/lib/squads/types";
 import type { DecodedTransaction, TransactionEffects } from "@/lib/transaction/types";
 
 /** Serializable result of analyzing the Squads multisig side of a transaction. */
@@ -90,3 +90,47 @@ export interface MultisigAnalysis {
   /** Instructions that could not be decoded (malformed Squads data). */
   malformed: number[];
 }
+
+/** Proposal inspection and multisig overview results (see lib/multisig/inspect.ts). */
+
+export interface ProposalInspection {
+  multisig: string;
+  transactionIndex: string;
+  proposalAddress: string;
+  transactionAddress: string;
+  transactionKind: "vault" | "config" | "missing";
+  stale: boolean;
+  analysis: MultisigAnalysis;
+  risk: RiskAssessment;
+  cluster: "mainnet-beta" | "devnet";
+  inspectedAt: string;
+}
+
+export interface ProposalSummary {
+  transactionIndex: string;
+  proposalAddress: string;
+  transactionAddress: string;
+  status: ProposalStatusName | "NO_PROPOSAL" | "NOT_FOUND" | "UNREADABLE";
+  statusTimestamp: string | null;
+  approvals: number;
+  rejections: number;
+  stale: boolean;
+  /** Set for pending proposals, which are fully inspected. */
+  verdict: RiskVerdict | null;
+  topSignal: string | null;
+}
+
+export interface MultisigOverview {
+  multisig: string;
+  account: MultisigAccount | null;
+  accountStatus: MultisigAnalysis["accountStatus"];
+  vaults: string[];
+  posture: RiskAssessment;
+  proposals: ProposalSummary[];
+  /** Pending proposals beyond the inspection cap are listed without a verdict. */
+  inspectedLimit: number;
+  cluster: "mainnet-beta" | "devnet";
+  inspectedAt: string;
+}
+
+export type InspectResult = { kind: "proposal"; inspection: ProposalInspection } | { kind: "multisig"; overview: MultisigOverview };

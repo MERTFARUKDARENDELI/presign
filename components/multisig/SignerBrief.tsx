@@ -1,8 +1,10 @@
-import { AlertOctagon, Clock, FileSearch, Fingerprint, Users } from "lucide-react";
-import { buildSignerBrief, CONTROL_TEXT, type BriefStep } from "@/lib/multisig/brief";
+import { AlertOctagon, Clock, FileSearch, FlaskConical, Fingerprint, Users } from "lucide-react";
+import { briefSourceFromAnalysis, buildSignerBrief, CONTROL_TEXT, type BriefStep, type SignerBrief as Brief } from "@/lib/multisig/brief";
+import type { RiskVerdict } from "@/lib/security/risk";
+import type { AnalysisStatus } from "@/lib/security/types";
 import type { TransactionAnalysis } from "@/lib/transaction/types";
 import { cn } from "@/lib/utils";
-import { Address } from "@/components/security/badges";
+import { Address, RiskBadge, StatusBadge } from "@/components/security/badges";
 
 const CONTROL_STYLE = {
   outside: "border-red-500/50 bg-red-500/15 text-red-200",
@@ -26,14 +28,14 @@ function Step({ step }: { step: BriefStep }) {
   );
 }
 
-/** What a multisig signature authorizes — shown above everything else. */
-export function SignerBrief({ analysis }: { analysis: TransactionAnalysis }) {
-  const brief = buildSignerBrief(analysis);
-  if (!brief) return null;
+/** What a multisig signature or proposal authorizes — shown above everything else. */
+export function BriefCard({ brief, title = "Signer brief", verdict }: { brief: Brief; title?: string; verdict?: { level: RiskVerdict; status: AnalysisStatus } }) {
   return (
-    <section aria-labelledby="signer-brief" className="rounded-2xl border border-fuchsia-500/30 bg-zinc-900/60 p-5">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-fuchsia-300">
-        <FileSearch className="size-4" aria-hidden /> Signer brief
+    <section aria-labelledby="signer-brief" className={cn("rounded-2xl border bg-zinc-900/60 p-5", verdict?.level === "CRITICAL" ? "border-red-500/50" : "border-fuchsia-500/30")}>
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-fuchsia-300">
+        <FileSearch className="size-4" aria-hidden /> {title}
+        {verdict && <RiskBadge level={verdict.level} />}
+        {verdict && <StatusBadge status={verdict.status} />}
       </div>
       <h2 id="signer-brief" className="text-lg font-semibold text-zinc-50">{brief.headline}</h2>
 
@@ -50,7 +52,7 @@ export function SignerBrief({ analysis }: { analysis: TransactionAnalysis }) {
       )}
 
       <div className="mt-4 space-y-4">
-        {brief.payloads.length === 0 && <p className="text-sm text-zinc-400">This transaction does not create, approve or execute a vault transaction.</p>}
+        {brief.payloads.length === 0 && <p className="text-sm text-zinc-400">No vault transaction is created, approved or executed here.</p>}
         {brief.payloads.map((p, i) => (
           <div key={i}>
             <h3 className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-200">
@@ -64,6 +66,10 @@ export function SignerBrief({ analysis }: { analysis: TransactionAnalysis }) {
                 <AlertOctagon className="mt-0.5 size-4 shrink-0" aria-hidden /> {p.detail ?? "The proposal contents could not be verified."} Do not approve what you cannot see.
               </p>
             )}
+            {p.vaultChanges.length > 0 && (
+              <ul className="mt-2 space-y-0.5 rounded-lg bg-zinc-950 px-3 py-2 text-sm text-zinc-300">{p.vaultChanges.map((c) => <li key={c}>{c}</li>)}</ul>
+            )}
+            {p.simulation && <p className="mt-1 flex items-start gap-1.5 text-xs text-zinc-500"><FlaskConical className="mt-0.5 size-3.5 shrink-0" aria-hidden />{p.simulation}</p>}
             {p.detail && p.steps.length > 0 && <p className="mt-1 text-xs text-zinc-500">{p.detail}</p>}
           </div>
         ))}
@@ -78,4 +84,9 @@ export function SignerBrief({ analysis }: { analysis: TransactionAnalysis }) {
       )}
     </section>
   );
+}
+
+export function SignerBrief({ analysis }: { analysis: TransactionAnalysis }) {
+  const brief = buildSignerBrief(briefSourceFromAnalysis(analysis));
+  return brief ? <BriefCard brief={brief} verdict={{ level: analysis.risk.level, status: analysis.risk.status }} /> : null;
 }

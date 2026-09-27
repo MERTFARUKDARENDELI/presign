@@ -1,6 +1,5 @@
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { describeTransactionError } from "@/lib/cleanup/reclaim";
-import { defangLinks } from "@/lib/security/text-signals";
 import { formatRawAmount } from "@/lib/token/amount";
 import { formatTxVersion } from "@/lib/transaction/decoder";
 import { explainTransaction } from "@/lib/transaction/explain";
@@ -9,17 +8,9 @@ import { cn } from "@/lib/utils";
 import { Address, DemoBadge, RiskBadge, RISK_STYLES, StatusBadge } from "@/components/security/badges";
 import { RiskDetails } from "@/components/security/RiskDetails";
 import { SignerBrief } from "@/components/multisig/SignerBrief";
+import { InnerInstructionList, InstructionList } from "./InstructionList";
 
-/** Instruction fields for display. Memo text is untrusted: its links are shown only as defanged hosts. */
-function infoValue(key: string, value: string | null): string {
-  if (value === null) return "null";
-  return key === "memo" ? defangLinks(value) : value;
-}
-
-/** Decoder metadata (keys starting with "_") is not an instruction field. */
-const visibleInfo = (info: Record<string, string | null>) => Object.entries(info).filter(([k]) => !k.startsWith("_"));
-
-function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+export function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn("rounded-xl border border-zinc-800 bg-zinc-900/40 p-4", className)}>
       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">{title}</h3>
@@ -48,6 +39,9 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
 
   return (
     <div className="space-y-4">
+      {/* For multisig transactions the brief is the answer; the evidence list follows it. */}
+      <SignerBrief analysis={analysis} />
+
       <div className={cn("rounded-2xl border bg-zinc-900/50 p-5 ring-1", RISK_STYLES[risk.level].ring, risk.level === "CRITICAL" ? "border-red-500/50" : "border-zinc-800")}>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold">Transaction risk</h2>
@@ -57,10 +51,8 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
           </span>
         </div>
         {risk.level === "CRITICAL" && <p className="mb-3 rounded-lg bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-200">Critical signals detected. Review the evidence carefully — the decision to sign is yours.</p>}
-        <RiskDetails risk={risk} />
+        <RiskDetails risk={risk} compact={analysis.multisig !== null} />
       </div>
-
-      <SignerBrief analysis={analysis} />
 
       <ExplanationCard analysis={analysis} symbols={symbols} />
 
@@ -130,49 +122,12 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
       </div>
 
       <Card title="Decoded instructions">
-        <ol className="space-y-2">
-          {decoded.instructions.map((i) => (
-            <li key={i.index} className="rounded-lg bg-zinc-950 p-3 text-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-zinc-100">#{i.index} {i.type}</span>
-                <span className="text-zinc-500">{i.programName}</span>
-                {!i.parsed && <span className="rounded bg-amber-500/15 px-1.5 text-amber-200">not decoded — intent unknown ({i.dataLength} bytes)</span>}
-                {i.info._decodedBy && <span className="rounded bg-sky-500/15 px-1.5 text-sky-200" title="Names come from the program's own published IDL: they state intent, not verified behavior.">named via on-chain IDL</span>}
-              </div>
-              {visibleInfo(i.info).length > 0 && (
-                <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
-                  {visibleInfo(i.info).map(([k, v]) => (
-                    <div key={k} className="contents"><dt className="text-zinc-500">{k}</dt><dd className="break-all text-zinc-300">{infoValue(k, v)}</dd></div>
-                  ))}
-                </dl>
-              )}
-              <div className="mt-1 flex flex-wrap gap-1">
-                {i.accounts.map((a, idx) => (
-                  <span key={idx} className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-400">
-                    {a.name}: <Address value={a.address} />{a.writable ? " ✎" : ""}{a.signer ? " ✍" : ""}
-                  </span>
-                ))}
-              </div>
-            </li>
-          ))}
-        </ol>
+        <InstructionList instructions={decoded.instructions} />
       </Card>
 
       {decoded.innerInstructions.length > 0 && (
         <Card title={`Internal program calls (CPI) · from ${decoded.innerInstructionsSource === "EXECUTED" ? "the executed transaction" : "simulation"}`}>
-          <ol className="space-y-1 text-xs">
-            {decoded.innerInstructions.map((i) => (
-              <li key={i.index} className="rounded-md bg-zinc-950 px-2 py-1.5">
-                <span className="text-zinc-500">under #{i.parentIndex} →</span> <span className="font-mono text-zinc-200">{i.type}</span>{" "}
-                <span className="text-zinc-500">{i.programName}</span>
-                {i.programTrust === "unknown" && <span className="ml-1 rounded bg-amber-500/15 px-1 text-amber-200">unverified</span>}
-                {i.info._decodedBy && <span className="ml-1 rounded bg-sky-500/15 px-1 text-sky-200">via on-chain IDL</span>}
-                {visibleInfo(i.info).length > 0 && (
-                  <div className="mt-0.5 break-all font-mono text-[11px] text-zinc-400">{visibleInfo(i.info).map(([k, v]) => `${k}=${infoValue(k, v)}`).join("  ")}</div>
-                )}
-              </li>
-            ))}
-          </ol>
+          <InnerInstructionList instructions={decoded.innerInstructions} />
         </Card>
       )}
 

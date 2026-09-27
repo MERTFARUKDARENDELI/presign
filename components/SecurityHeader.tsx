@@ -1,28 +1,31 @@
-import { ShieldCheck } from "lucide-react";
+import { ScanEye } from "lucide-react";
 import Link from "next/link";
 import SystemStatus from "@/components/SystemStatus";
 import ConnectWallet from "@/components/wallet/ConnectWallet";
+import { BRAND } from "@/lib/brand";
 
 const NAV = [
-  { href: "/dashboard", label: "Wallet Scan" },
-  { href: "/transaction", label: "Transaction Security" },
-  { href: "/demo", label: "Demo" },
+  { href: "/verify", label: "Verify proposal" },
+  { href: "/transaction", label: "Transaction" },
+  { href: "/case/drift", label: "Drift case" },
+  { href: "/docs", label: "API & agents" },
+  { href: "/dashboard", label: "Wallet tools" },
 ];
 
 export default function SecurityHeader() {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 pb-5">
-      <Link href="/" className="flex items-center gap-3">
+      <Link href="/" className="flex items-center gap-3" aria-label={`${BRAND.name} home`}>
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black">
-          <ShieldCheck size={22} />
+          <ScanEye size={22} aria-hidden />
         </div>
         <div>
-          <h1 className="text-lg font-bold leading-tight">AI Web3 Security Agent</h1>
-          <p className="text-xs text-zinc-500">Solana Security &amp; Defense</p>
+          <h1 className="text-lg font-bold leading-tight">{BRAND.name}</h1>
+          <p className="text-xs text-zinc-500">{BRAND.tagline}</p>
         </div>
       </Link>
 
-      <nav className="order-3 flex w-full gap-1 overflow-x-auto text-sm sm:order-none sm:w-auto">
+      <nav aria-label="Main" className="order-3 flex w-full gap-1 overflow-x-auto text-sm sm:order-none sm:w-auto">
         {NAV.map((n) => (
           <Link key={n.href} href={n.href} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-zinc-400 hover:bg-zinc-900 hover:text-white">
             {n.label}
