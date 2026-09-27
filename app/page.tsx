@@ -1,6 +1,7 @@
 import { ArrowRight, Bot, BellRing, Clock, FileSearch, KeyRound, Landmark, ListChecks, Scale, ShieldAlert, SlidersHorizontal, Users } from "lucide-react";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
+import census from "@/docs/research/multisig-census.json";
 
 const CATCHES = [
   { icon: KeyRound, title: "Control leaving the multisig", body: "Admin, upgrade and token authorities handed to an address the multisig does not control — decoded from the program's own IDL." },
@@ -49,6 +50,28 @@ export default function Home() {
           </Link>
         </div>
         <Link href="/transaction" className="mt-4 text-sm text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline">or analyze any transaction before you sign it</Link>
+      </section>
+
+      <section aria-labelledby="numbers" className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+        <h3 id="numbers" className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">Solana multisigs today</h3>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <dt className="text-sm text-zinc-400">Squads v4 multisigs on mainnet</dt>
+            <dd className="text-3xl font-bold tabular-nums">{census.multisigs.all.count.toLocaleString("en-US")}</dd>
+          </div>
+          <div>
+            <dt className="text-sm text-zinc-400">of them with no time lock</dt>
+            <dd className="text-3xl font-bold tabular-nums text-red-300">{census.multisigs.all.noTimeLockPct}%</dd>
+          </div>
+          <div>
+            <dt className="text-sm text-zinc-400">major programs upgradeable through a Squads multisig without a time lock</dt>
+            <dd className="text-3xl font-bold tabular-nums text-orange-300">{census.programs.squadsV4Config.noTimeLock} of {census.programs.squadsV4}</dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-xs text-zinc-500">
+          Read-only mainnet census, {census.generatedAt.slice(0, 10)}: every Squads v4 multisig account, and the upgrade authority of {census.programs.checked} widely used programs. Aggregates only. No time lock means an
+          approved proposal executes the moment its threshold is reached — as Drift&apos;s did.
+        </p>
       </section>
 
       <section aria-labelledby="catches">

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components lib tests watchtower mcp",
+    "lint": "eslint app components lib tests watchtower mcp scripts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "watchtower": "node watchtower/main.ts",
