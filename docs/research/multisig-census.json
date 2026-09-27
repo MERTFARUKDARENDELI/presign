@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-09-27T16:01:37.969Z",
+  "method": "Read-only mainnet-beta RPC. Squads v4 multisig accounts via getProgramAccounts (Multisig discriminator); program upgrade authorities via program/programdata accounts; a Squads vault is matched against vault indexes 0–1 of multisigs with at least one transaction.",
+  "multisigs": {
+    "all": {
+      "count": 157117,
+      "noTimeLockPct": 98.2,
+      "controlledConfigPct": 1.3,
+      "singleSignaturePct": 20.8,
+      "minorityThresholdPct": 7.8,
+      "singleMemberPct": 20,
+      "medianMembers": 2
+    },
+    "withTransactions": {
+      "count": 103401,
+      "noTimeLockPct": 98,
+      "controlledConfigPct": 0.7,
+      "singleSignaturePct": 26.1,
+      "minorityThresholdPct": 8.4,
+      "singleMemberPct": 19.9,
+      "medianMembers": 2
+    },
+    "withTenOrMoreTransactions": {
+      "count": 18939,
+      "noTimeLockPct": 99,
+      "controlledConfigPct": 1.5,
+      "singleSignaturePct": 31.1,
+      "minorityThresholdPct": 21.6,
+      "singleMemberPct": 18.1,
+      "medianMembers": 3
+    }
+  },
+  "programs": {
+    "checked": 36,
+    "unverifiedIds": [],
+    "immutable": 2,
+    "squadsV4": 13,
+    "other": 21,
+    "squadsV4Config": {
+      "noTimeLock": 8,
+      "controlledConfig": 0,
+      "minorityThreshold": 4,
+      "thresholds": [
+        "2/6",
+        "3/4",
+        "3/4",
+        "3/4",
+        "3/4",
+        "3/4",
+        "3/7",
+        "4/7",
+        "4/8",
+        "5/10",
+        "5/13",
+        "5/7",
+        "7/15"
+      ]
+    }
+  }
+}

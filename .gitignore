@@ -44,3 +44,6 @@ next-env.d.ts
 # watchtower
 .watchtower-state.json
 .watchtower-state.json.tmp
+
+# private research detail (responsible disclosure)
+scripts/research/output/
