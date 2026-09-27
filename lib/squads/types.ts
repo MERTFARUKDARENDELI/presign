@@ -109,6 +109,22 @@ export interface VaultTransactionAccount {
   message: SquadsMessage;
 }
 
+export interface BatchAccount {
+  multisig: string;
+  creator: string;
+  index: string;
+  vaultIndex: number;
+  /** Number of transactions added to the batch. */
+  size: number;
+  /** Index of the last executed batch transaction (0 = none). */
+  executedTransactionIndex: number;
+}
+
+export interface VaultBatchTransactionAccount {
+  ephemeralSignerCount: number;
+  message: SquadsMessage;
+}
+
 export interface ConfigTransactionAccount {
   multisig: string;
   creator: string;

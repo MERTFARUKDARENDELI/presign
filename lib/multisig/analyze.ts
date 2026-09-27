@@ -1,20 +1,23 @@
 import "server-only";
 import type { VersionedTransaction } from "@solana/web3.js";
 import { logger } from "@/lib/api/logger";
-import { SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
+import { hex } from "@/lib/squads/borsh";
+import { SQUADS_ACCOUNT_DISCRIMINATOR, SQUADS_BATCH_LIMIT, SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import {
+  decodeBatchAccount,
   decodeConfigTransactionAccount,
   decodeMultisigAccount,
   decodeProposalAccount,
   decodeSquadsInstruction,
   decodeTransactionBufferAccount,
+  decodeVaultBatchTransactionAccount,
   decodeVaultTransactionAccount,
   parseTransactionMessage,
 } from "@/lib/squads/decode";
-import { controlledAddresses, transactionPda, vaultPda } from "@/lib/squads/pda";
-import type { MultisigAccount, SquadsInstruction } from "@/lib/squads/types";
+import { batchTransactionPda, controlledAddresses, transactionPda, vaultPda } from "@/lib/squads/pda";
+import type { BatchAccount, MultisigAccount, SquadsInstruction } from "@/lib/squads/types";
 import type { DecodedTransaction } from "@/lib/transaction/types";
-import { fetchSquadsAccount, type SquadsFetch } from "./chain";
+import { fetchSquadsAccount, fetchSquadsAccounts, type SquadsFetch } from "./chain";
 import { buildVaultPayload, type PayloadContext } from "./payload";
 import { findPrivilegedActions } from "./privileged";
 import type { MultisigAnalysis, ProposalRef, VaultPayload } from "./types";
@@ -53,31 +56,74 @@ export function feePayerCandidates(account: MultisigAccount | null, preferred: s
   return [...new Set([...preferred, ...executors, ...(account?.members.map((m) => m.key) ?? [])])];
 }
 
-/** Payload stored in a VaultTransaction / ConfigTransaction account. Config actions are appended to `configActions`. */
-export async function payloadFromTransactionAccount(
+async function batchPayloads(batch: BatchAccount, ctx: Omit<PayloadContext, "label">, only: string | null = null): Promise<VaultPayload[]> {
+  const vault = vaultPda(batch.multisig, batch.vaultIndex);
+  const indexes = Array.from({ length: Math.min(batch.size, SQUADS_BATCH_LIMIT) }, (_, i) => i + 1);
+  const addrs = indexes.map((i) => batchTransactionPda(batch.multisig, batch.index, i));
+  const wanted = only ? addrs.filter((a) => a === only) : addrs;
+  const fetched = await fetchSquadsAccounts(only && wanted.length === 0 ? [only] : wanted);
+  const out: VaultPayload[] = [];
+  for (const addr of fetched.keys()) {
+    const n = addrs.indexOf(addr) + 1 || null;
+    const label = `batch #${batch.index}${n ? `.${n}` : ""}`;
+    const base = { source: "TRANSACTION_ACCOUNT" as const, transaction: addr, transactionIndex: `${batch.index}${n ? `.${n}` : ""}`, vaultIndex: batch.vaultIndex, vault };
+    const f = fetched.get(addr)!;
+    try {
+      if (f.status !== "OK") throw new Error("missing");
+      const bt = decodeVaultBatchTransactionAccount(f.data);
+      out.push(await buildVaultPayload(base, bt.message, { ...ctx, label: `${label}, ` }, bt.ephemeralSignerCount));
+    } catch {
+      out.push({ ...base, status: f.status === "OK" ? "MALFORMED" : "UNAVAILABLE", detail: f.status === "OK" ? "A batch transaction could not be decoded." : "A batch transaction account does not exist (not added yet, or closed after execution).", decoded: null, privileged: [] });
+    }
+  }
+  if (!only && batch.size > SQUADS_BATCH_LIMIT) {
+    out.push({ source: "TRANSACTION_ACCOUNT", transaction: null, transactionIndex: batch.index, vaultIndex: batch.vaultIndex, vault, status: "PARTIAL", detail: `Only the first ${SQUADS_BATCH_LIMIT} of ${batch.size} batch transactions were inspected.`, decoded: null, privileged: [] });
+  }
+  return out;
+}
+
+/**
+ * Payloads stored at a proposal's transaction address: a VaultTransaction, a
+ * Batch (each of its transactions), a single VaultBatchTransaction (needs its
+ * batch for the vault), or a ConfigTransaction (actions go to `configActions`).
+ */
+export async function payloadsFromTransactionAccount(
   txAddr: string,
   transactionIndex: string | null,
   acc: SquadsFetch,
   ctx: Omit<PayloadContext, "label">,
   configActions: MultisigAnalysis["configActions"],
-): Promise<VaultPayload | null> {
+  batchHint: string | null = null,
+): Promise<VaultPayload[]> {
   const empty: VaultPayload = { source: "TRANSACTION_ACCOUNT", transaction: txAddr, transactionIndex, vaultIndex: null, vault: null, status: "UNAVAILABLE", detail: null, decoded: null, privileged: [] };
   if (acc.status !== "OK") {
-    return { ...empty, detail: acc.status === "NOT_FOUND" ? "The proposal's transaction account does not exist (not created yet, or already closed after execution)." : "The proposal's transaction account could not be loaded." };
+    return [{ ...empty, detail: acc.status === "NOT_FOUND" ? "The proposal's transaction account does not exist (not created yet, or already closed after execution)." : "The proposal's transaction account could not be loaded." }];
   }
+  const disc = acc.data.length >= 8 ? hex(acc.data.subarray(0, 8)) : "";
   try {
-    const vt = decodeVaultTransactionAccount(acc.data);
-    const vault = vaultPda(vt.multisig, vt.vaultIndex);
-    return await buildVaultPayload({ source: "TRANSACTION_ACCOUNT", transaction: txAddr, transactionIndex: vt.index, vaultIndex: vt.vaultIndex, vault }, vt.message, { ...ctx, label: `proposal #${vt.index}, ` }, vt.ephemeralSignerCount);
-  } catch {
-    try {
-      const ct = decodeConfigTransactionAccount(acc.data);
-      for (const action of ct.actions) configActions.push({ origin: `config transaction #${ct.index}`, action });
-      return null;
-    } catch {
-      return { ...empty, status: "MALFORMED", detail: "The proposal's transaction account could not be decoded." };
+    switch (disc) {
+      case SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction: {
+        const vt = decodeVaultTransactionAccount(acc.data);
+        const vault = vaultPda(vt.multisig, vt.vaultIndex);
+        return [await buildVaultPayload({ source: "TRANSACTION_ACCOUNT", transaction: txAddr, transactionIndex: vt.index, vaultIndex: vt.vaultIndex, vault }, vt.message, { ...ctx, label: `proposal #${vt.index}, ` }, vt.ephemeralSignerCount)];
+      }
+      case SQUADS_ACCOUNT_DISCRIMINATOR.Batch:
+        return await batchPayloads(decodeBatchAccount(acc.data), ctx);
+      case SQUADS_ACCOUNT_DISCRIMINATOR.VaultBatchTransaction: {
+        const b = batchHint ? await fetchSquadsAccount(batchHint) : null;
+        if (b?.status !== "OK") return [{ ...empty, detail: "The batch this transaction belongs to could not be loaded." }];
+        return await batchPayloads(decodeBatchAccount(b.data), ctx, txAddr);
+      }
+      case SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction: {
+        const ct = decodeConfigTransactionAccount(acc.data);
+        for (const action of ct.actions) configActions.push({ origin: `config transaction #${ct.index}`, action });
+        return [];
+      }
     }
+  } catch {
+    // falls through to MALFORMED
   }
+  return [{ ...empty, status: "MALFORMED", detail: "The proposal's transaction account could not be decoded." }];
 }
 
 export async function analyzeMultisig(tx: VersionedTransaction, decoded: DecodedTransaction, signer: string | null = null): Promise<MultisigAnalysis | null> {
@@ -160,16 +206,15 @@ export async function analyzeMultisig(tx: VersionedTransaction, decoded: Decoded
   }
 
   // Payloads of existing proposals this transaction votes on or executes: load them from chain.
-  const toLoad = new Map<string, string | null>();
+  const toLoad = new Map<string, { transactionIndex: string | null; batch: string | null }>();
   for (const { ix } of squads) {
     if (!multisig || !["vote", "execute", "activate-proposal"].includes(ix.kind)) continue;
     const proposal = out.proposals.find((p) => p.address === ix.accounts.proposal);
     const txAddr = ix.accounts.transaction ?? (proposal?.transactionIndex ? transactionPda(multisig, proposal.transactionIndex) : null);
-    if (txAddr && !payloadFor.has(txAddr)) toLoad.set(txAddr, proposal?.transactionIndex ?? null);
+    if (txAddr && !payloadFor.has(txAddr)) toLoad.set(txAddr, { transactionIndex: proposal?.transactionIndex ?? null, batch: ix.accounts.batch ?? null });
   }
-  for (const [txAddr, transactionIndex] of toLoad) {
-    const payload = await payloadFromTransactionAccount(txAddr, transactionIndex, await fetchSquadsAccount(txAddr), ctx, out.configActions);
-    if (payload) out.payloads.push(payload);
+  for (const [txAddr, meta] of toLoad) {
+    out.payloads.push(...(await payloadsFromTransactionAccount(txAddr, meta.transactionIndex, await fetchSquadsAccount(txAddr), ctx, out.configActions, meta.batch)));
   }
 
   // Already-executed or simulated execution: the vault's calls appear as CPIs of the execute instruction.

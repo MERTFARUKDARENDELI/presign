@@ -43,6 +43,19 @@ export function vaultTransactionBytes(multisig: string, creator: string, index: 
   return w.done();
 }
 
+export function batchAccountBytes(multisig: string, creator: string, index: bigint, vaultIndex: number, size: number, executed = 0) {
+  return new W().hex(SQUADS_ACCOUNT_DISCRIMINATOR.Batch).key(multisig).key(creator).u64(index).u8(255).u8(vaultIndex).u8(255).u32(size).u32(executed).done();
+}
+
+export function vaultBatchTransactionBytes(m: SquadsMessage) {
+  const w = new W().hex(SQUADS_ACCOUNT_DISCRIMINATOR.VaultBatchTransaction).u8(255).bytes([])
+    .u8(m.numSigners).u8(m.numWritableSigners).u8(m.numWritableNonSigners).u32(m.accountKeys.length);
+  m.accountKeys.forEach((k) => w.key(k));
+  w.u32(m.instructions.length);
+  m.instructions.forEach((ix) => w.u8(ix.programIdIndex).bytes(ix.accountIndexes).bytes(ix.data));
+  return w.u32(0).done();
+}
+
 /** A System transfer of `lamports` from the vault (index 0 signer) to `to`. */
 export function vaultSolTransfer(vault: string, to: string, lamports: bigint): SquadsMessage {
   return {

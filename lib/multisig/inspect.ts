@@ -9,7 +9,7 @@ import { SQUADS_ACCOUNT_DISCRIMINATOR, SQUADS_V4_PROGRAM_ID } from "@/lib/squads
 import { hex } from "@/lib/squads/borsh";
 import { decodeConfigTransactionAccount, decodeProposalAccount, decodeVaultTransactionAccount } from "@/lib/squads/decode";
 import { controlledAddresses, proposalPda, transactionPda, vaultPda } from "@/lib/squads/pda";
-import { feePayerCandidates, loadMultisigAccount, payloadFromTransactionAccount, proposalRefFrom } from "./analyze";
+import { feePayerCandidates, loadMultisigAccount, payloadsFromTransactionAccount, proposalRefFrom } from "./analyze";
 import { fetchSquadsAccounts, type SquadsFetch } from "./chain";
 import { parseInspectInput } from "./input";
 import type { InspectResult, MultisigAnalysis, MultisigOverview, ProposalInspection, ProposalSummary } from "./types";
@@ -52,10 +52,9 @@ export async function inspectProposal(multisig: string, index: string, signer: s
     malformed: [],
   };
   const ctx = { controlled: new Set(controlled), members: new Set(loaded.account?.members.map((m) => m.key) ?? []), feePayers: feePayerCandidates(loaded.account, signer ? [signer] : []) };
-  const payload = await payloadFromTransactionAccount(transactionAddress, index, txFetch, ctx, analysis.configActions);
-  if (payload) analysis.payloads.push(payload);
+  analysis.payloads.push(...(await payloadsFromTransactionAccount(transactionAddress, index, txFetch, ctx, analysis.configActions)));
   const disc = discriminatorOf(txFetch);
-  const transactionKind = disc === SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction ? "vault" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction ? "config" : "missing";
+  const transactionKind = disc === SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction ? "vault" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.Batch ? "batch" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction ? "config" : "missing";
   const stale = loaded.account ? BigInt(index) <= BigInt(loaded.account.staleTransactionIndex) : false;
   const risk = evaluateProposalRisk(analysis, signer);
   logger.info("multisig.inspected", { kind: transactionKind, level: risk.level, status: risk.status });
@@ -87,19 +86,8 @@ export async function inspectMultisig(multisig: string, signer: string | null = 
         return { ...base, status: "UNREADABLE" as const, statusTimestamp: null, approvals: 0, rejections: 0 };
       }
     }
-    const txExists = tf.status === "OK" && (() => {
-      try {
-        decodeVaultTransactionAccount(tf.data);
-        return true;
-      } catch {
-        try {
-          decodeConfigTransactionAccount(tf.data);
-          return true;
-        } catch {
-          return false;
-        }
-      }
-    })();
+    const d = discriminatorOf(tf);
+    const txExists = d === SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction || d === SQUADS_ACCOUNT_DISCRIMINATOR.Batch || d === SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction;
     return { ...base, status: txExists ? ("NO_PROPOSAL" as const) : ("NOT_FOUND" as const), statusTimestamp: null, approvals: 0, rejections: 0 };
   });
 

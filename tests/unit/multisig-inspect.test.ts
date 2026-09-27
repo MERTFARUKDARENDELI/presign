@@ -9,11 +9,11 @@ import { foreignSignersOf, withFeePayer } from "@/lib/multisig/payload";
 import { rpcCall } from "@/lib/solana/client";
 import { SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import { toVersionedTransaction } from "@/lib/squads/decode";
-import { ephemeralSignerPda, proposalPda, transactionPda, vaultPda } from "@/lib/squads/pda";
+import { batchTransactionPda, ephemeralSignerPda, proposalPda, transactionPda, vaultPda } from "@/lib/squads/pda";
 import { decodeTransaction } from "@/lib/transaction/decoder";
 import { simulateTransaction, type SimulationOutput } from "@/lib/transaction/simulate";
 import { key } from "../helpers/fixtures";
-import { accountInfoValue, DEFAULT_PUBKEY, multisigAccountBytes, proposalAccountBytes, vaultSolTransfer, vaultTransactionBytes, type ChainAccount } from "../helpers/squads";
+import { accountInfoValue, batchAccountBytes, DEFAULT_PUBKEY, multisigAccountBytes, proposalAccountBytes, vaultBatchTransactionBytes, vaultSolTransfer, vaultTransactionBytes, type ChainAccount } from "../helpers/squads";
 
 vi.mock("@/lib/solana/client", async (importOriginal) => ({ ...(await importOriginal<object>()), rpcCall: vi.fn() }));
 vi.mock("@/lib/transaction/simulate", async (importOriginal) => ({ ...(await importOriginal<object>()), simulateTransaction: vi.fn() }));
@@ -152,6 +152,22 @@ describe("proposal inspection", () => {
     expect(p.decoded!.instructions[0].type).toBe("system:transfer");
     expect(p.simulationNote).toMatch(/lookup table/);
     expect(simulate).not.toHaveBeenCalled();
+  });
+
+  it("a batch proposal inspects each of its transactions; a missing one is unverified, not ignored", async () => {
+    const accounts = chain();
+    accounts.set(transactionPda(MS, 3n), { data: batchAccountBytes(MS, M1, 3n, 0, 3), owner: SQUADS_V4_PROGRAM_ID });
+    accounts.set(batchTransactionPda(MS, 3n, 1), { data: vaultBatchTransactionBytes(vaultSolTransfer(VAULT, M2, 1n)), owner: SQUADS_V4_PROGRAM_ID });
+    accounts.set(batchTransactionPda(MS, 3n, 2), { data: vaultBatchTransactionBytes(vaultSolTransfer(VAULT, OUTSIDER, 7n)), owner: SQUADS_V4_PROGRAM_ID });
+    serve(accounts);
+    simulate.mockRejectedValue(new Error("no simulation"));
+    const r = await inspect(`${MS} #3`);
+    if (r.kind !== "proposal") throw new Error("expected proposal");
+    expect(r.inspection.transactionKind).toBe("batch");
+    const payloads = r.inspection.analysis.payloads;
+    expect(payloads.map((p) => [p.transactionIndex, p.status])).toEqual([["3.1", "DECODED"], ["3.2", "DECODED"], ["3.3", "UNAVAILABLE"]]);
+    expect(payloads[1].decoded!.solTransfers[0]).toMatchObject({ from: VAULT, to: OUTSIDER, lamports: "7" });
+    expect(r.inspection.risk.signals.map((s) => s.code)).toContain(`MS_PAYLOAD_UNVERIFIED:${batchTransactionPda(MS, 3n, 3)}`);
   });
 
   it("explains a non-Squads address instead of guessing", async () => {

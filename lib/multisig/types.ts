@@ -100,7 +100,7 @@ export interface ProposalInspection {
   transactionIndex: string;
   proposalAddress: string;
   transactionAddress: string;
-  transactionKind: "vault" | "config" | "missing";
+  transactionKind: "vault" | "batch" | "config" | "missing";
   stale: boolean;
   analysis: MultisigAnalysis;
   risk: RiskAssessment;

@@ -1,152 +1,96 @@
-# AI Web3 Security Agent & Defender
+# Presign — know exactly what you sign
 
-> **Simulate before you sign. Detect scams. Clean your wallet.**
->
-> We don't just show risks. We simulate attacks before they happen, and help users clean their wallets.
+Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or the transaction you are about to sign), decodes every instruction the vault would run, simulates it, and tells each signer — in one sentence, with evidence — **what it does and who controls what afterwards**.
 
-A Solana security tool that scans wallets, tokens, NFTs/cNFTs and transactions with a **deterministic, evidence-based risk engine**, simulates transactions before signing, explains the results with an AI agent that cannot change them, and helps users burn, close and revoke eligible token accounts — signed only in their own wallet.
+> On April 1, 2026, ~$285M left Drift Protocol in minutes. There was no contract bug and no stolen key: two of five Security Council members had pre-signed durable-nonce transactions they could not read, on a 2-of-5 multisig with no time lock. Run Presign on the exact bytes they signed and it answers **CRITICAL — "Admin moves outside the multisig" · "This signature never expires"** before anything is executed. See [`/case/drift`](app/case/drift/page.tsx).
 
-> ⚠️ Hackathon / research project. The code aims for production-quality engineering, but it is **not a production-ready product**: the cleanup signing path has not been executed on-chain yet, and wallet/browser behavior has not been tested on real devices. See [Limitations](#limitations) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
+## Why
 
-## What works today
+- **157,117** Squads v4 multisigs exist on Solana mainnet; **98.2%** have no time lock, so an approved proposal executes the moment its threshold is reached. Of 36 widely used programs, **13** are upgradeable through a Squads v4 multisig and **8** of those have no time lock. ([read-only census](docs/research/multisig-census.json), 2026-09-27)
+- Signers see bytes and a Squads UI summary. Wallet previews are built for dApp drainers, not for governance: they do not tell you that an `updateAdmin` argument hands your protocol to an address the multisig does not control, or that a signature will stay valid for weeks.
 
-| Feature | State |
-|---|---|
-| Wallet scan (SOL, SPL + Token-2022 accounts, NFTs/cNFTs via Helius DAS) | Verified against mainnet |
-| Token security (authorities, Token-2022 extensions, RugCheck liquidity/holders, on-chain concentration, phishing names) | Verified against mainnet |
-| cNFT / NFT spam & phishing-lure detection | Verified against mainnet |
-| Transaction decode (legacy + v0 with lookup tables) | Verified against mainnet |
-| Pre-sign simulation with balance/state diffs | Verified against mainnet |
-| Transaction risk (outflows, drains, approvals, authority changes, durable nonce…) | Unit-tested + mainnet |
-| Cleanup: eligibility, unsigned tx build, simulation, fee check, reclaim estimate | Verified (prepare/simulate only) |
-| Cleanup: wallet signing → submit → confirm → post-state check | Implemented, **not yet executed on-chain** |
-| AI Security Agent | Implemented + mock-tested; live model blocked by an invalid API key in this environment |
-| Demo Mode (no wallet needed) | Verified, deterministic |
+## What it does
 
-## Architecture
+| Surface | For | What you get |
+|---|---|---|
+| **`/verify`** | Multisig signers | Paste a Squads link, a proposal / transaction / multisig address, or `<multisig> #<n>` → the proposal brief, votes, decoded vault instructions, simulated vault balance changes, and every authority change classified as *outside the multisig / single member / removed / internal*. A multisig address gives its setup risks and recent proposals with verdicts. |
+| **`/transaction`** | Anyone about to sign | Paste the serialized transaction (or a signature) → decode, simulate, rules. Squads approvals include the proposal they approve; durable nonces are flagged; the message hash is shown to compare on a hardware wallet. |
+| **Watchtower** | Protocol & treasury teams | Watches multisigs and sends each new proposal's brief to every signer on Telegram / Slack / Discord — an independent second channel. |
+| **HTTP API & MCP server** | Wallets, custodians, bots, AI agents | The same engine as JSON, and as MCP tools for agents. Every result carries a deterministic `gate`: `block` / `require_human_review` / `no_known_risk`. |
+| **Wallet & token tools** | Holders | The original scanner: token authorities, Token-2022 extensions, concentration, age, metadata phishing, cleanup (burn / close / revoke). |
+
+### Detections (deterministic, evidence-linked)
+
+- **Authority leaving the multisig** — admin / upgrade / token authority handed to an address that is not the multisig, one of its vaults, or a member (CRITICAL); to a single member (HIGH); removed permanently (HIGH).
+- **Approvals that never expire** — Squads create / approve / execute inside a durable-nonce transaction (CRITICAL).
+- **Treasury drains** — the vault's simulated balance changes: outflows, near-total drains, approvals.
+- **Governance weakening** — threshold lowered or set to 1, time lock removed, members added / removed, single-key config authority.
+- **Unverifiable content** — proposals whose contents cannot be loaded or decoded are never "no risk"; required signers the multisig cannot provide are flagged.
+- **Setup posture** — no time lock, minority threshold, single signature, controlled config.
+- Plus everything from the transaction engine: unlimited approvals, owner reassignment, CPI guard, unexpected outflows, phishing links in memos.
+
+## How it works
 
 ```text
-Browser (Next.js client)                      Server (Next.js route handlers)                 External
-─────────────────────────                     ────────────────────────────────                ────────
-Wallet (Wallet Standard) ─ public key only ─▶  /api/wallet/scan ─┐
-Dashboard / Tx / Demo UI  ─────────────────▶  /api/token         │   lib/solana   ── RPC client ─▶ Helius RPC ─(fallback)▶ public RPC
-                                              /api/transaction   ├─▶ lib/token    ── RugCheck (external opinion)
-AI chat ───────────────────────────────────▶  /api/ai/chat       │   lib/transaction (decode · simulate · effects)
-                                              /api/cleanup/*     │   lib/security (rules · deterministic engine)
-Confirmation screen:                          /api/demo          │   lib/cleanup (capabilities · intent · prepare · submit)
-  decode bytes → verify vs intent → hash                          └─▶ lib/ai (read-only tools · sanitize · evidence contract) ─▶ OpenAI
-  → wallet.signTransaction → re-hash
-  → /api/cleanup/submit (re-verify, relay)
+input (Squads link · address · serialized tx · signature)
+  → load from chain       multisig config, proposal, vault / config transaction, transaction buffer
+  → decode                Squads v4 (36 instructions, 5 accounts), SPL Token, Token-2022, System,
+                          BPF upgradeable loader, and any Anchor program via its on-chain IDL
+  → simulate              the vault message as-is, with an executing member prepended as fee payer
+  → rules                 deterministic; every signal cites the instruction, account or IDL field
+  → brief + gate          one screen for humans, one word for machines
 ```
 
-Flow: **Wallet → Blockchain data → Token security → Transaction decode → Simulation → Risk engine → AI explanation → User warning → Scam detection → Cleanup eligibility → Burn / Revoke / Close / Reclaim**
+Design rules carried over from the original engine:
 
-### Key design rules
+- **Risk level and analysis status are separate.** `SAFE` is only possible when every required check completed; missing data yields `UNKNOWN` / `PARTIAL`, never `SAFE`.
+- **Every signal references evidence** (source, observed value, rule); the engine throws if one does not.
+- **Names from an IDL state intent, not behavior**, and are labelled as such. An IDL account not owned by the program is ignored.
+- **The AI layer explains; it never decides.** Verdicts and gates come from rules.
+- **Read-only.** No keys, no seed phrases, no server-side signing.
 
-- **Risk level and analysis status are separate.** Levels: `SAFE · LOW · MEDIUM · HIGH · CRITICAL`, plus `UNKNOWN` ("Unrated"). Status: `COMPLETE · PARTIAL · INSUFFICIENT_DATA · UNAVAILABLE`. `SAFE` is only possible when every required check completed; missing data yields `UNKNOWN`, never `SAFE`.
-- **Every risk signal must reference evidence** (source, observed value, rule). The engine throws if a signal has no evidence.
-- **Data sources are labelled**: on-chain RPC, Helius DAS, RugCheck (external opinion), simulation, decoder, deterministic rule, DEMO.
-- **Simulation success ≠ safe.** It only means the transaction would execute.
-- **Unknown address / program / domain ≠ malicious.** It is shown as "unverified".
-- **u64 values are decimal strings end-to-end**; no `number` conversions of lamports or token amounts.
+## Getting started
+
+Requirements: Node.js 24 (22.18+ for the Watchtower / MCP scripts), npm, a Helius API key (recommended).
+
+```bash
+npm install
+cp .env.example .env.local        # set HELIUS_API_KEY; SOLANA_CLUSTER=mainnet-beta for real multisigs
+npm run dev                       # http://localhost:3000
+```
+
+```bash
+npm run typecheck && npm run lint && npm test && npm run build
+npm run watchtower                # WATCH_MULTISIGS=… (reads .env.local); add -- --once for one cycle
+npm run mcp                       # MCP server on stdio; PRESIGN_API_URL points at your instance
+node scripts/research/multisig-census.ts   # re-run the mainnet census (read-only)
+```
+
+API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`](app/docs/page.tsx).
+
+## Verification status
+
+- **Mainnet, read-only:** both Drift exploit transactions analyzed by signature and from their unsigned bytes (CRITICAL); the Drift Security Council multisig inspected live (proposal #7 admin takeover; #8 / #9 require the attacker's key as signer); census of all 157,117 Squads v4 multisigs; MCP and Watchtower exercised against a running instance.
+- **Tests:** deterministic, no network (RPC mocked at the edge). Squads discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes.
+- **Not yet verified:** Telegram / webhook delivery against real endpoints (formatting and escaping are unit-tested); buffer-created proposals and batches against mainnet data (unit-tested with synthetic accounts); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live OpenAI explanations.
+
+## Limitations
+
+- Squads v4 only (v3 and other multisig programs are not decoded). Batches are inspected up to their first 10 transactions; larger batches are reported as partially inspected.
+- Name-based classification of Anchor instructions (e.g. `update_admin`) depends on the program publishing an IDL; without one, the payload is reported `PARTIAL`, not safe.
+- Vault simulation reflects current state; it can differ at execution. Programs loaded from lookup tables cannot be simulated as a regular transaction and are reported as such.
+- Rate limiting and caching are in-memory (per instance). Watchtower state is a local JSON file.
 
 ## Security model
 
 | Invariant | How it is enforced |
 |---|---|
-| Server never signs | The server only builds **unsigned** transactions and relays bytes the user's wallet signed. No keypairs exist server-side. |
-| AI never signs | AI tools are read-only (`get_wallet_security_overview`, `find_scam_tokens`, `analyze_token`, `analyze_transaction`, `get_cleanup_options`); a test asserts no signing/sending tool exists. |
-| No private keys / seed phrases | No input for them anywhere; chat warns if a seed-phrase-like text is pasted. |
-| No transaction without user confirmation | Confirmation screen + explicit acknowledgement; wallet approval required. |
-| Confirmed tx == signed tx | The confirmation screen decodes the actual bytes; `verifyCleanupTransaction` rebuilds the expected instructions from the displayed intent and blocks on any change of program, accounts, mint, amount, destination, authority, fee payer or extra instructions. The message hash is checked before signing, after signing (wallet must not modify it) and again on the server → `SECURITY BLOCK`. |
-| Simulation before signing | Cleanup can only be signed if simulation succeeded, was not stale and showed the expected effect (account closed / delegate removed). |
-| Insufficient data ≠ SAFE | Engine + tests; provider failures degrade to `PARTIAL` / `INSUFFICIENT_DATA`. |
-| Fallback capability checks | Helius DAS methods never fall back to public RPC; enhanced data is reported unavailable instead. |
-| cNFT ≠ SPL cleanup | cNFTs are `UNSUPPORTED` for burn/close (Bubblegum + Merkle proof not implemented). |
-| Untrusted metadata | Token/NFT names, descriptions, memos and logs are wrapped as `{"untrusted": …}` for the AI, hidden Unicode stripped, injection attempts flagged; AI citations to non-existent evidence are removed. |
-| Secrets | Server-only env vars; client bundle scanned for keys; logger redacts keys, seeds, `api-key=` URLs and `sk-…` strings; wallet addresses masked in logs. |
-| Abuse | zod validation on every route, body size caps, per-route rate limits, RPC timeouts with bounded exponential backoff. |
-| Clickjacking of the signing screen | `X-Frame-Options: DENY` + `frame-ancestors 'none'`. |
+| Never signs, never holds keys | No keypairs server-side; Watchtower and MCP only read through the API. |
+| Missing data ≠ safe | Engine + tests; unavailable payloads raise signals, incomplete analyses cannot reach `no_known_risk`. |
+| Untrusted text | Memos, logs, IDL names and metadata are treated as data; links are defanged; Telegram HTML is escaped. |
+| Secrets | Server-only env vars; client bundle scanned; logger redacts keys; Watchtower never logs its bot token. |
+| Abuse | zod validation, body size caps, per-route rate limits, RPC timeouts with bounded backoff. |
 
-## Supported / unsupported operations
+## License
 
-| Asset | Burn & close | Close (empty) | Revoke delegate |
-|---|---|---|---|
-| SPL Token | Supported | Supported | Supported |
-| Token-2022 | Partially (blocked by withheld fees, confidential balances, paused mint, unknown mint state → manual review) | Partially | Supported (account delegate; a mint **Permanent Delegate cannot be revoked** by holders) |
-| Wrapped SOL | Never burned | Supported (unwraps) | Supported |
-| Metaplex NFT / pNFT | Requires manual review (needs Metaplex burn) | Manual review | Supported (not for frozen pNFTs) |
-| Compressed NFT (cNFT) | **Unsupported** | Not applicable | **Unsupported** |
-| Frozen account | Unsupported | Unsupported | Unsupported |
-| Foreign close authority | Unsupported | Unsupported | — |
-
-Reclaim values are **estimates, not guaranteed profit**: rent is only returned if the transaction succeeds, and the network fee is paid either way. If the wallet can't cover the fee the UI stops with: *"İşlem yapmak için cüzdanınızda yeterli SOL bulunmamaktadır."*
-
-## Demo Mode
-
-`/demo` runs without a wallet. A synthetic, deterministic wallet (scam token with phishing name, Token-2022 permanent-delegate token, frozen honeypot, active delegation, empty account, phishing cNFT) and a suspicious transaction (**50 USDC to an unknown address + unlimited approval**) are processed by the **real** parsers, risk rules, decoder, capability matrix and integrity verifier. Every evidence item is labelled `DEMO`, nothing touches a blockchain, and signing is disabled — the cleanup demo shows the same confirmation screen and integrity check, then applies a demo outcome.
-
-Demo walkthrough: **Wallet scan → Risk detection → Suspicious transaction (simulation, 50 USDC outflow) → Scam & cNFT detection → Cleanup (burn / close / revoke / reclaim; unsupported cases shown honestly)**.
-
-## Getting started
-
-Requirements: Node.js 24+, npm.
-
-```bash
-npm install
-cp .env.example .env.local   # Windows: copy .env.example .env.local
-npm run dev                  # http://localhost:3000
-```
-
-Environment (`.env.example` documents all options):
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `HELIUS_API_KEY` | recommended | Primary RPC + DAS (metadata, NFTs, cNFTs). Without it, only public-RPC data is available and results are PARTIAL. |
-| `OPENAI_API_KEY` | optional | AI agent. Without it, deterministic summaries are shown. |
-| `OPENAI_MODEL` | optional | Defaults to `gpt-4.1-mini`. |
-| `SOLANA_CLUSTER` / `NEXT_PUBLIC_SOLANA_CLUSTER` | optional | `mainnet-beta` (default) or `devnet`. **Test cleanup on devnet first.** |
-| `SOLANA_FALLBACK_RPC_URL`, `SOLANA_DISABLE_PUBLIC_FALLBACK`, `RUGCHECK_DISABLED` | optional | Resilience controls. |
-
-Scripts:
-
-```bash
-npm run typecheck   # tsc --noEmit
-npm run lint        # eslint app components lib tests
-npm test            # vitest (99 deterministic tests, no network)
-npm run build
-```
-
-## API
-
-| Route | Description |
-|---|---|
-| `GET /api/health` | Capability flags (never secrets) |
-| `GET /api/wallet?address=` | Normalized wallet snapshot |
-| `GET /api/wallet/scan?address=` | Full security scan (tokens, assets, wallet risk, cleanup eligibility, metrics) |
-| `GET /api/wallet/history?address=` | Recent signatures |
-| `GET /api/token?mint=` | Deep token analysis |
-| `POST /api/transaction/analyze` | `{ input, walletAddress? }` → decode + simulate + risk |
-| `POST /api/cleanup/prepare` | `{ owner, tokenAccount, action }` → unsigned tx + simulation + confirmation data |
-| `POST /api/cleanup/submit` | `{ signedTransaction, expectedMessageHash, intent }` → re-verified relay + confirmation |
-| `POST /api/ai/chat` | `{ messages, walletAddress?, demo? }` |
-| `GET /api/demo`, `POST /api/demo/cleanup` | Demo data |
-
-All responses use `{ success, data, error }`; bigint values are serialized as strings.
-
-## Limitations
-
-- **Cleanup signing path not executed on-chain.** Prepare + simulation were verified on mainnet; wallet signing, submission and confirmation still need a devnet run with a real wallet.
-- Wallet connection not tested with real Phantom/Solflare extensions or mobile in-app browsers.
-- AI agent verified only with a mock model (the configured OpenAI key was rejected).
-- Wallet scans analyze at most 40 tokens (fungible first); the rest are shown as "Unrated" and the analysis is PARTIAL.
-- Some spam-heavy wallets carry NFTs with multi-megabyte metadata that exceed Helius' response cap; NFT/cNFT results are then partial or unavailable and reported as such.
-- RugCheck is an external opinion source; when it has no market data, liquidity/holders are unknown (not "low").
-- Rate limiting and caching are in-memory (per instance).
-- Transaction risk has no address-reputation data; unknown destinations are only "unverified".
-- `npm audit` reports advisories in transitive Solana dependencies (`bigint-buffer`, `uuid`, `stream-json`); `bigint-buffer` runs in pure-JS fallback here.
-- Not implemented yet: address intelligence, market data, alerts, realtime monitoring, URL phishing checker, exportable reports.
-
-## Disclaimer
-
-No security tool can detect every malicious token or transaction. Results are evidence-based signals, not guarantees; you make the final decision. This app never asks for private keys or seed phrases.
+[Apache-2.0](LICENSE). Results are evidence-based signals, not guarantees; the decision to sign is yours.

@@ -9,7 +9,7 @@
     "lint": "eslint app components lib tests watchtower mcp scripts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "watchtower": "node watchtower/main.ts",
+    "watchtower": "node --env-file-if-exists=.env.local watchtower/main.ts",
     "mcp": "node mcp/server.ts"
   },
   "dependencies": {

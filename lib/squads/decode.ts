@@ -8,6 +8,7 @@ import {
   type SquadsIxName,
 } from "./constants";
 import type {
+  BatchAccount,
   ConfigAction,
   ConfigTransactionAccount,
   MultisigAccount,
@@ -19,6 +20,7 @@ import type {
   SquadsMessage,
   SquadsPermission,
   TransactionBufferAccount,
+  VaultBatchTransactionAccount,
   VaultTransactionAccount,
 } from "./types";
 
@@ -340,6 +342,24 @@ export function decodeVaultTransactionAccount(data: Uint8Array): VaultTransactio
   r.u8();
   const ephemeralSignerCount = r.bytes().length;
   return { multisig, creator, index, vaultIndex, ephemeralSignerCount, message: vaultTransactionMessage(r) };
+}
+
+export function decodeBatchAccount(data: Uint8Array): BatchAccount {
+  const r = expectDiscriminator(data, SQUADS_ACCOUNT_DISCRIMINATOR.Batch, "Batch");
+  const multisig = r.pubkey();
+  const creator = r.pubkey();
+  const index = r.u64().toString();
+  r.u8();
+  const vaultIndex = r.u8();
+  r.u8();
+  return { multisig, creator, index, vaultIndex, size: r.u32(), executedTransactionIndex: r.u32() };
+}
+
+export function decodeVaultBatchTransactionAccount(data: Uint8Array): VaultBatchTransactionAccount {
+  const r = expectDiscriminator(data, SQUADS_ACCOUNT_DISCRIMINATOR.VaultBatchTransaction, "VaultBatchTransaction");
+  r.u8();
+  const ephemeralSignerCount = r.bytes().length;
+  return { ephemeralSignerCount, message: vaultTransactionMessage(r) };
 }
 
 export function decodeConfigTransactionAccount(data: Uint8Array): ConfigTransactionAccount {

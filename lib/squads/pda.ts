@@ -28,6 +28,13 @@ export function proposalPda(multisig: string, index: bigint | string): string {
   return pda([enc(SQUADS_SEED.prefix), new PublicKey(multisig).toBytes(), enc(SQUADS_SEED.transaction), u64le(index), enc(SQUADS_SEED.proposal)]);
 }
 
+/** A transaction inside a batch; batch transaction indexes start at 1. */
+export function batchTransactionPda(multisig: string, batchIndex: bigint | string, transactionIndex: number): string {
+  const idx = new Uint8Array(4);
+  new DataView(idx.buffer).setUint32(0, transactionIndex, true);
+  return pda([enc(SQUADS_SEED.prefix), new PublicKey(multisig).toBytes(), enc(SQUADS_SEED.transaction), u64le(batchIndex), enc(SQUADS_SEED.batchTransaction), idx]);
+}
+
 export function ephemeralSignerPda(transaction: string, index: number): string {
   return pda([enc(SQUADS_SEED.prefix), new PublicKey(transaction).toBytes(), enc(SQUADS_SEED.ephemeralSigner), Uint8Array.of(index)]);
 }

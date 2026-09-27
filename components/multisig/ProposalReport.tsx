@@ -56,7 +56,7 @@ export function ProposalReport({ inspection }: { inspection: ProposalInspection 
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold">Proposal risk</h2>
           <span className="text-xs text-zinc-500">
-            proposal #{inspection.transactionIndex} · {inspection.transactionKind === "config" ? "configuration change" : inspection.transactionKind === "vault" ? "vault transaction" : "transaction account missing"} · {inspection.cluster}
+            proposal #{inspection.transactionIndex} · {inspection.transactionKind === "config" ? "configuration change" : inspection.transactionKind === "vault" ? "vault transaction" : inspection.transactionKind === "batch" ? "batch of vault transactions" : "transaction account missing"} · {inspection.cluster}
           </span>
           {inspection.stale && <span className="rounded border border-amber-500/40 px-1.5 text-[11px] text-amber-200" title="Created before the last configuration change; it can no longer be executed.">stale</span>}
         </div>

@@ -127,7 +127,12 @@ export const SQUADS_ACCOUNT_DISCRIMINATOR = {
   VaultTransaction: "a8faa264510ea2cf",
   ConfigTransaction: "5e080423718b8b70",
   TransactionBuffer: "5a2423db5de16e60",
+  Batch: "9cc2462c1658892c",
+  VaultBatchTransaction: "c4792e240c13fc07",
 } as const;
+
+/** Batch transactions loaded per batch; larger batches are reported as partially inspected. */
+export const SQUADS_BATCH_LIMIT = 10;
 
 /** Member permission bits (Squads `Permissions.mask`). */
 export const SQUADS_PERMISSION = { Initiate: 1, Vote: 2, Execute: 4 } as const;
@@ -138,6 +143,7 @@ export const SQUADS_SEED = {
   transaction: "transaction",
   proposal: "proposal",
   ephemeralSigner: "ephemeral_signer",
+  batchTransaction: "batch_transaction",
 } as const;
 
 /** Vault indexes checked when deciding whether an address is controlled by a multisig. */

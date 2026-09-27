@@ -1,10 +1,51 @@
-# Project Status — AI Web3 Security Agent & Defender
+# Project Status — Presign
 
-Last updated: 2026-09-25. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
+Last updated: 2026-09-27. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
 
-"VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready" — see Limitations.
+"VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready".
 
-Nothing is committed yet: all work since commit `c3ee9ab` is in the working tree only.
+The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** and refocused on pre-sign verification for Solana multisigs. The history below the Presign section describes the original engine, which Presign builds on.
+
+## Presign (2026-09-27)
+
+### Verification baseline
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | pass |
+| `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
+| `npm test` | **362 tests / 29 files** pass (no network; RPC mocked at the edge) |
+| `npm run build` | pass, 24 routes (new: `/verify`, `/case/drift`, `/docs`, `/api/multisig/inspect`) |
+| Client bundle secret scan | 39 files, 0 hits for server-only values |
+| Live mainnet (read-only) | see below |
+
+### Components
+
+| Area | Status | Notes |
+|---|---|---|
+| Squads v4 decoder (36 instructions; Multisig, Proposal, VaultTransaction, ConfigTransaction, TransactionBuffer, Batch, VaultBatchTransaction accounts; PDAs) | VERIFIED (live) | Discriminators recomputed from names in tests; decoded the real Drift exploit bytes; PDAs match on-chain addresses |
+| Anchor IDL decoding (legacy + 0.30 formats) from the program's on-chain IDL account | VERIFIED (live) | Drift `updateAdmin(admin)` decoded live; IDL accounts not owned by the program are ignored; unsupported arg types stop decoding (marked incomplete) |
+| BPF upgradeable loader decoding | VERIFIED | unit tests (upgrade, set authority, immutable) |
+| Multisig layer (config, proposals, payloads from args / accounts / buffers / batches, privileged actions, foreign signers) | VERIFIED (live) | Drift Security Council proposals #7 (admin → attacker, CRITICAL), #8 / #9 (require the attacker's key as signer) |
+| Vault payload simulation (executing member as fee payer) | IMPLEMENTED | unit-tested with mocked simulation; live simulations of historical Drift proposals fail against today's state, as reported |
+| Rules (durable-nonce governance, authority leaving multisig, time lock, thresholds, config changes, unverifiable payloads, vault outflows) and posture | VERIFIED | unit + live |
+| Proposal inspector API + `/verify` UI | VERIFIED (live) | headless browser on the Drift multisig overview and proposal #7 |
+| `/case/drift` replay | VERIFIED (live) | both pre-signed transactions analyzed from unsigned bytes in the browser: CRITICAL |
+| Brief + deterministic gate in API responses | VERIFIED | unit + live |
+| Watchtower | PARTIAL | one live cycle against the Drift multisig (console delivery). Telegram / webhook delivery not exercised against real endpoints (needs a bot token) |
+| MCP server | VERIFIED (live) | stdio session: initialize → tools/call on Drift #7 returned `gate: block` |
+| Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
+
+### Open items
+
+1. Deployment (needs the team's hosting account) and a public repository.
+2. Telegram / webhook delivery test with a real bot.
+3. Buffer-created proposals and batches against real mainnet examples.
+4. Items carried over from the original engine: wallet-extension signing, mobile wallets, live OpenAI key.
+
+## Original engine (history)
+
+Nothing below reflects the Presign work; it is kept as the record of the engine's validation.
 
 ## Verification baseline (re-run 2026-09-25, after the read-only live validation)
 
