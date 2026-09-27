@@ -21,10 +21,52 @@ export interface TransactionExplanation {
 
 const short = (a: string | null | undefined) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : "unknown");
 
-function describeInstruction(i: DecodedInstruction, symbols: Record<string, string>): string {
+function describeSquads(i: DecodedInstruction): string {
+  const f = i.info;
+  switch (i.type.slice("squads:".length)) {
+    case "vaultTransactionCreate":
+    case "vaultTransactionCreateFromBuffer":
+      return `Create a multisig transaction for vault ${f.vaultIndex ?? "?"}${f.vaultInstructions ? ` (${f.vaultInstructions} instruction(s) inside)` : ""}.`;
+    case "proposalCreate":
+      return `Create multisig proposal #${f.transactionIndex ?? "?"}.`;
+    case "proposalActivate":
+      return `Open proposal ${short(f.proposal)} for voting.`;
+    case "proposalApprove":
+      return `Vote YES on proposal ${short(f.proposal)}.`;
+    case "proposalReject":
+      return `Vote NO on proposal ${short(f.proposal)}.`;
+    case "proposalCancel":
+    case "proposalCancelV2":
+      return `Vote to cancel proposal ${short(f.proposal)}.`;
+    case "vaultTransactionExecute":
+      return "Execute the multisig transaction: the vault performs its instructions now.";
+    case "configTransactionCreate":
+      return `Propose a multisig configuration change (${f.configActions ?? "?"}).`;
+    case "configTransactionExecute":
+      return "Execute a multisig configuration change.";
+    case "batchExecuteTransaction":
+      return "Execute one transaction of a multisig batch.";
+    default:
+      return `Squads multisig: ${i.type.slice("squads:".length)}.`;
+  }
+}
+
+export function describeInstruction(i: DecodedInstruction, symbols: Record<string, string> = {}): string {
   const f = i.info;
   const sym = (mint: string | null | undefined) => (mint ? (symbols[mint] ?? `token ${short(mint)}`) : "tokens");
+  if (i.type.startsWith("squads:")) return describeSquads(i);
+  if (i.type.startsWith("anchor:")) {
+    const args = Object.entries(f).filter(([k]) => !k.startsWith("_")).map(([k, v]) => `${k} = ${v === null ? "?" : v.length > 44 ? `${v.slice(0, 41)}…` : v}`);
+    return `${i.programName}: ${i.type.slice("anchor:".length)}(${args.join(", ")}) — named from the program's own on-chain IDL.`;
+  }
   switch (i.type) {
+    case "bpfLoader:upgrade":
+      return `Replace the code of program ${short(f.program)} with the contents of buffer ${short(f.buffer)}.`;
+    case "bpfLoader:setAuthority":
+    case "bpfLoader:setAuthorityChecked":
+      return f.newAuthority ? `Hand the upgrade authority of ${short(f.account)} to ${short(f.newAuthority)}.` : `Remove the upgrade authority of ${short(f.account)} — it can never be upgraded again.`;
+    case "bpfLoader:close":
+      return `Close program/buffer account ${short(f.account)}; its SOL goes to ${short(f.recipient)}.`;
     case "system:transfer":
     case "system:transferWithSeed":
       return `Send ${formatLamports(f.lamports ?? "0")} SOL from ${short(f.from)} to ${short(f.to)}.`;
@@ -119,6 +161,17 @@ export function explainTransaction(a: TransactionAnalysis, symbols: Record<strin
   }
   const cpiCount = a.decoded.innerInstructions.length;
   if (cpiCount > 0) whatHappens.push(`Programs make ${cpiCount} further internal call(s) (CPI), listed under the instructions.`);
+  // Multisig: what the vault itself would do if the proposal executes.
+  for (const p of a.multisig?.payloads ?? []) {
+    if (p.source === "EXECUTION_CPI") continue;
+    const label = p.transactionIndex ? `proposal #${p.transactionIndex}` : "the proposal";
+    if (!p.decoded) {
+      whatHappens.push(`The contents of ${label} could not be loaded (${p.detail ?? p.status}) — you would be authorizing something that could not be verified.`);
+      continue;
+    }
+    const steps = p.decoded.instructions.filter((i) => !i.type.startsWith("computeBudget:")).map((i) => describeInstruction(i, symbols));
+    whatHappens.push(`If ${label} executes, vault ${short(p.vault)} will: ${steps.join(" ")}`);
+  }
 
   const assetMovements: string[] = [];
   if (e) {

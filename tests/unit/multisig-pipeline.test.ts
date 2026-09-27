@@ -4,7 +4,9 @@ import { PublicKey, TransactionInstruction, VersionedTransaction } from "@solana
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearIdlCache, idlAddress, parseIdlAccount } from "@/lib/anchor/source";
 import { decodeAnchorInstruction, indexIdl, type AnchorIdl } from "@/lib/anchor/idl";
+import { buildSignerBrief } from "@/lib/multisig/brief";
 import { rpcCall } from "@/lib/solana/client";
+import { explainTransaction } from "@/lib/transaction/explain";
 import { BPF_LOADER_UPGRADEABLE_ID } from "@/lib/solana/constants";
 import { SQUADS_ACCOUNT_DISCRIMINATOR, SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import { decodeSquadsInstruction } from "@/lib/squads/decode";
@@ -149,6 +151,15 @@ describe("Drift exploit — pre-sign (the bytes Security Council member 1 signed
     const ev = a.risk.evidence.filter((e) => leave.evidenceIds.includes(e.id));
     expect(ev.some((e) => e.source === "ANCHOR_IDL" && String(e.observed).includes(ATTACKER_ADMIN))).toBe(true);
     expect(leave.description).toContain("or a member");
+
+    // The signer brief and the deterministic explanation say the same thing in plain words.
+    const brief = buildSignerBrief(a)!;
+    expect(brief.headline).toBe("You are about to create + approve proposal #7 of multisig 2LW6…hx88.");
+    expect(brief.neverExpires).toBe(true);
+    expect(brief.config).toBe("2 of 5 voting members · time lock none");
+    expect(brief.payloads[0].steps[0].privileged).toMatchObject({ kind: "admin-transfer", control: "outside", newAuthority: ATTACKER_ADMIN });
+    expect(brief.messageHash!.base58.length).toBeGreaterThan(40);
+    expect(explainTransaction(a).whatHappens.some((l) => l.startsWith("If proposal #7 executes") && l.includes("updateAdmin"))).toBe(true);
   });
 
   it("without the program's IDL the payload is PARTIAL — still CRITICAL from the nonce, never SAFE", async () => {

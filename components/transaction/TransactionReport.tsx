@@ -8,12 +8,16 @@ import type { TransactionAnalysis } from "@/lib/transaction/types";
 import { cn } from "@/lib/utils";
 import { Address, DemoBadge, RiskBadge, RISK_STYLES, StatusBadge } from "@/components/security/badges";
 import { RiskDetails } from "@/components/security/RiskDetails";
+import { SignerBrief } from "@/components/multisig/SignerBrief";
 
 /** Instruction fields for display. Memo text is untrusted: its links are shown only as defanged hosts. */
 function infoValue(key: string, value: string | null): string {
   if (value === null) return "null";
   return key === "memo" ? defangLinks(value) : value;
 }
+
+/** Decoder metadata (keys starting with "_") is not an instruction field. */
+const visibleInfo = (info: Record<string, string | null>) => Object.entries(info).filter(([k]) => !k.startsWith("_"));
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -55,6 +59,8 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
         {risk.level === "CRITICAL" && <p className="mb-3 rounded-lg bg-red-500/15 px-3 py-2 text-sm font-semibold text-red-200">Critical signals detected. Review the evidence carefully — the decision to sign is yours.</p>}
         <RiskDetails risk={risk} />
       </div>
+
+      <SignerBrief analysis={analysis} />
 
       <ExplanationCard analysis={analysis} symbols={symbols} />
 
@@ -131,10 +137,11 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
                 <span className="font-mono text-zinc-100">#{i.index} {i.type}</span>
                 <span className="text-zinc-500">{i.programName}</span>
                 {!i.parsed && <span className="rounded bg-amber-500/15 px-1.5 text-amber-200">not decoded — intent unknown ({i.dataLength} bytes)</span>}
+                {i.info._decodedBy && <span className="rounded bg-sky-500/15 px-1.5 text-sky-200" title="Names come from the program's own published IDL: they state intent, not verified behavior.">named via on-chain IDL</span>}
               </div>
-              {Object.keys(i.info).length > 0 && (
+              {visibleInfo(i.info).length > 0 && (
                 <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
-                  {Object.entries(i.info).map(([k, v]) => (
+                  {visibleInfo(i.info).map(([k, v]) => (
                     <div key={k} className="contents"><dt className="text-zinc-500">{k}</dt><dd className="break-all text-zinc-300">{infoValue(k, v)}</dd></div>
                   ))}
                 </dl>
@@ -159,8 +166,9 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
                 <span className="text-zinc-500">under #{i.parentIndex} →</span> <span className="font-mono text-zinc-200">{i.type}</span>{" "}
                 <span className="text-zinc-500">{i.programName}</span>
                 {i.programTrust === "unknown" && <span className="ml-1 rounded bg-amber-500/15 px-1 text-amber-200">unverified</span>}
-                {Object.keys(i.info).length > 0 && (
-                  <div className="mt-0.5 break-all font-mono text-[11px] text-zinc-400">{Object.entries(i.info).map(([k, v]) => `${k}=${infoValue(k, v)}`).join("  ")}</div>
+                {i.info._decodedBy && <span className="ml-1 rounded bg-sky-500/15 px-1 text-sky-200">via on-chain IDL</span>}
+                {visibleInfo(i.info).length > 0 && (
+                  <div className="mt-0.5 break-all font-mono text-[11px] text-zinc-400">{visibleInfo(i.info).map(([k, v]) => `${k}=${infoValue(k, v)}`).join("  ")}</div>
                 )}
               </li>
             ))}
