@@ -138,6 +138,14 @@ describe("Guard codec", () => {
     expect(keys).toContainEqual([TOKEN_PROGRAM_ID, false]);
     expect(ix.keys.some((k) => k.isSigner)).toBe(false);
   });
+
+  it("execute marks the guard signer writable when a scheduled instruction spends from it", () => {
+    const pay: GuardInstructionData = { programId: SystemProgram.programId.toBase58(), accounts: [{ pubkey: SIGNER, isSigner: true, isWritable: true }, { pubkey: OUTSIDER, isSigner: false, isWritable: true }], data: Uint8Array.from([2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]) };
+    const action = { ...decodeActionAccount(actionBytes({ eta: 0n, instructions: [pay] })), address: actionPda(PROGRAM, GUARD, 0) };
+    const keys = executeInstruction(PROGRAM, { guard: GUARD, action }).keys.map((k) => [k.pubkey.toBase58(), k.isWritable]);
+    expect(keys[2]).toEqual([SIGNER, true]);
+    expect(keys.filter(([k]) => k === SIGNER)).toHaveLength(1);
+  });
 });
 
 describe("a multisig proposal that schedules through Guard", () => {

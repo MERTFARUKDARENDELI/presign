@@ -194,11 +194,16 @@ export function vetoInstruction(programId: string, args: { guard: string; action
 export function executeInstruction(programId: string, args: { guard: string; action: ActionAccountData & { address: string } }): TransactionInstruction {
   const signer = guardSignerPda(programId, args.guard);
   const selfCall = args.action.instructions.some((ix) => ix.programId === programId);
+  // A CPI cannot make an account writable that the outer instruction did not (e.g. the signer paying rent).
+  let signerWritable = false;
   const remaining = new Map<string, { isWritable: boolean }>();
   for (const ix of args.action.instructions) {
     remaining.set(ix.programId, { isWritable: remaining.get(ix.programId)?.isWritable ?? false });
     for (const m of ix.accounts) {
-      if (m.pubkey === signer) continue;
+      if (m.pubkey === signer) {
+        signerWritable ||= m.isWritable;
+        continue;
+      }
       remaining.set(m.pubkey, { isWritable: (remaining.get(m.pubkey)?.isWritable ?? false) || m.isWritable });
     }
   }
@@ -209,7 +214,7 @@ export function executeInstruction(programId: string, args: { guard: string; act
     keys: [
       { pubkey: new PublicKey(args.guard), isSigner: false, isWritable: selfCall },
       { pubkey: new PublicKey(args.action.address), isSigner: false, isWritable: true },
-      { pubkey: new PublicKey(signer), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(signer), isSigner: false, isWritable: signerWritable },
       ...[...remaining].map(([k, v]) => ({ pubkey: new PublicKey(k), isSigner: false, isWritable: v.isWritable })),
     ],
     data: disc("execute"),

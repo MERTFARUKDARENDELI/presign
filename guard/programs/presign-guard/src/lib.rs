@@ -64,6 +64,9 @@ pub mod presign_guard {
             // The only call into Guard itself is a configuration change (so config waits like everything else).
             if ix.program_id == crate::ID {
                 require!(ix.data.starts_with(update_config), GuardError::SelfCallNotAllowed);
+                // Exactly one valid config, no trailing bytes: what guardians review is what executes.
+                let config = GuardConfig::try_from_slice(&ix.data[update_config.len()..]).map_err(|_| GuardError::InvalidConfig)?;
+                config.validate()?;
             }
         }
 
@@ -90,13 +93,24 @@ pub mod presign_guard {
 
     pub fn veto(ctx: Context<Veto>) -> Result<()> {
         let guardian = ctx.accounts.guardian.key();
-        require!(ctx.accounts.guard.guardians.contains(&guardian), GuardError::NotGuardian);
-        // A guardian cannot block its own removal; it can still never execute anything.
+        let guard = &ctx.accounts.guard;
+        require!(guard.guardians.contains(&guardian), GuardError::NotGuardian);
+        // A rogue guardian must not be able to block its own removal forever, but a
+        // compromised proposer must not be able to strip the guardians either. So the
+        // only action a guardian cannot veto is one that does nothing but remove that
+        // guardian: same proposer, no shorter delay, every other guardian kept. Removing
+        // several guardians, or anything bundled with it, stays vetoable by all of them.
         let update_config: &[u8] = &crate::instruction::UpdateConfig::DISCRIMINATOR[..];
-        for ix in &ctx.accounts.action.instructions {
-            if ix.program_id == crate::ID && ix.data.starts_with(update_config) {
-                let config = GuardConfig::try_from_slice(&ix.data[update_config.len()..]).map_err(|_| GuardError::InvalidConfig)?;
-                require!(config.guardians.contains(&guardian), GuardError::CannotVetoOwnRemoval);
+        let instructions = &ctx.accounts.action.instructions;
+        if let [ix] = instructions.as_slice() {
+            // Anything that does not parse as exactly one config stays vetoable.
+            let parsed = if ix.program_id == crate::ID && ix.data.starts_with(update_config) { GuardConfig::try_from_slice(&ix.data[update_config.len()..]).ok() } else { None };
+            if let Some(new) = parsed {
+                let removes_only_vetoer = !new.guardians.contains(&guardian)
+                    && new.proposer == guard.proposer
+                    && new.delay_seconds >= guard.delay_seconds
+                    && guard.guardians.iter().all(|g| *g == guardian || new.guardians.contains(g));
+                require!(!removes_only_vetoer, GuardError::CannotVetoOwnRemoval);
             }
         }
         let action = &mut ctx.accounts.action;
@@ -123,6 +137,8 @@ pub mod presign_guard {
             let action = &mut ctx.accounts.action;
             action.status = ActionStatus::Executed;
             action.executed_at = now;
+            // Written to the account now, not only at the end of the instruction.
+            action.exit(ctx.program_id)?;
         }
 
         let guard_key = ctx.accounts.guard.key();
