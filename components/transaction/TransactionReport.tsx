@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Address, DemoBadge, RiskBadge, RISK_STYLES, StatusBadge } from "@/components/security/badges";
 import { RiskDetails } from "@/components/security/RiskDetails";
 import { SignerBrief } from "@/components/multisig/SignerBrief";
+import { PolicyReportCard } from "@/components/policy/PolicyReportCard";
 import { InnerInstructionList, InstructionList } from "./InstructionList";
 
 export function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -41,6 +42,7 @@ export function TransactionReport({ analysis, symbols = {} }: { analysis: Transa
     <div className="space-y-4">
       {/* For multisig transactions the brief is the answer; the evidence list follows it. */}
       <SignerBrief analysis={analysis} />
+      {analysis.policy && <PolicyReportCard report={analysis.policy} />}
 
       <div className={cn("rounded-2xl border bg-zinc-900/50 p-5 ring-1", RISK_STYLES[risk.level].ring, risk.level === "CRITICAL" ? "border-red-500/50" : "border-zinc-800")}>
         <div className="mb-3 flex flex-wrap items-center gap-2">

@@ -11,6 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { AiChat } from "@/components/ai/AiChat";
 import { SignPanel } from "@/components/transaction/SignPanel";
 import { TransactionReport } from "@/components/transaction/TransactionReport";
+import { PolicyEditor } from "@/components/policy/PolicyEditor";
+import { currentStoredPolicy } from "@/lib/client/policy-store";
+import type { TeamPolicy } from "@/lib/policy/schema";
 import { api, ApiClientError } from "@/lib/client/api";
 import type { TransactionAnalysis } from "@/lib/transaction/types";
 import { isValidPublicKey } from "@/lib/validation/schemas";
@@ -24,8 +27,8 @@ export default function TransactionClient() {
   const [wallet, setWallet] = useState(initialWallet);
   const [inputError, setInputError] = useState<string | null>(null);
   // A link like /transaction?input=<sig> analyzes immediately.
-  const [request, setRequest] = useState<{ input: string; wallet: string; id: number } | null>(
-    initialInput ? { input: initialInput, wallet: initialWallet, id: 1 } : null,
+  const [request, setRequest] = useState<{ input: string; wallet: string; policy: TeamPolicy | null; id: number } | null>(() =>
+    initialInput ? { input: initialInput, wallet: initialWallet, policy: currentStoredPolicy(), id: 1 } : null,
   );
   const [result, setResult] = useState<{ id: number; analysis: TransactionAnalysis | null; error: string | null } | null>(null);
 
@@ -44,13 +47,13 @@ export default function TransactionClient() {
       return;
     }
     setInputError(null);
-    setRequest((r) => ({ input: tx.trim(), wallet: w.trim(), id: (r?.id ?? 0) + 1 }));
+    setRequest((r) => ({ input: tx.trim(), wallet: w.trim(), policy: currentStoredPolicy(), id: (r?.id ?? 0) + 1 }));
   }
 
   useEffect(() => {
     if (!request) return;
     let cancelled = false;
-    api<TransactionAnalysis>("/api/transaction/analyze", { json: { input: request.input, walletAddress: request.wallet || undefined } })
+    api<TransactionAnalysis>("/api/transaction/analyze", { json: { input: request.input, walletAddress: request.wallet || undefined, policy: request.policy ?? undefined } })
       .then((a) => !cancelled && setResult({ id: request.id, analysis: a, error: null }))
       .catch((e) => !cancelled && setResult({ id: request.id, analysis: null, error: e instanceof ApiClientError ? e.message : "Analysis failed." }));
     return () => {
@@ -86,6 +89,7 @@ export default function TransactionClient() {
             {loading ? <Loader2 className="animate-spin" /> : <Activity />} Analyze
           </Button>
         </div>
+        <PolicyEditor onApplied={() => input.trim() && analyze(input, wallet)} />
         <p className="text-xs text-zinc-500">Never paste a private key or seed phrase anywhere. A transaction does not contain your keys.</p>
       </form>
 
