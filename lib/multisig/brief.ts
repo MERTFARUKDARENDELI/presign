@@ -27,6 +27,8 @@ export interface BriefPayload {
   simulation: string | null;
   /** Instructions scheduled through Presign Guard (run later, vetoable). */
   scheduled: BriefScheduled[];
+  /** Program upgrades: new code hash and verified-build status, as plain text. */
+  upgrades: string[];
 }
 
 export interface BriefScheduled {
@@ -148,6 +150,11 @@ export function buildSignerBrief(src: BriefSource): SignerBrief | null {
     steps: steps(p),
     vaultChanges: vaultChanges(p),
     simulation: simulationText(p),
+    upgrades: (p.upgrades ?? []).map((u) =>
+      u.bufferHash
+        ? `New code for program ${short(u.program)}: sha256 ${u.bufferHash}. ${u.matchesVerifiedBuild ? "Matches the registry's verified build." : "Not a verified build — compare with solana-verify build of the release commit."}`
+        : `New code for program ${short(u.program)} could not be read (${u.bufferStatus.toLowerCase().replace("_", " ")}).`,
+    ),
     scheduled: (p.scheduled ?? []).map((s) => ({
       guard: s.guard,
       verified: s.guardAccount !== null,

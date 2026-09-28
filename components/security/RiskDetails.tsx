@@ -17,6 +17,7 @@ const SOURCE_LABEL: Record<DataSource, string> = {
   TRANSACTION_DECODER: "Transaction decoder",
   ANCHOR_IDL: "Program's on-chain IDL",
   SQUADS_ACCOUNT: "Squads multisig account (on-chain)",
+  VERIFIED_BUILDS: "OtterSec verified builds (external)",
   DETERMINISTIC_RULE: "Deterministic rule",
   DEMO: "DEMO data",
 };

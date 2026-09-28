@@ -150,6 +150,23 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
   });
   for (const [i, p] of privileged.entries()) signals.push(privilegedSignal(p, i, ev, account !== null, [squadsIxEvidence]));
 
+  // Program upgrades: is the new code a build anyone verified?
+  for (const p of ms.payloads) {
+    for (const [k, u] of (p.upgrades ?? []).entries()) {
+      const codeId = ev({ source: "ONCHAIN_RPC", label: `Upgrade of program ${short(u.program)}: new code in buffer ${short(u.buffer)}`, observed: u.bufferHash ? `sha256 ${u.bufferHash}` : u.bufferStatus.toLowerCase().replace("_", " "), condition: "solana-verify hash of the buffer's executable bytes" });
+      const reg = u.registry;
+      const regId = ev({ source: "VERIFIED_BUILDS", label: `Verified-builds registry: program ${short(u.program)}`, observed: reg ? `${reg.verified ? "verified" : "not verified"}${reg.repo ? `; ${reg.repo}` : ""}${reg.executableHash ? `; verified build ${reg.executableHash}` : ""}` : "unavailable", condition: "external registry, not proof of safety" });
+      const scope = `${u.program ?? "?"}:${k}`;
+      if (u.matchesVerifiedBuild) {
+        signals.push({ code: `UPGRADE_MATCHES_VERIFIED_BUILD:${scope}`, title: "New code matches a verified build", description: `The code this upgrade deploys hashes exactly to the registry's verified build${reg?.repo ? ` of ${reg.repo}` : ""}. Review what changed in that commit.`, severity: "LOW", evidenceIds: [codeId, regId] });
+      } else if (u.bufferStatus !== "OK") {
+        signals.push({ code: `UPGRADE_CODE_UNAVAILABLE:${scope}`, title: "New program code could not be read", description: "The buffer holding the new code could not be loaded, so the upgrade cannot be verified. Do not approve an upgrade you cannot check.", severity: "HIGH", evidenceIds: [codeId] });
+      } else {
+        signals.push({ code: `UPGRADE_UNVERIFIED_CODE:${scope}`, title: "New code is not a verified build", description: `The new code (sha256 ${u.bufferHash!.slice(0, 16)}…) matches no build in the verified-builds registry. Build the release commit with \`solana-verify build\` and compare the hash before approving.`, severity: "MEDIUM", evidenceIds: [codeId, regId] });
+      }
+    }
+  }
+
   // Actions scheduled through Presign Guard: they wait the guard's delay and any one guardian can veto them.
   for (const [n, s] of ms.payloads.flatMap((p) => p.scheduled ?? []).entries()) {
     const g = s.guardAccount;

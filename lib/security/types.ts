@@ -23,6 +23,8 @@ export type DataSource =
   /** Instruction names/arguments from the program's own on-chain Anchor IDL (describes intent, not verified behavior). */
   | "ANCHOR_IDL"
   | "SQUADS_ACCOUNT"
+  /** OtterSec verified-builds registry (external opinion about source ↔ code). */
+  | "VERIFIED_BUILDS"
   | "DETERMINISTIC_RULE"
   | "DEMO";
 

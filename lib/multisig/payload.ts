@@ -1,6 +1,7 @@
 import "server-only";
 import { enrichWithAnchorIdl } from "@/lib/anchor/source";
 import { analyzeGuardSchedules } from "@/lib/guard/analyze";
+import { checkUpgrades } from "@/lib/verify/upgrade";
 import { isAppError } from "@/lib/api/errors";
 import { logger } from "@/lib/api/logger";
 import { evaluateTransactionRisk } from "@/lib/security/rules/transaction";
@@ -110,6 +111,7 @@ export async function buildVaultPayload(
   payload.detail = !decoded.lookupTablesResolved ? "Address lookup tables of the proposal could not be resolved." : decoded.undecodedInstructions.length ? `${decoded.undecodedInstructions.length} instruction(s) of the proposal could not be decoded.` : null;
   payload.privileged = findPrivilegedActions(decoded, ctx.label, ctx.controlled, ctx.members);
   payload.scheduled = await analyzeGuardSchedules(decoded, ctx.controlled, ctx.members, ctx.label);
+  payload.upgrades = await checkUpgrades(decoded);
   payload.effects = effects;
   payload.effectsStatus = effectsStatus;
   if (base.vault) {

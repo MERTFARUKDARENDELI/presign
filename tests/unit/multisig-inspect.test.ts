@@ -1,5 +1,6 @@
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as inspectRoute } from "@/app/api/multisig/inspect/route";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { clearIdlCache } from "@/lib/anchor/source";
@@ -9,6 +10,7 @@ import { foreignSignersOf, withFeePayer } from "@/lib/multisig/payload";
 import { rpcCall } from "@/lib/solana/client";
 import { SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import { toVersionedTransaction } from "@/lib/squads/decode";
+import type { SquadsMessage } from "@/lib/squads/types";
 import { batchTransactionPda, ephemeralSignerPda, proposalPda, transactionPda, vaultPda } from "@/lib/squads/pda";
 import { decodeTransaction } from "@/lib/transaction/decoder";
 import { simulateTransaction, type SimulationOutput } from "@/lib/transaction/simulate";
@@ -174,6 +176,66 @@ describe("proposal inspection", () => {
     const accounts = new Map<string, ChainAccount>([[OUTSIDER, { data: new Uint8Array(0), owner: DEFAULT_PUBKEY }]]);
     serve(accounts);
     await expect(inspect(OUTSIDER)).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND", message: expect.stringContaining("paste the multisig address") });
+  });
+});
+
+describe("program upgrade proposals", () => {
+  const LOADER = "BPFLoaderUpgradeab1e11111111111111111111111";
+  const code = Uint8Array.from([1, 2, 3, 4, 5, 0, 0]);
+  const bufferData = Uint8Array.from([...new Array(37).fill(9), ...code, 0, 0, 0]);
+  const expectedHash = createHash("sha256").update(Uint8Array.from([1, 2, 3, 4, 5])).digest("hex");
+
+  function upgradeChain(program: string, buffer: string, withBuffer = true) {
+    const m: SquadsMessage = {
+      numSigners: 1,
+      numWritableSigners: 1,
+      numWritableNonSigners: 4,
+      accountKeys: [VAULT, key(60).toBase58(), program, buffer, OUTSIDER, "SysvarRent111111111111111111111111111111111", "SysvarC1ock11111111111111111111111111111111", LOADER],
+      instructions: [{ programIdIndex: 7, accountIndexes: [1, 2, 3, 4, 5, 6, 0], data: Uint8Array.from([3, 0, 0, 0]) }],
+      addressTableLookups: [],
+    };
+    const accounts = chain({ message: m });
+    if (withBuffer) accounts.set(buffer, { data: bufferData, owner: LOADER });
+    return accounts;
+  }
+
+  function registry(body: object) {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })));
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("new code that is exactly the registry's verified build is reported as such", async () => {
+    const program = key(61).toBase58();
+    serve(upgradeChain(program, key(62).toBase58()));
+    registry({ is_verified: true, on_chain_hash: "old", executable_hash: expectedHash, repo_url: "https://github.com/acme/protocol", commit: "abc" });
+    const r = await inspect(`${MS} #3`);
+    if (r.kind !== "proposal") throw new Error("expected proposal");
+    expect(r.inspection.analysis.payloads[0].upgrades![0]).toMatchObject({ program, bufferHash: expectedHash, matchesVerifiedBuild: true });
+    const codes = r.inspection.risk.signals.map((s) => s.code);
+    expect(codes).toContain(`UPGRADE_MATCHES_VERIFIED_BUILD:${program}:0`);
+    expect(codes.some((c) => c.startsWith("MS_PROGRAM_UPGRADE"))).toBe(true);
+  });
+
+  it("new code matching no verified build asks the signer to compare hashes", async () => {
+    const program = key(63).toBase58();
+    serve(upgradeChain(program, key(64).toBase58()));
+    registry({ is_verified: false, on_chain_hash: "old", executable_hash: "", repo_url: null });
+    const r = await inspect(`${MS} #3`);
+    if (r.kind !== "proposal") throw new Error("expected proposal");
+    const s = r.inspection.risk.signals.find((x) => x.code === `UPGRADE_UNVERIFIED_CODE:${program}:0`)!;
+    expect(s.severity).toBe("MEDIUM");
+    expect(s.description).toContain(expectedHash.slice(0, 16));
+    expect(r.inspection.brief!.payloads[0].upgrades[0]).toContain(expectedHash);
+  });
+
+  it("an unreadable buffer is HIGH, not silently skipped", async () => {
+    const program = key(65).toBase58();
+    serve(upgradeChain(program, key(66).toBase58(), false));
+    registry({ is_verified: true, executable_hash: expectedHash });
+    const r = await inspect(`${MS} #3`);
+    if (r.kind !== "proposal") throw new Error("expected proposal");
+    expect(r.inspection.risk.signals.find((x) => x.code === `UPGRADE_CODE_UNAVAILABLE:${program}:0`)).toMatchObject({ severity: "HIGH" });
   });
 });
 

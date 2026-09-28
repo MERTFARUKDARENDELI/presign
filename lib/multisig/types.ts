@@ -1,6 +1,7 @@
 import type { Gate } from "@/lib/agent/gate";
 import type { GuardActionInspection, GuardOverview, ScheduledActions } from "@/lib/guard/types";
 import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
+import type { UpgradeCheck } from "@/lib/verify/upgrade";
 import type { SignerBrief } from "./brief";
 import type { AnalysisStatus } from "@/lib/security/types";
 import type { ConfigAction, MultisigAccount, ProposalAccount, ProposalStatusName } from "@/lib/squads/types";
@@ -59,6 +60,8 @@ export interface VaultPayload {
   foreignSigners?: string[];
   /** Actions this payload schedules through Presign Guard (they run after the guard's delay, unless vetoed). */
   scheduled?: ScheduledActions[];
+  /** Program upgrades: hash of the new code and the verified-builds registry status. */
+  upgrades?: UpgradeCheck[];
   /** Deterministic risk of the payload from the vault's perspective (asset outflows, approvals). */
   risk?: RiskAssessment | null;
 }
