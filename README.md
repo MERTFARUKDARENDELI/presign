@@ -23,6 +23,8 @@ Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or 
 
 ### Detections (deterministic, evidence-linked)
 
+The full list — code, severity and trigger of every rule — is the [rule catalog](app/rules/page.tsx) (`/rules`), kept in sync with the rule sources by a test.
+
 - **Authority leaving the multisig** — admin / upgrade / token authority handed to an address that is not the multisig, one of its vaults, or a member (CRITICAL); to a single member (HIGH); removed permanently (HIGH).
 - **Approvals that never expire** — Squads create / approve / execute inside a durable-nonce transaction (CRITICAL).
 - **Treasury drains** — the vault's simulated balance changes: outflows, near-total drains, approvals.
@@ -77,7 +79,7 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 
 - **Mainnet, read-only:** both Drift exploit transactions analyzed by signature and from their unsigned bytes (CRITICAL); the Drift Security Council multisig inspected live (proposal #7 admin takeover; #8 / #9 require the attacker's key as signer); census of all 157,117 Squads v4 multisigs; MCP and Watchtower exercised against a running instance.
 - **Program hashes:** the `solana-verify` convention was checked against OtterSec's `on_chain_hash` for the live Squads v4 program (`scripts/research/hash-check.ts`).
-- **Tests:** 402, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
+- **Tests:** 406, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Not yet verified:** the Presign Guard program has not been compiled or deployed yet (the Presign side is implemented and unit-tested against its account layouts); Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); buffer-created proposals and batches against mainnet data (unit-tested with synthetic accounts); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live OpenAI explanations.
 
 ## Limitations

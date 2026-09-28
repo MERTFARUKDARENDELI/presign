@@ -56,6 +56,7 @@ export default function DocsPage() {
           {[["api", "HTTP API"], ["gate", "The gate"], ["policy", "Team policy"], ["mcp", "MCP for agents"], ["agent-guard", "Guard snippet"], ["watchtower", "Watchtower"], ["presign-guard", "Presign Guard (on-chain)"]].map(([id, label]) => (
             <a key={id} href={`#${id}`} className="rounded-md border border-zinc-800 px-2 py-1 text-zinc-300 hover:bg-zinc-900">{label}</a>
           ))}
+          <a href="/rules" className="rounded-md border border-fuchsia-500/40 px-2 py-1 text-fuchsia-200 hover:bg-zinc-900">Rule catalog →</a>
         </nav>
       </header>
 
