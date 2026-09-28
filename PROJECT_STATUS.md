@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **409 tests / 32 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **412 tests / 33 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -40,7 +40,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
 | Rule catalog `/rules` | VERIFIED | 72 rules; a test keeps it in sync with the rule sources |
 | Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
-| Presign Guard — Anchor program (`guard/`) | IN_PROGRESS | source written; not yet compiled, tested or deployed (needs the Solana toolchain in WSL). Unaudited |
+| Presign Guard — Anchor program (`guard/`) | TESTING | builds with Anchor 1.x / Agave 3.1.10; 11 LiteSVM tests pass (delay, veto, cancel, missing accounts, guardian stripping, own-removal rule, config exactness, close); IDL cross-checked against the TS codec. Not yet deployed. Unaudited |
 
 ### Open items
 

@@ -11,7 +11,7 @@ use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::Discriminator;
 
-declare_id!("11111111111111111111111111111111");
+declare_id!("A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS");
 
 pub const GUARD_SEED: &[u8] = b"guard";
 pub const SIGNER_SEED: &[u8] = b"signer";
@@ -127,7 +127,7 @@ pub mod presign_guard {
         Ok(())
     }
 
-    pub fn execute<'info>(ctx: Context<'_, '_, 'info, 'info, Execute<'info>>) -> Result<()> {
+    pub fn execute<'info>(ctx: Context<'info, Execute<'info>>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         require!(now >= ctx.accounts.action.eta, GuardError::TooEarly);
 

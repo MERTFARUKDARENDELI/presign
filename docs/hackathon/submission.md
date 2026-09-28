@@ -26,7 +26,7 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 - **Transaction check** — paste the transaction you are about to sign. Squads approvals include the proposal they approve; durable-nonce signatures are flagged as never-expiring; the message hash is shown to compare on a hardware wallet.
 - **Watchtower** — add the bot to the signers' Telegram group and send `/watch <multisig>`: each new proposal's brief reaches every signer, independent of the UI that created it (also Slack / Discord webhooks).
 - **Team policy** — a team writes its rules once as JSON (approved authority holders, actions that must go through Presign Guard, minimum time lock and threshold, approved programs and recipients, outflow caps, verified upgrades, no durable nonces). Every proposal, alert and API call is checked against it; a rule that cannot be checked is flagged, never assumed.
-- **Presign Guard** (on-chain, [status: devnet deployment in progress — update]) — an Anchor program that holds a protocol's critical authorities: anything done with them is scheduled, waits a fixed delay, and any single guardian can veto it. Routine operations stay fast on the multisig; only critical ones wait. Presign decodes scheduled actions inside proposals, shows the countdown, and offers veto / execute.
+- **Presign Guard** (on-chain, [status: built and tested (11 LiteSVM tests); devnet deployment — update]) — an Anchor program that holds a protocol's critical authorities: anything done with them is scheduled, waits a fixed delay, and any single guardian can veto it. Routine operations stay fast on the multisig; only critical ones wait. Presign decodes scheduled actions inside proposals, shows the countdown, and offers veto / execute.
 - **API + MCP** — the same engine for wallets, custodians and AI agents, with a deterministic `gate` (`block` / `require_human_review` / `no_known_risk`) that an LLM cannot argue past.
 
 **Proof.** Run Presign on the exact bytes Drift's council members signed (signatures removed) and it returns **CRITICAL: "Admin moves outside the multisig — Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"** — before execution. The same check flags the council's later proposals #8 and #9 as requiring the attacker's key as a signer.
@@ -45,7 +45,7 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (409 tests, no network), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (412 tests, no network; 11 LiteSVM tests for the Guard program), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
 
 ## Links
 

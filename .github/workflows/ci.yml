@@ -24,3 +24,28 @@ jobs:
       - run: npm test
       # No secrets needed: tests mock the RPC edge and the build reads keys only at runtime.
       - run: npm run build
+
+  guard:
+    name: Guard program — build and LiteSVM tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: guard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/solana
+            guard/target
+          key: guard-${{ runner.os }}-${{ hashFiles('guard/Cargo.lock', 'guard/rust-toolchain.toml') }}
+      - name: Install Agave (Solana CLI) 3.1.10
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.10/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # rust-toolchain.toml pins the host toolchain; cargo build-sbf uses the Agave platform tools.
+      - run: cargo build-sbf --manifest-path programs/presign-guard/Cargo.toml
+      - run: cargo test -p presign-guard

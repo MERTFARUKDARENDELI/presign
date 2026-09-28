@@ -1,0 +1,926 @@
+{
+  "address": "A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS",
+  "metadata": {
+    "name": "presign_guard",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Presign Guard: delayed, vetoable execution of critical authorities"
+  },
+  "instructions": [
+    {
+      "name": "cancel",
+      "discriminator": [
+        232,
+        219,
+        223,
+        41,
+        219,
+        236,
+        220,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "relations": [
+            "action"
+          ]
+        },
+        {
+          "name": "action",
+          "writable": true
+        },
+        {
+          "name": "proposer",
+          "signer": true,
+          "relations": [
+            "guard"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_action",
+      "discriminator": [
+        68,
+        91,
+        38,
+        183,
+        124,
+        74,
+        239,
+        136
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "relations": [
+            "action"
+          ]
+        },
+        {
+          "name": "action",
+          "writable": true
+        },
+        {
+          "name": "rent_payer",
+          "writable": true,
+          "relations": [
+            "action"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_guard",
+      "discriminator": [
+        251,
+        254,
+        17,
+        198,
+        219,
+        218,
+        154,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  117,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "create_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "guard_signer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "guard"
+              }
+            ]
+          }
+        },
+        {
+          "name": "create_key",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "config",
+          "type": {
+            "defined": {
+              "name": "GuardConfig"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute",
+      "discriminator": [
+        130,
+        221,
+        242,
+        154,
+        13,
+        193,
+        189,
+        29
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "docs": [
+            "Not `mut` here: a scheduled `update_config` writes it through the CPI."
+          ],
+          "relations": [
+            "action"
+          ]
+        },
+        {
+          "name": "action",
+          "writable": true
+        },
+        {
+          "name": "guard_signer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "guard"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "schedule",
+      "discriminator": [
+        149,
+        203,
+        229,
+        209,
+        47,
+        51,
+        221,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "writable": true
+        },
+        {
+          "name": "action",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "guard"
+              },
+              {
+                "kind": "account",
+                "path": "guard.action_count",
+                "account": "Guard"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "signer": true,
+          "relations": [
+            "guard"
+          ]
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "instructions",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "GuardInstruction"
+              }
+            }
+          }
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "writable": true
+        },
+        {
+          "name": "guard_signer",
+          "signer": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "guard"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "config",
+          "type": {
+            "defined": {
+              "name": "GuardConfig"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "veto",
+      "discriminator": [
+        190,
+        152,
+        69,
+        226,
+        61,
+        150,
+        107,
+        215
+      ],
+      "accounts": [
+        {
+          "name": "guard",
+          "relations": [
+            "action"
+          ]
+        },
+        {
+          "name": "action",
+          "writable": true
+        },
+        {
+          "name": "guardian",
+          "signer": true
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Action",
+      "discriminator": [
+        144,
+        241,
+        105,
+        219,
+        74,
+        136,
+        203,
+        176
+      ]
+    },
+    {
+      "name": "Guard",
+      "discriminator": [
+        54,
+        187,
+        84,
+        137,
+        192,
+        15,
+        74,
+        248
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ActionCancelled",
+      "discriminator": [
+        121,
+        213,
+        205,
+        29,
+        226,
+        181,
+        230,
+        13
+      ]
+    },
+    {
+      "name": "ActionExecuted",
+      "discriminator": [
+        116,
+        101,
+        146,
+        36,
+        160,
+        153,
+        182,
+        233
+      ]
+    },
+    {
+      "name": "ActionScheduled",
+      "discriminator": [
+        41,
+        177,
+        37,
+        237,
+        114,
+        2,
+        33,
+        37
+      ]
+    },
+    {
+      "name": "ActionVetoed",
+      "discriminator": [
+        53,
+        87,
+        235,
+        187,
+        2,
+        224,
+        109,
+        202
+      ]
+    },
+    {
+      "name": "ConfigUpdated",
+      "discriminator": [
+        40,
+        241,
+        230,
+        122,
+        11,
+        19,
+        198,
+        194
+      ]
+    },
+    {
+      "name": "GuardCreated",
+      "discriminator": [
+        137,
+        249,
+        125,
+        83,
+        3,
+        164,
+        81,
+        198
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotProposer",
+      "msg": "Only the proposer can do this"
+    },
+    {
+      "code": 6001,
+      "name": "NotGuardian",
+      "msg": "Only a guardian can veto"
+    },
+    {
+      "code": 6002,
+      "name": "NotPending",
+      "msg": "The action is not pending"
+    },
+    {
+      "code": 6003,
+      "name": "StillPending",
+      "msg": "The action is still pending"
+    },
+    {
+      "code": 6004,
+      "name": "TooEarly",
+      "msg": "The delay has not passed yet"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidInstructionCount",
+      "msg": "An action needs 1 to 4 instructions"
+    },
+    {
+      "code": 6006,
+      "name": "TooManyAccounts",
+      "msg": "Too many accounts in one instruction"
+    },
+    {
+      "code": 6007,
+      "name": "DataTooLong",
+      "msg": "Instruction data is too long"
+    },
+    {
+      "code": 6008,
+      "name": "MemoTooLong",
+      "msg": "Memo is too long"
+    },
+    {
+      "code": 6009,
+      "name": "ForeignSigner",
+      "msg": "Only the guard signer may sign a scheduled instruction"
+    },
+    {
+      "code": 6010,
+      "name": "SelfCallNotAllowed",
+      "msg": "An action may only call update_config on Guard itself"
+    },
+    {
+      "code": 6011,
+      "name": "CannotVetoOwnRemoval",
+      "msg": "A guardian cannot veto its own removal"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidGuardians",
+      "msg": "Guardians must be 1 to 10 keys"
+    },
+    {
+      "code": 6013,
+      "name": "DuplicateGuardian",
+      "msg": "Duplicate guardian"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidDelay",
+      "msg": "Delay must be between 60 seconds and 30 days"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidConfig",
+      "msg": "Invalid configuration data"
+    },
+    {
+      "code": 6016,
+      "name": "MissingAccount",
+      "msg": "An account referenced by the action was not provided"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidSigner",
+      "msg": "Invalid guard signer"
+    },
+    {
+      "code": 6018,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "Action",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "rent_payer",
+            "type": "pubkey"
+          },
+          {
+            "name": "scheduled_at",
+            "type": "i64"
+          },
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ActionStatus"
+              }
+            }
+          },
+          {
+            "name": "vetoed_by",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "executed_at",
+            "type": "i64"
+          },
+          {
+            "name": "memo",
+            "type": "string"
+          },
+          {
+            "name": "instructions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "GuardInstruction"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionScheduled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "eta",
+            "type": "i64"
+          },
+          {
+            "name": "memo",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Executed"
+          },
+          {
+            "name": "Vetoed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActionVetoed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "guardian",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardians",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "delay_seconds",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Guard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "create_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "docs": [
+              "The only key that can schedule (the multisig vault)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "guardians",
+            "docs": [
+              "Any one of them can veto a pending action."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "delay_seconds",
+            "type": "u32"
+          },
+          {
+            "name": "action_count",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "signer_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardAccountMeta",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pubkey",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_signer",
+            "type": "bool"
+          },
+          {
+            "name": "is_writable",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardians",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "delay_seconds",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "guard",
+            "type": "pubkey"
+          },
+          {
+            "name": "guard_signer",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardians",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "delay_seconds",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardInstruction",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "program_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "GuardAccountMeta"
+                }
+              }
+            }
+          },
+          {
+            "name": "data",
+            "type": "bytes"
+          }
+        ]
+      }
+    }
+  ]
+}

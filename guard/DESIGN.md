@@ -2,6 +2,12 @@
 
 Presign tells signers what a proposal does. **Presign Guard makes the dangerous ones wait, and lets any one honest signer stop them.**
 
+Status: builds with Anchor 1.x (Agave 3.1.10); 11 LiteSVM tests cover the plan below; the IDL (`idl/presign_guard.json`) is checked against Presign's TypeScript codec in `tests/unit/guard-idl.test.ts`. Program id `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`. Unaudited.
+
+```bash
+anchor build && cargo test -p presign-guard   # in guard/, on Linux or WSL
+```
+
 ## Problem it solves
 
 Drift's admin role sat in a 2-of-5 Squads vault with no time lock. Two pre-signed approvals were enough to hand the protocol to an attacker in one second. Squads offers a time lock, but it applies to *every* transaction and cancelling needs a threshold of cancel votes — so 98.2% of Squads multisigs on mainnet run without one (census, 2026-09-27).
@@ -60,7 +66,7 @@ Nobody can make Guard sign immediately — including the proposer. Guardians can
 
 ## Test plan (program)
 
-To be written as Rust tests (LiteSVM) once the toolchain is available; each is a property the program must hold:
+Implemented in `programs/presign-guard/tests/guard.rs` (LiteSVM); each is a property the program must hold:
 
 1. `schedule` by anyone but the proposer fails; with a foreign signer in a scheduled instruction fails; a self-call other than `update_config` fails; an `update_config` with trailing bytes or an invalid config fails.
 2. `execute` before `eta` fails; after `eta` succeeds for anyone; a second `execute` fails (status is written before the CPIs).

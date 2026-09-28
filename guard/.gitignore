@@ -1,0 +1,8 @@
+.anchor
+target
+**/*.rs.bk
+test-ledger
+.surfpool
+# Program and wallet keypairs never go into the repository.
+*-keypair.json
+id.json
