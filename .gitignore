@@ -47,3 +47,5 @@ next-env.d.ts
 
 # private research detail (responsible disclosure)
 scripts/research/output/
+.watchtower.db
+.watchtower.db-*
