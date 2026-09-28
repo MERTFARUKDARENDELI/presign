@@ -174,7 +174,7 @@ pub struct Guard {
     /// The only key that can schedule (the multisig vault).
     pub proposer: Pubkey,
     /// Any one of them can veto a pending action.
-    #[max_len(MAX_GUARDIANS)]
+    #[max_len(10)] // = MAX_GUARDIANS (the attribute takes a literal)
     pub guardians: Vec<Pubkey>,
     pub delay_seconds: u32,
     pub action_count: u64,

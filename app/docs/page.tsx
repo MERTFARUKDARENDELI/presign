@@ -22,7 +22,8 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 const ENDPOINTS = [
   { method: "POST", path: "/api/transaction/analyze", body: '{ "input": "<base64 | base58 | signature>", "walletAddress"?: "<signer>" }', does: "Decode, simulate and risk-check a transaction. Squads approvals include the proposal's vault instructions, simulation and authority changes." },
-  { method: "POST", path: "/api/multisig/inspect", body: '{ "input": "<Squads link | address | <multisig> #<n>>", "signer"?: "<member>" }', does: "Inspect a proposal without a transaction to sign, or a multisig's setup and recent proposals." },
+  { method: "POST", path: "/api/multisig/inspect", body: '{ "input": "<Squads link | address | <multisig> #<n>>", "signer"?: "<member>" }', does: "Inspect a proposal without a transaction to sign, a multisig's setup and recent proposals, or a Presign Guard and its scheduled actions." },
+  { method: "POST", path: "/api/guard/prepare", body: '{ "kind": "veto" | "execute", "action": "<action>", "signer": "<wallet>" }', does: "Unsigned veto (guardians) or execute (anyone, after the delay) transaction for a Guard action; sign it in your wallet, then submit via /api/transaction/submit." },
   { method: "GET", path: "/api/token?mint=<mint>", body: "—", does: "Token security signals: authorities, Token-2022 extensions, concentration, age, metadata links." },
   { method: "GET", path: "/api/health", body: "—", does: "Cluster and configured data sources (no secrets)." },
 ];
@@ -37,7 +38,7 @@ export default function DocsPage() {
           multisig teams. Everything is read-only: {BRAND.name} never takes keys and never signs.
         </p>
         <nav aria-label="On this page" className="mt-4 flex flex-wrap gap-2 text-sm">
-          {[["api", "HTTP API"], ["gate", "The gate"], ["mcp", "MCP for agents"], ["guard", "Guard snippet"], ["watchtower", "Watchtower"]].map(([id, label]) => (
+          {[["api", "HTTP API"], ["gate", "The gate"], ["mcp", "MCP for agents"], ["agent-guard", "Guard snippet"], ["watchtower", "Watchtower"], ["presign-guard", "Presign Guard (on-chain)"]].map(([id, label]) => (
             <a key={id} href={`#${id}`} className="rounded-md border border-zinc-800 px-2 py-1 text-zinc-300 hover:bg-zinc-900">{label}</a>
           ))}
         </nav>
@@ -103,7 +104,7 @@ export default function DocsPage() {
 }`}</Code>
       </Section>
 
-      <Section id="guard" title="Guard snippet">
+      <Section id="agent-guard" title="Guard snippet">
         <p className="text-sm text-zinc-400">For bots and backends that sign programmatically: refuse anything the gate does not clear.</p>
         <Code>{`async function presignGuard(serializedTx: string, signer: string) {
   const res = await fetch(\`\${PRESIGN_URL}/api/transaction/analyze\`, {
@@ -122,16 +123,23 @@ export default function DocsPage() {
 
       <Section id="watchtower" title="Watchtower alerts">
         <p className="text-sm text-zinc-400">
-          Watchtower polls your multisigs and sends every new proposal&apos;s brief — verdict, authority changes, top signals and a verify link — to every signer at once, through a channel
-          independent of the UI that created the proposal. First start records a baseline; later changes alert.
+          Watchtower sends every new proposal&apos;s brief — verdict, authority changes, top signals and a verify link — to every signer at once, through a channel independent of
+          the UI that created the proposal. It watches Presign Guards too: each scheduled action is announced with its countdown and a veto link. A new watch records a baseline; later
+          changes alert.
         </p>
-        <Code>{`WATCH_MULTISIGS=<multisig>[,<multisig>…] \\
-PRESIGN_API_URL=https://<your-presign-host> \\
-TELEGRAM_BOT_TOKEN=<bot token> TELEGRAM_CHAT_ID=<signers' group id> \\
+        <p className="text-sm text-zinc-400"><b className="text-zinc-200">Self-service (Telegram):</b> add the bot to your signers&apos; group, then:</p>
+        <Code>{`/watch <multisig or guard address, or Squads link>   (group admins only)
+/unwatch <address>
+/list
+/check <Squads link, proposal, or <multisig> #<n>>     (anyone)`}</Code>
+        <p className="text-sm text-zinc-400"><b className="text-zinc-200">Running it:</b> one process, state in a local SQLite file. Targets can also come from the environment:</p>
+        <Code>{`PRESIGN_API_URL=https://<your-presign-host> \\
+TELEGRAM_BOT_TOKEN=<bot token> \\
+WATCH_MULTISIGS=<multisig>[,…]  WATCH_GUARDS=<guard>[,…]  TELEGRAM_CHAT_ID=<group id> \\
 npm run watchtower            # add -- --once for a single cycle (cron)`}</Code>
         <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-400">
-          <li><span className="font-mono">ALERT_WEBHOOK_URL</span>: Slack or Discord incoming webhook, alongside or instead of Telegram.</li>
-          <li><span className="font-mono">POLL_SECONDS</span> (default 30, minimum 10), <span className="font-mono">PRESIGN_PUBLIC_URL</span> for links, <span className="font-mono">ALERT_EXISTING=true</span> to report already-pending proposals on first start.</li>
+          <li><span className="font-mono">ALERT_WEBHOOK_URL</span>: Slack or Discord incoming webhook for environment targets.</li>
+          <li><span className="font-mono">POLL_SECONDS</span> (default 30, minimum 10), <span className="font-mono">PRESIGN_PUBLIC_URL</span> for links, <span className="font-mono">WATCH_DB</span> for the state file, <span className="font-mono">ALERT_EXISTING=true</span> to report already-pending items on first start.</li>
           <li>Tokens are read from the environment only and never logged.</li>
         </ul>
         <Code>{`🛑 New proposal #7 on multisig 2LW6…hx88 — CRITICAL
@@ -139,6 +147,24 @@ npm run watchtower            # add -- --once for a single cycle (cron)`}</Code>
 • CRITICAL: Admin moves outside the multisig
 • HIGH: No time lock
 Verify before signing: https://<your-presign-host>/verify?q=…`}</Code>
+      </Section>
+
+      <Section id="presign-guard" title="Presign Guard (on-chain)">
+        <p className="text-sm text-zinc-400">
+          Warnings help only if someone can act on them. Presign Guard is a Solana program that holds a protocol&apos;s critical authorities — admin, upgrade authority, mint authority —
+          so that anything done with them is <b className="text-zinc-200">scheduled</b>, waits a fixed <b className="text-zinc-200">delay</b>, and can be <b className="text-zinc-200">vetoed by any single guardian</b>.
+          Routine operations stay on the multisig and stay fast; only critical ones wait.
+        </p>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-400">
+          <li>The multisig vault is the proposer: a normal Squads proposal calls <span className="font-mono">schedule</span>; the action then waits the delay.</li>
+          <li>Guardians (members, or an independent security key) can veto alone; they can never execute anything.</li>
+          <li>After the delay anyone can execute; only then does the guard&apos;s PDA sign. Configuration changes go through the same delay and veto.</li>
+          <li>Presign decodes scheduled actions inside proposals, shows the countdown in <a href="/verify" className="text-fuchsia-300 underline-offset-4 hover:underline">/verify</a> (paste a guard or action address), offers veto / execute, and Watchtower announces every scheduled action.</li>
+        </ul>
+        <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+          Status: design and program source are in the repository (<span className="font-mono">guard/</span>); devnet deployment is in progress. Unaudited — do not hand it mainnet authorities.
+          This deployment {process.env.NEXT_PUBLIC_GUARD_PROGRAM_ID ? <>uses program <span className="font-mono">{process.env.NEXT_PUBLIC_GUARD_PROGRAM_ID}</span>.</> : "has no Guard program configured."}
+        </p>
       </Section>
     </div>
   );
