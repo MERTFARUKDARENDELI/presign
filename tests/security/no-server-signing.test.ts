@@ -50,7 +50,8 @@ describe("server never signs on the user's behalf", () => {
 
   it("wallet signing goes only through the connected wallet adapter in client components", () => {
     const signers = all.filter((f) => /signTransaction/.test(readFileSync(f, "utf8"))).map(rel).sort();
-    expect(signers).toEqual(["components/cleanup/CleanupDialog.tsx", "components/transaction/SignPanel.tsx"]);
+    // Every new signing site is reviewed here: Guard veto / execute signs prepared bytes after a hash check.
+    expect(signers).toEqual(["components/cleanup/CleanupDialog.tsx", "components/guard/GuardActionButtons.tsx", "components/transaction/SignPanel.tsx"]);
     for (const f of signers) expect(readFileSync(path.join(ROOT, f), "utf8")).toMatch(/^"use client";/);
   });
 });
