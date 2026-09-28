@@ -100,7 +100,7 @@ export function formatAlert(event: WatchEvent, baseUrl: string, inspection: Prop
       for (const p of inspection.analysis.payloads) {
         for (const x of p.privileged.filter((y) => y.newAuthority !== undefined).slice(0, 3)) {
           const who = x.newAuthority ? short(x.newAuthority) : "nobody";
-          const control = x.control === "outside" ? "NOT controlled by the multisig" : x.control === "member" ? "a single member" : x.control === "none" ? "removed" : "the multisig";
+          const control = x.control === "outside" ? "NOT controlled by the multisig" : x.control === "member" ? "a single member" : x.control === "none" ? "removed" : x.control === "guard" ? "the multisig's Presign Guard" : "the multisig";
           lines.push(`• ${x.programName} ${x.action} → ${who} (${control})`);
           html.push(`• ${escapeHtml(x.programName)} <code>${escapeHtml(x.action)}</code> → <code>${who}</code> (${control})`);
         }
@@ -160,7 +160,7 @@ export function formatDuration(seconds: number): string {
   return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${Math.max(m, 1)}m`;
 }
 
-const controlText = (c: string | null) => (c === "outside" ? "NOT controlled by the multisig or guard" : c === "member" ? "a single key" : c === "none" ? "removed" : "the multisig / guard");
+const controlText = (c: string | null) => (c === "outside" ? "NOT controlled by the multisig or guard" : c === "member" ? "a single key" : c === "none" ? "removed" : c === "guard" ? "a Presign Guard of the multisig" : "the multisig / guard");
 
 /** `nowSeconds` is passed in so formatting stays pure. */
 export function formatGuardAlert(event: GuardWatchEvent, baseUrl: string, nowSeconds: number, inspection: GuardActionInspection | null = null): Alert {

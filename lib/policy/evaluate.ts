@@ -120,7 +120,7 @@ export function evaluatePolicy(policy: TeamPolicy, subject: PolicySubject, ctx: 
       }
       if (a.newAuthority === null) {
         if (!allowNone) c.violate(`${a.origin}: ${a.programName} ${a.action} removes the authority permanently (the policy does not list "none").`);
-      } else if (a.control !== "multisig" && !allowed.has(a.newAuthority)) {
+      } else if (a.control !== "multisig" && a.control !== "guard" && !allowed.has(a.newAuthority)) {
         c.violate(`${a.origin}: ${a.programName} ${a.action} → ${a.newAuthority}, not an approved holder.`);
       }
     }
@@ -143,7 +143,7 @@ export function evaluatePolicy(policy: TeamPolicy, subject: PolicySubject, ctx: 
     for (const a of immediate) {
       if (!kinds.has(a.kind)) continue;
       // Handing an authority to an approved guard is how protection starts.
-      if (a.newAuthority && guardSigners.has(a.newAuthority)) continue;
+      if (a.control === "guard" || (a.newAuthority && guardSigners.has(a.newAuthority))) continue;
       c.violate(`${a.origin}: ${a.programName} ${a.action} (${a.kind}) runs immediately instead of through Presign Guard.`);
     }
     checks.push(c.done());

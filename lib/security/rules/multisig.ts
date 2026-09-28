@@ -73,6 +73,8 @@ export function privilegedSignal(p: PrivilegedAction, i: number, ev: EvFn, membe
     s = { code: `MS_AUTHORITY_LEAVES_MULTISIG:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} moves outside the multisig`, description: `${what} makes ${p.newAuthority} the new ${AUTHORITY_LABEL[p.kind]}. That address is not ${notWhat}: after execution the multisig no longer controls it.`, severity: "CRITICAL", evidence: [id, ...extraEvidence] };
   } else if (p.newAuthority !== undefined && p.control === "member") {
     s = { code: `MS_AUTHORITY_TO_SINGLE_KEY:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} handed to a single member key`, description: `${what} gives ${short(p.newAuthority)} — one member — sole control. Afterwards that one key can act without a vote.`, severity: "HIGH", evidence: [id] };
+  } else if (p.newAuthority !== undefined && p.control === "guard" && p.guard) {
+    s = { code: `MS_AUTHORITY_TO_GUARD:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} moves to Presign Guard`, description: `${what} hands the ${AUTHORITY_LABEL[p.kind]} to Presign Guard ${short(p.guard.address)}, whose proposer is this multisig's vault. From then on it can only be used through an action scheduled by the multisig, after a ${formatDelay(p.guard.delaySeconds)} delay, and any one of ${p.guard.guardians} guardian(s) can veto it.`, severity: "LOW", evidence: [id] };
   } else if (p.newAuthority !== undefined && p.control === "none") {
     s = { code: `MS_AUTHORITY_REMOVED:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} removed permanently`, description: `${what} removes the ${AUTHORITY_LABEL[p.kind]} entirely. This cannot be undone.`, severity: "HIGH", evidence: [id] };
   } else if (p.newAuthority !== undefined) {

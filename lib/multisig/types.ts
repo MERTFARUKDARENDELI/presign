@@ -20,7 +20,8 @@ export type PrivilegedKind =
   | "admin-action";
 
 /** Who controls an authority after the change. */
-export type AuthorityControl = "multisig" | "member" | "outside" | "none";
+/** "guard": a Presign Guard whose proposer is this multisig's vault (controlled by the multisig, with a delay and a veto). */
+export type AuthorityControl = "multisig" | "guard" | "member" | "outside" | "none";
 
 export interface PrivilegedAction {
   kind: PrivilegedKind;
@@ -37,6 +38,8 @@ export interface PrivilegedAction {
   /** Argument or account the new authority was read from (evidence). */
   authorityField: string | null;
   source: "TRANSACTION_DECODER" | "ANCHOR_IDL";
+  /** Set when control is "guard": the guard that receives the authority. */
+  guard?: { address: string; delaySeconds: number; guardians: number };
 }
 
 export interface VaultPayload {

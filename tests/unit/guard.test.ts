@@ -3,6 +3,7 @@ import { PublicKey, SystemProgram, VersionedTransaction } from "@solana/web3.js"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearIdlCache } from "@/lib/anchor/source";
 import { decodeActionAccount, decodeGuardAccount, decodeGuardInstruction, executeInstruction, scheduleInstruction, vetoInstruction, type GuardInstructionData } from "@/lib/guard/codec";
+import { clearGuardHolderCache } from "@/lib/guard/holders";
 import { actionPda, GUARD_ACCOUNT_DISCRIMINATOR, GUARD_IX_DISCRIMINATOR, guardPda, guardSignerPda } from "@/lib/guard/constants";
 import { inspect } from "@/lib/multisig/inspect";
 import { rpcCall } from "@/lib/solana/client";
@@ -96,6 +97,7 @@ beforeEach(() => {
   simulate.mockReset();
   simulate.mockRejectedValue(new Error("no simulation in test"));
   clearIdlCache();
+  clearGuardHolderCache();
 });
 
 describe("Guard codec", () => {
@@ -245,5 +247,64 @@ describe("Guard inspection", () => {
     expect(r.inspection.scheduled.privileged[0].control).toBe("multisig");
     expect(r.inspection.risk.signals.map((s) => s.code)).toContain("GUARD_ACTION_EXECUTABLE");
     expect(r.inspection.risk.signals.some((s) => s.severity === "CRITICAL")).toBe(false);
+  });
+});
+
+describe("Handing an authority to the multisig's own guard", () => {
+  /** Vault proposal #4: SPL Token SetAuthority(MintTokens → newAuthority), executed immediately by the vault. */
+  function chainHandingMintTo(newAuthority: string) {
+    const message: SquadsMessage = {
+      numSigners: 1, numWritableSigners: 1, numWritableNonSigners: 1,
+      accountKeys: [VAULT, MINT, TOKEN_PROGRAM_ID],
+      instructions: [{ programIdIndex: 2, accountIndexes: [1, 0], data: Uint8Array.from([6, 0, 1, ...new PublicKey(newAuthority).toBytes()]) }],
+      addressTableLookups: [],
+    };
+    return new Map<string, ChainAccount>([
+      [MS, { data: multisigAccountBytes({ members: [M1, M2, M3], threshold: 2, timeLock: 0, transactionIndex: 4n }), owner: SQUADS_V4_PROGRAM_ID }],
+      [proposalPda(MS, 4n), { data: proposalAccountBytes(MS, 4n, 1, [M1]), owner: SQUADS_V4_PROGRAM_ID }],
+      [transactionPda(MS, 4n), { data: vaultTransactionBytes(MS, M1, 4n, 0, message), owner: SQUADS_V4_PROGRAM_ID }],
+    ]);
+  }
+
+  /** Like `serve`, plus getProgramAccounts over the guard program, filtered by proposer like the RPC does. */
+  function serveWithGuards(accounts: Map<string, ChainAccount>, guards: Array<{ address: string; data: Uint8Array }> | "fail") {
+    rpc.mockImplementation((async (method: string, params: unknown[]) => {
+      const ok = (result: unknown) => ({ result, source: "HELIUS_RPC", fallbackUsed: false });
+      if (method === "getAccountInfo") return ok({ context: { slot: 1 }, value: accountInfoValue(accounts.get(params[0] as string)) });
+      if (method === "getMultipleAccounts") return ok({ context: { slot: 1 }, value: (params[0] as string[]).map((a) => accountInfoValue(accounts.get(a))) });
+      if (method === "getProgramAccounts") {
+        if (guards === "fail") throw new Error("gPA disabled");
+        const filters = (params[1] as { filters: Array<{ memcmp: { offset: number; bytes: string } }> }).filters;
+        const proposer = filters.find((f) => f.memcmp.offset === 40)!.memcmp.bytes;
+        return ok(guards.filter((g) => new PublicKey(g.data.subarray(40, 72)).toBase58() === proposer).map((g) => ({ pubkey: g.address, account: { data: [Buffer.from(g.data).toString("base64"), "base64"] } })));
+      }
+      throw new Error(`unexpected rpc ${method}`);
+    }) as unknown as typeof rpcCall);
+  }
+
+  it("is recognized as staying under the multisig's control (delayed, vetoable), not as leaving it", async () => {
+    serveWithGuards(chainHandingMintTo(SIGNER), [{ address: GUARD, data: guardBytes() }]);
+    const r = await inspect(`${MS} #4`);
+    if (r.kind !== "proposal") throw new Error("expected proposal");
+    const p = r.inspection.analysis.payloads[0].privileged[0];
+    expect(p).toMatchObject({ control: "guard", guard: { address: GUARD, delaySeconds: 86_400, guardians: 3 } });
+    const codes = r.inspection.risk.signals.map((s) => s.code);
+    expect(codes).toContain("MS_AUTHORITY_TO_GUARD:0");
+    expect(codes.some((c) => c.startsWith("MS_AUTHORITY_LEAVES_MULTISIG"))).toBe(false);
+    expect(r.inspection.risk.signals.find((s) => s.code === "MS_AUTHORITY_TO_GUARD:0")?.description).toContain("after a 1 day(s) delay");
+  });
+
+  it("a guard proposed by someone else, or guards that cannot be listed, leave it outside", async () => {
+    const foreign = new W().hex(GUARD_ACCOUNT_DISCRIMINATOR.Guard).key(CREATE_KEY).key(OUTSIDER).u32(1).key(M1).u32(86_400).u64(0n).u8(255).u8(254).done();
+    serveWithGuards(chainHandingMintTo(SIGNER), [{ address: GUARD, data: foreign }]);
+    const r1 = await inspect(`${MS} #4`);
+    if (r1.kind !== "proposal") throw new Error("expected proposal");
+    expect(r1.inspection.analysis.payloads[0].privileged[0].control).toBe("outside");
+    expect(r1.inspection.risk.level).toBe("CRITICAL");
+
+    serveWithGuards(chainHandingMintTo(SIGNER), "fail");
+    const r2 = await inspect(`${MS} #4`);
+    if (r2.kind !== "proposal") throw new Error("expected proposal");
+    expect(r2.inspection.risk.level).toBe("CRITICAL");
   });
 });

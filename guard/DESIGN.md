@@ -53,7 +53,7 @@ Nobody can make Guard sign immediately — including the proposer. Guardians can
 ## How it fits Squads
 
 1. Create a guard with `proposer = <Squads vault>` and the members (plus, optionally, an external security key) as guardians.
-2. Move each critical authority to the guard signer PDA (BPF loader `SetAuthority`, SPL `SetAuthority`, or the protocol's own admin setter).
+2. Move each critical authority to the guard signer PDA (BPF loader `SetAuthority`, SPL `SetAuthority`, or the protocol's own admin setter). Presign recognizes the signer of a guard whose proposer is the proposal's vault (found with `getProgramAccounts` on the proposer field) and reports the move as staying under the multisig's control, with the guard's delay and guardian count — not as the authority leaving the multisig. A guard proposed by anyone else stays "outside" (CRITICAL).
 3. To use a critical authority, the team creates a normal Squads proposal whose vault instruction is `guard.schedule(...)`. After the Squads vote executes it, the action waits `delay`.
 4. Presign decodes the schedule — including the instructions inside it — shows it in the Signer Brief and pushes it to Watchtower with the countdown and a veto link.
 5. After the delay, anyone calls `execute`.

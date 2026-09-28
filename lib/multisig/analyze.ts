@@ -19,6 +19,7 @@ import type { BatchAccount, MultisigAccount, SquadsInstruction } from "@/lib/squ
 import type { DecodedTransaction } from "@/lib/transaction/types";
 import { fetchSquadsAccount, fetchSquadsAccounts, type SquadsFetch } from "./chain";
 import { buildVaultPayload, type PayloadContext } from "./payload";
+import { markGuardHolders } from "@/lib/guard/holders";
 import { findPrivilegedActions } from "./privileged";
 import type { MultisigAnalysis, ProposalRef, VaultPayload } from "./types";
 
@@ -219,7 +220,11 @@ export async function analyzeMultisig(tx: VersionedTransaction, decoded: Decoded
 
   // Already-executed or simulated execution: the vault's calls appear as CPIs of the execute instruction.
   const execIdx = new Set(squads.filter((s) => s.ix.kind === "execute").map((s) => s.index));
-  const cpi = findPrivilegedActions(decoded, "", ctx.controlled, ctx.members, (i) => i.parentIndex !== undefined && execIdx.has(i.parentIndex) && i.programId !== SQUADS_V4_PROGRAM_ID);
+  const cpi = await markGuardHolders(
+    findPrivilegedActions(decoded, "", ctx.controlled, ctx.members, (i) => i.parentIndex !== undefined && execIdx.has(i.parentIndex) && i.programId !== SQUADS_V4_PROGRAM_ID),
+    // The executing vault is among the transaction's accounts.
+    decoded.accounts.map((a) => a.address).filter((a): a is string => a !== null && ctx.controlled.has(a)),
+  );
   if (cpi.length) {
     out.payloads.push({ source: "EXECUTION_CPI", transaction: null, transactionIndex: null, vaultIndex: null, vault: null, status: "DECODED", detail: decoded.innerInstructionsSource === "EXECUTED" ? "Observed in the executed transaction record." : "Observed in simulation.", decoded: null, privileged: cpi });
   }

@@ -66,6 +66,7 @@ export const CONTROL_TEXT: Record<AuthorityControl, string> = {
   member: "a single member key",
   none: "nobody — removed permanently",
   multisig: "controlled by this multisig",
+  guard: "this multisig's Presign Guard — usable only after its delay, vetoable",
 };
 
 export function briefSourceFromAnalysis(a: TransactionAnalysis): BriefSource {

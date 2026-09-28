@@ -11,6 +11,7 @@ const CONTROL_STYLE = {
   member: "border-orange-500/50 bg-orange-500/15 text-orange-200",
   none: "border-orange-500/50 bg-orange-500/15 text-orange-200",
   multisig: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
+  guard: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
 } as const;
 
 function Step({ step }: { step: BriefStep }) {

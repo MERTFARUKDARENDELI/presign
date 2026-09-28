@@ -63,8 +63,8 @@ export function GuardActionReport({ inspection, onChanged }: { inspection: Guard
               <li key={ix.index} className={cn("rounded-lg border px-3 py-2 text-sm", p ? "border-zinc-700 bg-zinc-950" : "border-transparent bg-zinc-950/60")}>
                 <p className="break-words text-zinc-200">{describeInstruction(ix)}</p>
                 {p && p.newAuthority !== undefined && (
-                  <p className={cn("mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium", p.control === "outside" ? "border-red-500/50 bg-red-500/15 text-red-200" : p.control === "multisig" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-orange-500/50 bg-orange-500/15 text-orange-200")}>
-                    New holder <Address value={p.newAuthority ?? "none"} n={6} />: {p.control === "outside" ? "NOT controlled by the multisig or this guard" : p.control === "multisig" ? "the multisig or this guard" : p.control === "member" ? "a single key" : "nobody — removed"}
+                  <p className={cn("mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium", p.control === "outside" ? "border-red-500/50 bg-red-500/15 text-red-200" : (p.control === "multisig" || p.control === "guard") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-orange-500/50 bg-orange-500/15 text-orange-200")}>
+                    New holder <Address value={p.newAuthority ?? "none"} n={6} />: {p.control === "outside" ? "NOT controlled by the multisig or this guard" : p.control === "multisig" ? "the multisig or this guard" : p.control === "guard" ? "a Presign Guard of the multisig" : p.control === "member" ? "a single key" : "nobody — removed"}
                   </p>
                 )}
               </li>
