@@ -21,6 +21,8 @@ import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@/lib/solana/constants";
+import { decodeGuardInstruction } from "@/lib/guard/codec";
+import { GUARD_IX_ACCOUNTS, guardProgramId } from "@/lib/guard/constants";
 import { SQUADS_IX_ACCOUNTS, SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import { decodeSquadsInstruction } from "@/lib/squads/decode";
 import type {
@@ -216,6 +218,7 @@ export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptio
       else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(cix.data, base);
       else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(cix.data, accountKeys, index, out, base);
       else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(cix.data, accountKeys, base);
+      else if (programId === guardProgramId()) decoded = decodeGuard(cix.data, base);
       else if (programId === MEMO_PROGRAM_ID || programId === MEMO_V1_PROGRAM_ID) {
         const text = new TextDecoder("utf-8", { fatal: false }).decode(cix.data).slice(0, 200);
         decoded = base("memo", true, [], { memo: text });
@@ -289,6 +292,7 @@ export function decodeInnerRaw(
     else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(data, base);
     else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(data, accounts, parentIndex, scratch, base);
     else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(data, accounts, base);
+    else if (programId === guardProgramId()) decoded = decodeGuard(data, base);
   } catch {
     decoded = null;
   }
@@ -510,6 +514,26 @@ function decodeSquads(data: Uint8Array, accounts: Array<string | null>, base: Ba
   if (s.configActions.length) info.configActions = s.configActions.map((c) => c.type).join(", ");
   if (s.memo !== null) info.memo = s.memo;
   return base(`squads:${s.name}`, true, SQUADS_IX_ACCOUNTS[s.name] ?? [], info);
+}
+
+/**
+ * Presign Guard. A schedule carries the instructions that will run later; they
+ * are kept (hidden `_scheduled`) for the Guard analysis, not executed here.
+ */
+function decodeGuard(data: Uint8Array, base: BaseFn): DecodedInstruction | null {
+  const g = decodeGuardInstruction(data);
+  if (!g) return null;
+  const info: Record<string, string | null> = {};
+  if (g.name === "schedule") {
+    info.memo = g.memo;
+    info.scheduledInstructions = String(g.instructions.length);
+    info._scheduled = JSON.stringify(g.instructions.map((ix) => ({ programId: ix.programId, accounts: ix.accounts, data: Buffer.from(ix.data).toString("base64") })));
+  } else if (g.name === "updateConfig" || g.name === "createGuard") {
+    info.proposer = g.config.proposer;
+    info.guardians = g.config.guardians.join(", ");
+    info.delaySeconds = String(g.config.delaySeconds);
+  }
+  return base(`guard:${g.name}`, true, GUARD_IX_ACCOUNTS[g.name], info);
 }
 
 function decodeAta(data: Uint8Array, base: BaseFn): DecodedInstruction | null {

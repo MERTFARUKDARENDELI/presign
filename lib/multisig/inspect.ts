@@ -1,5 +1,8 @@
 import "server-only";
 import { gateFor } from "@/lib/agent/gate";
+import { fetchGuardProgramAccount } from "@/lib/guard/analyze";
+import { guardProgramId } from "@/lib/guard/constants";
+import { guardAccountKind, inspectGuard, inspectGuardAction } from "@/lib/guard/inspect";
 import { AppError } from "@/lib/api/errors";
 import { buildSignerBrief } from "./brief";
 import { logger } from "@/lib/api/logger";
@@ -128,6 +131,13 @@ export async function inspect(raw: string, signer: string | null = null): Promis
   for (const address of [...parsed.addresses].sort((a, b) => rank(a) - rank(b))) {
     const f = fetched.get(address) ?? { status: "FAILED" as const };
     if (f.status === "FAILED") throw new AppError("RPC_ERROR", "The account could not be loaded. Please retry.");
+    // Presign Guard accounts: a guard (setup + scheduled actions) or one scheduled action.
+    if (f.status === "WRONG_OWNER" && f.owner === guardProgramId()) {
+      const g = await fetchGuardProgramAccount(address);
+      const kind = g.status === "OK" ? guardAccountKind(g.data) : null;
+      if (g.status === "OK" && kind === "guard") return { kind: "guard", overview: await inspectGuard(address) };
+      if (g.status === "OK" && kind === "action") return { kind: "guard-action", inspection: await inspectGuardAction(address, g.data) };
+    }
     if (f.status !== "OK") {
       sawForeign ||= f.status === "WRONG_OWNER";
       continue;

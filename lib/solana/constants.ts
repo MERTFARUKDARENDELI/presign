@@ -1,3 +1,5 @@
+import { guardProgramId } from "@/lib/guard/constants";
+
 /** Well-known Solana program ids. Pure constants — safe for client and server. */
 
 export const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
@@ -59,5 +61,6 @@ export const KNOWN_PROGRAMS: Record<string, KnownProgram> = {
 };
 
 export function programInfo(programId: string): KnownProgram {
+  if (programId && programId === guardProgramId()) return { name: "Presign Guard", trust: "known" };
   return KNOWN_PROGRAMS[programId] ?? { name: "Unknown program", trust: "unknown" };
 }

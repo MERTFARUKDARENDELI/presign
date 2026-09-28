@@ -1,4 +1,5 @@
 import type { Gate } from "@/lib/agent/gate";
+import type { GuardActionInspection, GuardOverview, ScheduledActions } from "@/lib/guard/types";
 import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
 import type { SignerBrief } from "./brief";
 import type { AnalysisStatus } from "@/lib/security/types";
@@ -56,6 +57,8 @@ export interface VaultPayload {
   simulationNote?: string | null;
   /** Required signers the multisig cannot sign for (neither the vault nor this transaction's ephemeral signers). */
   foreignSigners?: string[];
+  /** Actions this payload schedules through Presign Guard (they run after the guard's delay, unless vetoed). */
+  scheduled?: ScheduledActions[];
   /** Deterministic risk of the payload from the vault's perspective (asset outflows, approvals). */
   risk?: RiskAssessment | null;
 }
@@ -139,4 +142,8 @@ export interface MultisigOverview {
   inspectedAt: string;
 }
 
-export type InspectResult = { kind: "proposal"; inspection: ProposalInspection } | { kind: "multisig"; overview: MultisigOverview };
+export type InspectResult =
+  | { kind: "proposal"; inspection: ProposalInspection }
+  | { kind: "multisig"; overview: MultisigOverview }
+  | { kind: "guard"; overview: GuardOverview }
+  | { kind: "guard-action"; inspection: GuardActionInspection };

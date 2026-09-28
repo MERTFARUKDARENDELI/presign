@@ -5,7 +5,7 @@ import { buildAssessment } from "../engine";
 import type { RiskAssessment, RiskSignal } from "../risk";
 import type { AnalysisStatus, DataSourceStatus, Evidence } from "../types";
 
-type EvFn = (e: Omit<Evidence, "id">) => string;
+export type EvFn = (e: Omit<Evidence, "id">) => string;
 
 /**
  * Deterministic rules for Squads multisigs, evaluated from the signer's point
@@ -37,7 +37,7 @@ const AUTHORITY_LABEL: Record<PrivilegedAction["kind"], string> = {
   "admin-action": "admin setting",
 };
 
-function actionEvidence(p: PrivilegedAction, ev: EvFn): string {
+export function actionEvidence(p: PrivilegedAction, ev: EvFn): string {
   const observed = p.newAuthority === undefined
     ? `${p.programName}.${p.action}${p.target ? ` on ${p.target}` : ""}`
     : `${p.programName}.${p.action} → new ${AUTHORITY_LABEL[p.kind]} ${p.newAuthority ?? "NONE (removed)"}`;
@@ -47,6 +47,54 @@ function actionEvidence(p: PrivilegedAction, ev: EvFn): string {
     observed,
     condition: p.source === "ANCHOR_IDL" ? "instruction and argument names from the program's own on-chain IDL (intent, not verified behavior)" : "decoded from instruction bytes",
   });
+}
+
+const ONE_LOWER: Record<RiskSignal["severity"], RiskSignal["severity"]> = { CRITICAL: "HIGH", HIGH: "MEDIUM", MEDIUM: "LOW", LOW: "LOW" };
+
+export function formatDelay(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400} day(s)`;
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour(s)`;
+  if (seconds % 60 === 0) return `${seconds / 60} minute(s)`;
+  return `${seconds} second(s)`;
+}
+
+/**
+ * One signal per privileged action. Scheduled through a verified Guard, the
+ * severity drops one level (the delay and single-guardian veto are a real
+ * window to stop it) and the description says so; the finding never disappears.
+ */
+export function privilegedSignal(p: PrivilegedAction, i: number, ev: EvFn, membersKnown: boolean, extraEvidence: string[], guard: { delaySeconds: number; guardians: number; key: string } | null = null, scope: string | null = null): RiskSignal {
+  const id = actionEvidence(p, ev);
+  const what = `${p.programName} ${p.action}`;
+  let s: Omit<RiskSignal, "evidenceIds"> & { evidence: string[] };
+  if (p.newAuthority !== undefined && p.control === "outside") {
+    // Membership is only claimed when the multisig account was actually loaded.
+    const notWhat = membersKnown ? "this multisig, one of its vaults, or a member" : "this multisig or one of its vaults (membership could not be checked)";
+    s = { code: `MS_AUTHORITY_LEAVES_MULTISIG:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} moves outside the multisig`, description: `${what} makes ${p.newAuthority} the new ${AUTHORITY_LABEL[p.kind]}. That address is not ${notWhat}: after execution the multisig no longer controls it.`, severity: "CRITICAL", evidence: [id, ...extraEvidence] };
+  } else if (p.newAuthority !== undefined && p.control === "member") {
+    s = { code: `MS_AUTHORITY_TO_SINGLE_KEY:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} handed to a single member key`, description: `${what} gives ${short(p.newAuthority)} — one member — sole control. Afterwards that one key can act without a vote.`, severity: "HIGH", evidence: [id] };
+  } else if (p.newAuthority !== undefined && p.control === "none") {
+    s = { code: `MS_AUTHORITY_REMOVED:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} removed permanently`, description: `${what} removes the ${AUTHORITY_LABEL[p.kind]} entirely. This cannot be undone.`, severity: "HIGH", evidence: [id] };
+  } else if (p.newAuthority !== undefined) {
+    s = { code: `MS_AUTHORITY_INTERNAL:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} moves within the multisig`, description: `${what} moves the ${AUTHORITY_LABEL[p.kind]} to ${short(p.newAuthority)}, an address controlled by this multisig.`, severity: "LOW", evidence: [id] };
+  } else if (p.kind === "program-upgrade") {
+    s = { code: `MS_PROGRAM_UPGRADE:${i}`, title: "Program code is replaced", description: `Upgrades program ${short(p.target)} with new code. Verify the buffer matches a reviewed, verifiable build before approving.`, severity: "HIGH", evidence: [id] };
+  } else if (p.kind === "program-close" || p.kind === "account-reassign") {
+    s = { code: `MS_${p.kind === "program-close" ? "PROGRAM_CLOSE" : "ACCOUNT_REASSIGN"}:${i}`, title: p.kind === "program-close" ? "Program or buffer is closed" : "Account ownership is reassigned", description: `${what} on ${short(p.target)}.`, severity: "HIGH", evidence: [id] };
+  } else if (p.kind === "admin-transfer") {
+    s = { code: `MS_ADMIN_CHANGE_UNKNOWN_TARGET:${i}`, title: "Admin change with an unidentified new holder", description: `${what} looks like an authority change, but the new holder could not be identified from the IDL. Verify it manually.`, severity: "HIGH", evidence: [id] };
+  } else {
+    s = { code: `MS_ADMIN_ACTION:${i}`, title: "Administrative action", description: `${what} changes protocol settings. Confirm the values with the proposer.`, severity: "MEDIUM", evidence: [id] };
+  }
+  // `scope` keeps codes of scheduled actions apart from immediate ones (the engine de-duplicates by code).
+  if (!guard) return { code: scope ? `${s.code}:${scope}` : s.code, title: s.title, description: s.description, severity: s.severity, evidenceIds: s.evidence };
+  return {
+    code: `GUARD_${s.code.replace(/:\d+$/, "")}:${guard.key}:${i}`,
+    title: `Scheduled: ${s.title.charAt(0).toLowerCase()}${s.title.slice(1)}`,
+    description: `${s.description} It is scheduled through Presign Guard: it runs no earlier than ${formatDelay(guard.delaySeconds)} after this proposal executes, and any one of ${guard.guardians} guardian(s) can veto it before then.`,
+    severity: ONE_LOWER[s.severity],
+    evidenceIds: [...new Set([...s.evidence, ...extraEvidence])],
+  };
 }
 
 function configEvidence(ms: { multisig: string | null }, account: MultisigAccount, ev: EvFn): string {
@@ -100,30 +148,26 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
     seen.add(key);
     return true;
   });
-  for (const [i, p] of privileged.entries()) {
-    const id = actionEvidence(p, ev);
-    const what = `${p.programName} ${p.action}`;
-    if (p.newAuthority !== undefined) {
-      if (p.control === "outside") {
-        // Membership is only claimed when the multisig account was actually loaded.
-        const notWhat = account ? "this multisig, one of its vaults, or a member" : "this multisig or one of its vaults (membership could not be checked)";
-        signals.push({ code: `MS_AUTHORITY_LEAVES_MULTISIG:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} moves outside the multisig`, description: `${what} makes ${p.newAuthority} the new ${AUTHORITY_LABEL[p.kind]}. That address is not ${notWhat}: after execution the multisig no longer controls it.`, severity: "CRITICAL", evidenceIds: [id, squadsIxEvidence] });
-      } else if (p.control === "member") {
-        signals.push({ code: `MS_AUTHORITY_TO_SINGLE_KEY:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} handed to a single member key`, description: `${what} gives ${short(p.newAuthority)} — one member — sole control. Afterwards that one key can act without a vote.`, severity: "HIGH", evidenceIds: [id] });
-      } else if (p.control === "none") {
-        signals.push({ code: `MS_AUTHORITY_REMOVED:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} removed permanently`, description: `${what} removes the ${AUTHORITY_LABEL[p.kind]} entirely. This cannot be undone.`, severity: "HIGH", evidenceIds: [id] });
-      } else {
-        signals.push({ code: `MS_AUTHORITY_INTERNAL:${i}`, title: `${cap(AUTHORITY_LABEL[p.kind])} moves within the multisig`, description: `${what} moves the ${AUTHORITY_LABEL[p.kind]} to ${short(p.newAuthority)}, an address controlled by this multisig.`, severity: "LOW", evidenceIds: [id] });
-      }
-    } else if (p.kind === "program-upgrade") {
-      signals.push({ code: `MS_PROGRAM_UPGRADE:${i}`, title: "Program code is replaced", description: `Upgrades program ${short(p.target)} with new code. Verify the buffer matches a reviewed, verifiable build before approving.`, severity: "HIGH", evidenceIds: [id] });
-    } else if (p.kind === "program-close" || p.kind === "account-reassign") {
-      signals.push({ code: `MS_${p.kind === "program-close" ? "PROGRAM_CLOSE" : "ACCOUNT_REASSIGN"}:${i}`, title: p.kind === "program-close" ? "Program or buffer is closed" : "Account ownership is reassigned", description: `${what} on ${short(p.target)}.`, severity: "HIGH", evidenceIds: [id] });
-    } else if (p.kind === "admin-transfer") {
-      signals.push({ code: `MS_ADMIN_CHANGE_UNKNOWN_TARGET:${i}`, title: "Admin change with an unidentified new holder", description: `${what} looks like an authority change, but the new holder could not be identified from the IDL. Verify it manually.`, severity: "HIGH", evidenceIds: [id] });
+  for (const [i, p] of privileged.entries()) signals.push(privilegedSignal(p, i, ev, account !== null, [squadsIxEvidence]));
+
+  // Actions scheduled through Presign Guard: they wait the guard's delay and any one guardian can veto them.
+  for (const [n, s] of ms.payloads.flatMap((p) => p.scheduled ?? []).entries()) {
+    const g = s.guardAccount;
+    const gid = ev({
+      source: g ? "ONCHAIN_RPC" : "TRANSACTION_DECODER",
+      label: `${s.origin}: Presign Guard ${short(s.guard)}`,
+      observed: g ? `${s.decoded.instructions.length} scheduled instruction(s); delay ${g.delaySeconds}s; ${g.guardians.length} guardian(s) can veto` : `${s.decoded.instructions.length} scheduled instruction(s); guard account ${s.guardStatus.toLowerCase().replace("_", " ")}`,
+      condition: g ? "guard configuration read from chain" : "delay and veto could not be verified",
+    });
+    if (g) {
+      signals.push({ code: `GUARD_SCHEDULED:${s.guard}:${n}`, title: "Scheduled through Presign Guard", description: `The instructions below do not run when this proposal executes: they wait ${formatDelay(g.delaySeconds)}, and any one of ${g.guardians.length} guardian(s) can veto them before then.`, severity: "LOW", evidenceIds: [gid] });
+      if (g.delaySeconds < 3600) signals.push({ code: `GUARD_SHORT_DELAY:${s.guard}`, title: "Guard delay under one hour", description: `A ${formatDelay(g.delaySeconds)} delay leaves little time to notice and veto.`, severity: "MEDIUM", evidenceIds: [gid] });
+      if (g.guardians.length === 1) signals.push({ code: `GUARD_SINGLE_GUARDIAN:${s.guard}`, title: "Only one guardian can veto", description: "If that one key is unavailable or compromised, nobody can stop a scheduled action.", severity: "MEDIUM", evidenceIds: [gid] });
     } else {
-      signals.push({ code: `MS_ADMIN_ACTION:${i}`, title: "Administrative action", description: `${what} changes protocol settings. Confirm the values with the proposer.`, severity: "MEDIUM", evidenceIds: [id] });
+      signals.push({ code: `GUARD_UNVERIFIED:${s.guard}`, title: "Guard could not be verified", description: "The proposal schedules through an account that could not be loaded as a Presign Guard, so the delay and veto are not confirmed.", severity: "MEDIUM", evidenceIds: [gid] });
+      statuses.push("PARTIAL");
     }
+    for (const [i, p] of s.privileged.entries()) signals.push(privilegedSignal(p, i, ev, account !== null, [gid], g ? { delaySeconds: g.delaySeconds, guardians: g.guardians.length, key: `${s.guard}:${n}` } : null, `scheduled:${s.guard}:${n}`));
   }
 
   // Asset movements out of the vault: from the payload's simulation when it ran, otherwise from the decoded instructions.

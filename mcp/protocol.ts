@@ -105,6 +105,29 @@ export function summarizeInspection(r: InspectResult) {
       authorityChanges: i.analysis.payloads.flatMap((p) => p.privileged).filter((x) => x.newAuthority !== undefined).map((x) => ({ program: x.programName, action: x.action, newHolder: x.newAuthority, control: x.control })),
     };
   }
+  if (r.kind === "guard-action") {
+    const a = r.inspection;
+    return {
+      kind: "guard-action",
+      gate: a.gate,
+      guard: a.guard,
+      action: a.address,
+      status: a.action.status,
+      eta: new Date(Number(a.action.eta) * 1000).toISOString(),
+      ...compactRisk(a.risk),
+      scheduledInstructions: a.scheduled.decoded.instructions.map((ix) => `${ix.programName}: ${ix.type}`),
+      authorityChanges: a.scheduled.privileged.filter((x) => x.newAuthority !== undefined).map((x) => ({ program: x.programName, action: x.action, newHolder: x.newAuthority, control: x.control })),
+    };
+  }
+  if (r.kind === "guard") {
+    const g = r.overview;
+    return {
+      kind: "guard",
+      guard: g.guard,
+      setup: { ...compactRisk(g.posture), delaySeconds: g.account.delaySeconds, guardians: g.account.guardians.length, proposer: g.account.proposer },
+      actions: g.actions.map((x) => ({ index: x.index, status: x.status, eta: new Date(Number(x.eta) * 1000).toISOString(), memo: x.memo })),
+    };
+  }
   const o = r.overview;
   return {
     kind: "multisig",
