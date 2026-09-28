@@ -1,12 +1,12 @@
 # Project Status — Presign
 
-Last updated: 2026-09-27. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
+Last updated: 2026-09-28. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
 
 "VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready".
 
 The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** and refocused on pre-sign verification for Solana multisigs. The history below the Presign section describes the original engine, which Presign builds on.
 
-## Presign (2026-09-27)
+## Presign (2026-09-27 →)
 
 ### Verification baseline
 
@@ -14,9 +14,10 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **362 tests / 29 files** pass (no network; RPC mocked at the edge) |
-| `npm run build` | pass, 24 routes (new: `/verify`, `/case/drift`, `/docs`, `/api/multisig/inspect`) |
-| Client bundle secret scan | 39 files, 0 hits for server-only values |
+| `npm test` | **406 tests / 32 files** pass (no network; RPC mocked at the edge) |
+| `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
+| CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
+| Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
 | Live mainnet (read-only) | see below |
 
 ### Components
@@ -32,16 +33,22 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Proposal inspector API + `/verify` UI | VERIFIED (live) | headless browser on the Drift multisig overview and proposal #7 |
 | `/case/drift` replay | VERIFIED (live) | both pre-signed transactions analyzed from unsigned bytes in the browser: CRITICAL |
 | Brief + deterministic gate in API responses | VERIFIED | unit + live |
-| Watchtower | PARTIAL | one live cycle against the Drift multisig (console delivery). Telegram / webhook delivery not exercised against real endpoints (needs a bot token) |
+| Watchtower (self-service Telegram bot: /watch, /unwatch, /list, /check; SQLite state; guard watching) | PARTIAL | one live cycle against the Drift multisig (console delivery); bot commands unit-tested. Telegram / webhook delivery not exercised against real endpoints (needs a bot token) |
 | MCP server | VERIFIED (live) | stdio session: initialize → tools/call on Drift #7 returned `gate: block` |
 | Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
+| Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |
+| Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
+| Rule catalog `/rules` | VERIFIED | 70 rules; a test keeps it in sync with the rule sources |
+| Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
+| Presign Guard — Anchor program (`guard/`) | IN_PROGRESS | source written; not yet compiled, tested or deployed (needs the Solana toolchain in WSL). Unaudited |
 
 ### Open items
 
-1. Deployment (needs the team's hosting account) and a public repository.
-2. Telegram / webhook delivery test with a real bot.
-3. Buffer-created proposals and batches against real mainnet examples.
-4. Items carried over from the original engine: wallet-extension signing, mobile wallets, live OpenAI key.
+1. Presign Guard: compile, Rust tests, devnet deploy, end-to-end demo (Squads devnet multisig → guard holds a mint authority → scheduled takeover → Watchtower alert → guardian veto).
+2. Deployment (needs the team's hosting account) and a public repository.
+3. Telegram / webhook delivery test with a real bot.
+4. Buffer-created proposals and batches against real mainnet examples.
+5. Items carried over from the original engine: wallet-extension signing, mobile wallets, live OpenAI key.
 
 ## Original engine (history)
 

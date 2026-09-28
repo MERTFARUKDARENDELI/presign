@@ -24,12 +24,14 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 
 - **Verify** — paste a Squads link, a proposal address or `<multisig> #<n>`. Presign loads the proposal from chain, decodes every instruction the vault would run (Squads, SPL, Token-2022, BPF loader, and any Anchor program through its on-chain IDL), simulates it *as the vault*, and produces a one-screen **Signer Brief**: what executes, which assets move, and for every authority change whether the new holder is the multisig, a single member, nobody, or **an address the multisig does not control**.
 - **Transaction check** — paste the transaction you are about to sign. Squads approvals include the proposal they approve; durable-nonce signatures are flagged as never-expiring; the message hash is shown to compare on a hardware wallet.
-- **Watchtower** — each new proposal's brief is pushed to every signer (Telegram / Slack / Discord), independent of the UI that created it.
+- **Watchtower** — add the bot to the signers' Telegram group and send `/watch <multisig>`: each new proposal's brief reaches every signer, independent of the UI that created it (also Slack / Discord webhooks).
+- **Team policy** — a team writes its rules once as JSON (approved authority holders, actions that must go through Presign Guard, minimum time lock and threshold, approved programs and recipients, outflow caps, verified upgrades, no durable nonces). Every proposal, alert and API call is checked against it; a rule that cannot be checked is flagged, never assumed.
+- **Presign Guard** (on-chain, [status: devnet deployment in progress — update]) — an Anchor program that holds a protocol's critical authorities: anything done with them is scheduled, waits a fixed delay, and any single guardian can veto it. Routine operations stay fast on the multisig; only critical ones wait. Presign decodes scheduled actions inside proposals, shows the countdown, and offers veto / execute.
 - **API + MCP** — the same engine for wallets, custodians and AI agents, with a deterministic `gate` (`block` / `require_human_review` / `no_known_risk`) that an LLM cannot argue past.
 
 **Proof.** Run Presign on the exact bytes Drift's council members signed (signatures removed) and it returns **CRITICAL: "Admin moves outside the multisig — Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"** — before execution. The same check flags the council's later proposals #8 and #9 as requiring the attacker's key as a signer.
 
-**Principles.** Deterministic rules; every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; read-only — no keys, no signing.
+**Principles.** Deterministic rules (70, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; read-only — no keys, no signing.
 
 ## How it uses Solana
 
@@ -37,11 +39,13 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 - Anchor on-chain IDL accounts (owner-checked) to name any program's instructions and arguments.
 - `simulateTransaction` of the vault message with an executing member as fee payer; address lookup table resolution; durable nonce detection.
 - `getProgramAccounts` census of Squads v4 multisigs; BPF upgradeable loader program data for upgrade authorities.
+- Program upgrades: the buffer's code hashed like `solana-verify` (checked against OtterSec's `on_chain_hash` for the live Squads program) and compared with the OtterSec verified-builds registry.
+- Presign Guard: an Anchor program (PDA signer, scheduled instructions executed by CPI after the delay); Presign finds a multisig's guards with `getProgramAccounts` on the proposer field.
 - Helius RPC (primary) with public RPC fallback.
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (362 tests, no network). Node services for Watchtower and the MCP server. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (406 tests, no network), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
 
 ## Links
 
@@ -59,7 +63,7 @@ Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vit
 ## Go-to-market
 
 1. **Free verifier as the wedge.** Every signer can check a proposal in seconds, with nothing to install. Distribution through signers of the 18,939 Squads multisigs with 10+ transactions, security councils of top protocols, and the Squads / auditor ecosystem.
-2. **Team plan (paid).** Watchtower for all signers, policies (allowlisted authorities, required time lock), audit log of what each signer saw. Per multisig, per month.
+2. **Team plan (paid).** Watchtower for all signers, team policies (built: approved authority holders, required Guard for critical actions, minimum time lock, outflow caps), Presign Guard setup, audit log of what each signer saw. Per multisig, per month.
 3. **API / MCP (usage-based).** Wallets, custodians and agent frameworks call the gate before every signature.
 
 Pricing hypotheses to validate: Team $99–$499 per multisig per month; API per verification. Illustrative ceiling for the Team plan alone: 18,939 active multisigs × $99–$499 × 12 ≈ $22M–$113M ARR (not a forecast).
@@ -70,4 +74,4 @@ Pricing hypotheses to validate: Team $99–$499 per multisig per month; API per 
 
 ## What was built during the hackathon
 
-The repository's first commit is 2026-09-23 (within the event window). Presign's multisig engine, inspector, Watchtower, MCP server, census and UI were built 2026-09-27 onward on top of the transaction-analysis engine; see the git history.
+The repository's first commit is 2026-09-23 (within the event window). Presign's multisig engine, inspector, Watchtower (self-service bot), MCP server, census, program-upgrade verification, team policy engine, rule catalog, Presign Guard program and UI were built 2026-09-27 onward on top of the transaction-analysis engine; see the git history.
