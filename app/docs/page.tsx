@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { BRAND } from "@/lib/brand";
 import { GATE_MEANING } from "@/lib/agent/gate";
+import { EXAMPLE_POLICY, PROGRAM_ALIASES } from "@/lib/policy/schema";
 
 export const metadata: Metadata = {
   title: "API, agents & alerts · Presign",
@@ -20,9 +21,23 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
+const POLICY_RULES: Array<[string, string]> = [
+  ["multisig", "The multisig the policy was written for. Applying it to another one is a violation."],
+  ["severity", "MEDIUM, HIGH (default) or CRITICAL: how a broken rule counts. HIGH and CRITICAL make the gate block."],
+  ["authorityHolders", 'Addresses that may receive an admin, upgrade, token or config authority, besides the multisig, its vaults and the signers of `guards`. Add "none" to allow removing an authority.'],
+  ["requireGuardFor", "Privileged kinds that must be scheduled through Presign Guard: admin-transfer, admin-action, upgrade-authority, program-upgrade, token-authority, account-reassign, program-close. Handing an authority to a listed guard is allowed."],
+  ["guards, minGuardDelaySeconds", "Which guards scheduled actions may use, and their minimum delay."],
+  ["minTimeLockSeconds, minThreshold", "Checked on the current setup and on proposals that change it."],
+  ["allowedPrograms", `Programs the vault (or a scheduled action) may call directly: addresses, or ${Object.keys(PROGRAM_ALIASES).join(", ")}.`],
+  ["allowedRecipients", "Wallets that may receive SOL or tokens from the vault, or be approved as delegates. Token recipients are resolved to their owners from the simulation."],
+  ["outflowLimits", 'Maximum net outflow per proposal from the vaults, in UI units, keyed by "SOL" or a mint. Batches add up; scheduled transfers count too.'],
+  ["requireVerifiedUpgrades", "Program upgrades must deploy exactly a build verified in the OtterSec registry."],
+  ["forbidDurableNonce", "Signatures must not use a durable nonce (checked on transactions)."],
+];
+
 const ENDPOINTS = [
-  { method: "POST", path: "/api/transaction/analyze", body: '{ "input": "<base64 | base58 | signature>", "walletAddress"?: "<signer>" }', does: "Decode, simulate and risk-check a transaction. Squads approvals include the proposal's vault instructions, simulation and authority changes." },
-  { method: "POST", path: "/api/multisig/inspect", body: '{ "input": "<Squads link | address | <multisig> #<n>>", "signer"?: "<member>" }', does: "Inspect a proposal without a transaction to sign, a multisig's setup and recent proposals, or a Presign Guard and its scheduled actions." },
+  { method: "POST", path: "/api/transaction/analyze", body: '{ "input": "<base64 | base58 | signature>", "walletAddress"?: "<signer>", "policy"?: {…} }', does: "Decode, simulate and risk-check a transaction. Squads approvals include the proposal's vault instructions, simulation and authority changes." },
+  { method: "POST", path: "/api/multisig/inspect", body: '{ "input": "<Squads link | address | <multisig> #<n>>", "signer"?: "<member>", "policy"?: {…} }', does: "Inspect a proposal without a transaction to sign, a multisig's setup and recent proposals, or a Presign Guard and its scheduled actions." },
   { method: "POST", path: "/api/guard/prepare", body: '{ "kind": "veto" | "execute", "action": "<action>", "signer": "<wallet>" }', does: "Unsigned veto (guardians) or execute (anyone, after the delay) transaction for a Guard action; sign it in your wallet, then submit via /api/transaction/submit." },
   { method: "GET", path: "/api/token?mint=<mint>", body: "—", does: "Token security signals: authorities, Token-2022 extensions, concentration, age, metadata links." },
   { method: "GET", path: "/api/health", body: "—", does: "Cluster and configured data sources (no secrets)." },
@@ -38,7 +53,7 @@ export default function DocsPage() {
           multisig teams. Everything is read-only: {BRAND.name} never takes keys and never signs.
         </p>
         <nav aria-label="On this page" className="mt-4 flex flex-wrap gap-2 text-sm">
-          {[["api", "HTTP API"], ["gate", "The gate"], ["mcp", "MCP for agents"], ["agent-guard", "Guard snippet"], ["watchtower", "Watchtower"], ["presign-guard", "Presign Guard (on-chain)"]].map(([id, label]) => (
+          {[["api", "HTTP API"], ["gate", "The gate"], ["policy", "Team policy"], ["mcp", "MCP for agents"], ["agent-guard", "Guard snippet"], ["watchtower", "Watchtower"], ["presign-guard", "Presign Guard (on-chain)"]].map(([id, label]) => (
             <a key={id} href={`#${id}`} className="rounded-md border border-zinc-800 px-2 py-1 text-zinc-300 hover:bg-zinc-900">{label}</a>
           ))}
         </nav>
@@ -87,11 +102,35 @@ export default function DocsPage() {
         <p className="text-xs text-zinc-500">block: CRITICAL or HIGH · require_human_review: MEDIUM, unrated, or any incomplete analysis · no_known_risk: LOW or no signal, with every check complete.</p>
       </Section>
 
+      <Section id="policy" title="Team policy">
+        <p className="text-sm text-zinc-400">
+          Write your team&apos;s rules once; {BRAND.name} checks every proposal and signature against them. A broken rule becomes a signal with the policy&apos;s severity, so the verdict, the
+          gate and every Watchtower alert reflect it. A rule that cannot be checked — contents not decoded, not simulated, an account not loaded — is reported as such (MEDIUM), never as
+          compliant. The policy is plain JSON: paste it in <a href="/verify" className="text-fuchsia-300 underline-offset-4 hover:underline">/verify</a> (kept in your browser), send it as{" "}
+          <span className="font-mono">policy</span> to <span className="font-mono">/api/multisig/inspect</span> or <span className="font-mono">/api/transaction/analyze</span>, or set{" "}
+          <span className="font-mono">PRESIGN_POLICY_FILE</span> for Watchtower and the MCP server (one policy, or an array told apart by <span className="font-mono">multisig</span>).
+        </p>
+        <Code>{JSON.stringify(EXAMPLE_POLICY, null, 2)}</Code>
+        <div className="overflow-x-auto rounded-xl border border-zinc-800">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-zinc-900 text-xs uppercase text-zinc-500">
+              <tr><th className="p-3">Rule</th><th className="p-3">What it checks</th></tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {POLICY_RULES.map(([k, v]) => (
+                <tr key={k}><td className="p-3 align-top font-mono text-xs text-zinc-200">{k}</td><td className="p-3 align-top text-zinc-300">{v}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-zinc-500">A policy only adds signals: it can never lower a verdict or hide a finding. Every rule is optional; unknown keys are rejected.</p>
+      </Section>
+
       <Section id="mcp" title="MCP server for AI agents">
         <p className="text-sm text-zinc-400">
           Agents that hold a wallet can be prompt-injected. The MCP server gives them a pre-sign check whose answer comes from rules, not from the model. Tools:
           <span className="font-mono"> presign_verify_transaction</span>, <span className="font-mono">presign_inspect_multisig</span>, <span className="font-mono">presign_check_token</span>. It calls your {BRAND.name} API, so
-          RPC keys stay on the server. Requires Node.js 22.18+.
+          RPC keys stay on the server. Set <span className="font-mono">PRESIGN_POLICY_FILE</span> to hold every check to your team policy (the agent cannot change it). Requires Node.js 22.18+.
         </p>
         <Code>{`{
   "mcpServers": {
@@ -140,6 +179,7 @@ npm run watchtower            # add -- --once for a single cycle (cron)`}</Code>
         <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-400">
           <li><span className="font-mono">ALERT_WEBHOOK_URL</span>: Slack or Discord incoming webhook for environment targets.</li>
           <li><span className="font-mono">POLL_SECONDS</span> (default 30, minimum 10), <span className="font-mono">PRESIGN_PUBLIC_URL</span> for links, <span className="font-mono">WATCH_DB</span> for the state file, <span className="font-mono">ALERT_EXISTING=true</span> to report already-pending items on first start.</li>
+          <li><span className="font-mono">PRESIGN_POLICY_FILE</span>: your <a href="#policy" className="text-fuchsia-300 underline-offset-4 hover:underline">team policy</a>; every alert then says whether the proposal complies.</li>
           <li>Tokens are read from the environment only and never logged.</li>
         </ul>
         <Code>{`🛑 New proposal #7 on multisig 2LW6…hx88 — CRITICAL

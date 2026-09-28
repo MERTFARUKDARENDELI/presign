@@ -2,6 +2,7 @@ import type { Gate } from "@/lib/agent/gate";
 import type { IdlEnrichment } from "@/lib/anchor/source";
 import type { SignerBrief } from "@/lib/multisig/brief";
 import type { MultisigAnalysis } from "@/lib/multisig/types";
+import type { PolicyReport } from "@/lib/policy/types";
 import type { RiskAssessment } from "@/lib/security/risk";
 import type { AnalysisStatus } from "@/lib/security/types";
 
@@ -207,6 +208,8 @@ export interface TransactionAnalysis {
   brief: SignerBrief | null;
   /** Deterministic action for automated signers. */
   gate: Gate;
+  /** Team policy check, when a policy was supplied (its signals are already in `risk`). */
+  policy?: PolicyReport | null;
   demo: boolean;
 }
 

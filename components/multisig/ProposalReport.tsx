@@ -7,6 +7,7 @@ import { Address, RISK_STYLES, StatusBadge } from "@/components/security/badges"
 import { RiskDetails } from "@/components/security/RiskDetails";
 import { Card } from "@/components/transaction/TransactionReport";
 import { InnerInstructionList, InstructionList } from "@/components/transaction/InstructionList";
+import { PolicyReportCard } from "@/components/policy/PolicyReportCard";
 import { BriefCard } from "./SignerBrief";
 
 export function formatUnixSeconds(ts: string | null): string | null {
@@ -51,6 +52,7 @@ export function ProposalReport({ inspection }: { inspection: ProposalInspection 
   return (
     <div className="space-y-4">
       {brief && <BriefCard brief={brief} title="Proposal brief" verdict={{ level: risk.level, status: risk.status }} />}
+      {inspection.policy && <PolicyReportCard report={inspection.policy} />}
 
       <div className={cn("rounded-2xl border bg-zinc-900/50 p-5 ring-1", RISK_STYLES[risk.level].ring, risk.level === "CRITICAL" ? "border-red-500/50" : "border-zinc-800")}>
         <div className="mb-3 flex flex-wrap items-center gap-2">

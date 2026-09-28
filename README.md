@@ -17,6 +17,7 @@ Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or 
 | **`/transaction`** | Anyone about to sign | Paste the serialized transaction (or a signature) → decode, simulate, rules. Squads approvals include the proposal they approve; durable nonces are flagged; the message hash is shown to compare on a hardware wallet. |
 | **Watchtower** | Protocol & treasury teams | Add the bot to the signers' Telegram group and send `/watch <multisig>`: every new proposal's brief reaches every signer — an independent second channel. Also Slack / Discord webhooks. |
 | **Presign Guard** (on-chain, in progress) | Protocols with critical authorities | A Solana program that holds admin / upgrade / mint authorities: actions using them are scheduled, wait a fixed delay, and any single guardian can veto them. Presign shows the countdown and offers veto / execute. See [`guard/DESIGN.md`](guard/DESIGN.md). |
+| **Team policy** | Teams with rules | One JSON file: approved authority holders, actions that must go through Presign Guard, minimum time lock / threshold, approved programs and recipients, outflow caps, verified upgrades, no durable nonces. Checked on every proposal in `/verify`, the API, Watchtower and MCP; a rule that cannot be checked is flagged, never assumed. See [`/docs#policy`](app/docs/page.tsx). |
 | **HTTP API & MCP server** | Wallets, custodians, bots, AI agents | The same engine as JSON, and as MCP tools for agents. Every result carries a deterministic `gate`: `block` / `require_human_review` / `no_known_risk`. |
 | **Wallet & token tools** | Holders | The original scanner: token authorities, Token-2022 extensions, concentration, age, metadata phishing, cleanup (burn / close / revoke). |
 
@@ -76,7 +77,7 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 
 - **Mainnet, read-only:** both Drift exploit transactions analyzed by signature and from their unsigned bytes (CRITICAL); the Drift Security Council multisig inspected live (proposal #7 admin takeover; #8 / #9 require the attacker's key as signer); census of all 157,117 Squads v4 multisigs; MCP and Watchtower exercised against a running instance.
 - **Program hashes:** the `solana-verify` convention was checked against OtterSec's `on_chain_hash` for the live Squads v4 program (`scripts/research/hash-check.ts`).
-- **Tests:** 385, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
+- **Tests:** 402, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Not yet verified:** the Presign Guard program has not been compiled or deployed yet (the Presign side is implemented and unit-tested against its account layouts); Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); buffer-created proposals and batches against mainnet data (unit-tested with synthetic accounts); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live OpenAI explanations.
 
 ## Limitations

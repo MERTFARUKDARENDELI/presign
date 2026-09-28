@@ -49,4 +49,18 @@ describe("MCP protocol", () => {
     const res = await handle({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "presign_inspect_multisig", arguments: { query: "x" } } });
     expect(res).toMatchObject({ result: { isError: true, content: [{ type: "text", text: "No Squads account was found" }] } });
   });
+
+  it("holds every check to the operator's team policy and reports its outcome", async () => {
+    const MS = "2LW6PSEjp81xSEttWwXDB6Etb1eKdhYPbFEojYbyhx88";
+    const general = { version: 1, name: "General", minThreshold: 2 };
+    const council = { version: 1, name: "Council", multisig: MS, minThreshold: 3 };
+    const report = { name: "Council", severity: "HIGH", status: "violation", checks: [{ rule: "minThreshold", label: "Minimum threshold", status: "violation", findings: ["The threshold is 2; the policy requires at least 3."] }] };
+    const fetchImpl = vi.fn<Fetch>(async () => ok({ kind: "proposal", inspection: { gate: "block", multisig: MS, transactionIndex: "7", risk: risk("HIGH"), brief: null, analysis: { payloads: [] }, policy: report } }));
+    const handle = createHandler("http://x", fetchImpl, [general, council]);
+    const res = await handle({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "presign_inspect_multisig", arguments: { query: `${MS} #7` } } });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]!.body)).policy).toEqual(council);
+    expect((res!.result as { structuredContent: { policy: unknown } }).structuredContent.policy).toEqual({ name: "Council", status: "violation", broken: [{ rule: "Minimum threshold", findings: ["The threshold is 2; the policy requires at least 3."] }], notCheckable: [] });
+    await handle({ jsonrpc: "2.0", id: 11, method: "tools/call", params: { name: "presign_inspect_multisig", arguments: { query: "11111111111111111111111111111111" } } });
+    expect(JSON.parse(String(fetchImpl.mock.calls[1][1]!.body)).policy).toEqual(general);
+  });
 });

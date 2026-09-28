@@ -55,6 +55,15 @@ describe("watchtower alerts", () => {
     expect(a.html).toContain("<b>CRITICAL</b>");
   });
 
+  it("states the team policy outcome", () => {
+    const policy = { name: "Council", severity: "HIGH", status: "violation", checks: [{ rule: "requireGuardFor", label: "Critical actions go through Presign Guard", status: "violation", findings: [] }, { rule: "minThreshold", label: "Minimum threshold", status: "pass", findings: [] }] };
+    const a = formatAlert({ kind: "new-proposal", multisig: MS, index: "7", status: "Active" }, "http://x", { ...inspection, policy } as unknown as ProposalInspection);
+    expect(a.text).toContain('Team policy "Council": BROKEN — Critical actions go through Presign Guard');
+    expect(a.html).toContain("<b>BROKEN</b>");
+    const ok = formatAlert({ kind: "new-proposal", multisig: MS, index: "7", status: "Active" }, "http://x", { ...inspection, policy: { ...policy, status: "compliant", checks: [] } } as unknown as ProposalInspection);
+    expect(ok.text).toContain('Team policy "Council": complies');
+  });
+
   it("never presents an uninspected proposal as fine", () => {
     const a = formatAlert({ kind: "new-proposal", multisig: MS, index: "8", status: "Active" }, "http://localhost:3000", null);
     expect(a.text).toContain("UNKNOWN");

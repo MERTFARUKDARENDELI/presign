@@ -3,6 +3,7 @@ import type { MultisigOverview as Overview } from "@/lib/multisig/types";
 import { Address, RiskBadge } from "@/components/security/badges";
 import { RiskDetails } from "@/components/security/RiskDetails";
 import { Card } from "@/components/transaction/TransactionReport";
+import { PolicyReportCard } from "@/components/policy/PolicyReportCard";
 import { formatUnixSeconds } from "./ProposalReport";
 
 const PENDING = new Set(["Draft", "Active", "Approved"]);
@@ -25,6 +26,7 @@ export function MultisigOverview({ overview, onInspect }: { overview: Overview; 
         )}
         <RiskDetails risk={overview.posture} compact />
       </div>
+      {overview.policy && <PolicyReportCard report={overview.policy} />}
 
       <Card title="Recent proposals">
         {overview.proposals.length === 0 ? (

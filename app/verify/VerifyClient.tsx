@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GuardActionReport, GuardOverviewView } from "@/components/guard/GuardViews";
+import { PolicyEditor } from "@/components/policy/PolicyEditor";
+import { currentStoredPolicy } from "@/lib/client/policy-store";
+import type { TeamPolicy } from "@/lib/policy/schema";
 import { MultisigOverview } from "@/components/multisig/MultisigOverview";
 import { ProposalReport } from "@/components/multisig/ProposalReport";
 import { api, ApiClientError } from "@/lib/client/api";
@@ -29,7 +32,7 @@ export default function VerifyClient() {
   const [input, setInput] = useState(initial);
   const [signer, setSigner] = useState(initialSigner);
   const [inputError, setInputError] = useState<string | null>(null);
-  const [request, setRequest] = useState<{ q: string; signer: string; id: number } | null>(initial ? { q: initial, signer: initialSigner, id: 1 } : null);
+  const [request, setRequest] = useState<{ q: string; signer: string; policy: TeamPolicy | null; id: number } | null>(() => (initial ? { q: initial, signer: initialSigner, policy: currentStoredPolicy(), id: 1 } : null));
   const [result, setResult] = useState<{ id: number; data: InspectResult | null; error: string | null } | null>(null);
 
   const connected = publicKey?.toBase58() ?? null;
@@ -49,13 +52,13 @@ export default function VerifyClient() {
     setInput(q);
     const next = new URLSearchParams({ q: q.trim(), ...(s.trim() ? { signer: s.trim() } : {}) });
     router.replace(`/verify?${next.toString()}`, { scroll: false });
-    setRequest((r) => ({ q: q.trim(), signer: s.trim(), id: (r?.id ?? 0) + 1 }));
+    setRequest((r) => ({ q: q.trim(), signer: s.trim(), policy: currentStoredPolicy(), id: (r?.id ?? 0) + 1 }));
   }
 
   useEffect(() => {
     if (!request) return;
     let cancelled = false;
-    api<InspectResult>("/api/multisig/inspect", { json: { input: request.q, signer: request.signer || undefined } })
+    api<InspectResult>("/api/multisig/inspect", { json: { input: request.q, signer: request.signer || undefined, policy: request.policy ?? undefined } })
       .then((data) => !cancelled && setResult({ id: request.id, data, error: null }))
       .catch((e) => !cancelled && setResult({ id: request.id, data: null, error: e instanceof ApiClientError ? e.message : "Inspection failed." }));
     return () => {
@@ -91,6 +94,7 @@ export default function VerifyClient() {
             {loading ? <Loader2 className="animate-spin" /> : <FileSearch />} Verify
           </Button>
         </div>
+        <PolicyEditor onApplied={() => input.trim() && run(input, signer)} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
           <span>Try a real example:</span>
           {EXAMPLES.map((x) => (

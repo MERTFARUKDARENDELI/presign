@@ -15,6 +15,8 @@ import { controlledAddresses, proposalPda, transactionPda, vaultPda } from "@/li
 import { feePayerCandidates, loadMultisigAccount, payloadsFromTransactionAccount, proposalRefFrom } from "./analyze";
 import { fetchSquadsAccounts, type SquadsFetch } from "./chain";
 import { parseInspectInput } from "./input";
+import { applyPolicy, evaluatePolicy, subjectFromAnalysis } from "@/lib/policy/evaluate";
+import type { TeamPolicy } from "@/lib/policy/schema";
 import type { InspectResult, MultisigAnalysis, MultisigOverview, ProposalInspection, ProposalSummary } from "./types";
 
 export type { InspectResult, MultisigOverview, ProposalInspection, ProposalSummary };
@@ -34,7 +36,11 @@ function discriminatorOf(f: SquadsFetch): string | null {
   return f.status === "OK" && f.data.length >= 8 ? hex(f.data.subarray(0, 8)) : null;
 }
 
-export async function inspectProposal(multisig: string, index: string, signer: string | null = null): Promise<ProposalInspection> {
+function checkPolicy(policy: TeamPolicy | null, analysis: MultisigAnalysis, mode: "proposal" | "multisig") {
+  return policy ? evaluatePolicy(policy, subjectFromAnalysis(analysis, mode), { guardProgram: guardProgramId() }) : null;
+}
+
+export async function inspectProposal(multisig: string, index: string, signer: string | null = null, policy: TeamPolicy | null = null): Promise<ProposalInspection> {
   const loaded = await loadMultisigAccount(multisig);
   if (loaded.status === "NOT_FOUND") throw new AppError("ACCOUNT_NOT_FOUND", `No Squads multisig exists at this address on ${getCluster()}.`);
   const proposalAddress = proposalPda(multisig, index);
@@ -59,13 +65,15 @@ export async function inspectProposal(multisig: string, index: string, signer: s
   const disc = discriminatorOf(txFetch);
   const transactionKind = disc === SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction ? "vault" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.Batch ? "batch" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction ? "config" : "missing";
   const stale = loaded.account ? BigInt(index) <= BigInt(loaded.account.staleTransactionIndex) : false;
-  const risk = evaluateProposalRisk(analysis, signer);
-  logger.info("multisig.inspected", { kind: transactionKind, level: risk.level, status: risk.status });
+  const report = checkPolicy(policy, analysis, "proposal");
+  const base = evaluateProposalRisk(analysis, signer);
+  const risk = report ? applyPolicy(base, report) : base;
+  logger.info("multisig.inspected", { kind: transactionKind, level: risk.level, status: risk.status, policy: report?.status ?? "none" });
   const brief = buildSignerBrief({ mode: "proposal", multisig: analysis, usesDurableNonce: false, messageHash: null, proposal: { transactionIndex: index, stale, transactionKind } });
-  return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, brief, gate: gateFor(risk.level, risk.status), cluster: getCluster(), inspectedAt: new Date().toISOString() };
+  return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, brief, gate: gateFor(risk.level, risk.status), policy: report, cluster: getCluster(), inspectedAt: new Date().toISOString() };
 }
 
-export async function inspectMultisig(multisig: string, signer: string | null = null): Promise<MultisigOverview> {
+export async function inspectMultisig(multisig: string, signer: string | null = null, policy: TeamPolicy | null = null): Promise<MultisigOverview> {
   const loaded = await loadMultisigAccount(multisig);
   if (loaded.status === "NOT_FOUND") throw new AppError("ACCOUNT_NOT_FOUND", `No Squads multisig exists at this address on ${getCluster()}.`);
   const account = loaded.account;
@@ -99,7 +107,7 @@ export async function inspectMultisig(multisig: string, signer: string | null = 
     if (!PENDING.has(p.status) || p.stale || inspected >= OVERVIEW_LIMITS.inspect) continue;
     inspected++;
     try {
-      const r = await inspectProposal(multisig, p.transactionIndex, signer);
+      const r = await inspectProposal(multisig, p.transactionIndex, signer, policy);
       p.verdict = r.risk.level;
       p.topSignal = r.risk.signals[0]?.title ?? null;
     } catch {
@@ -107,12 +115,15 @@ export async function inspectMultisig(multisig: string, signer: string | null = 
     }
   }
 
+  const report = policy ? evaluatePolicy(policy, { mode: "multisig", multisig, account, controlled: controlledAddresses(multisig), payloads: [], configActions: [], usesDurableNonce: false }, { guardProgram: guardProgramId() }) : null;
+  const posture = evaluateMultisigPosture(multisig, account);
   return {
     multisig,
     account,
     accountStatus: loaded.status,
     vaults: [0, 1, 2, 3].map((i) => vaultPda(multisig, i)),
-    posture: evaluateMultisigPosture(multisig, account),
+    posture: report ? applyPolicy(posture, report) : posture,
+    policy: report,
     proposals,
     inspectedLimit: OVERVIEW_LIMITS.inspect,
     cluster: getCluster(),
@@ -121,7 +132,7 @@ export async function inspectMultisig(multisig: string, signer: string | null = 
 }
 
 /** Resolves free-form input to a proposal inspection or a multisig overview. */
-export async function inspect(raw: string, signer: string | null = null): Promise<InspectResult> {
+export async function inspect(raw: string, signer: string | null = null, policy: TeamPolicy | null = null): Promise<InspectResult> {
   const parsed = parseInspectInput(raw);
   if (parsed.kind === "invalid") throw new AppError("INVALID_INPUT", parsed.reason);
   const fetched = await fetchSquadsAccounts(parsed.addresses);
@@ -145,19 +156,19 @@ export async function inspect(raw: string, signer: string | null = null): Promis
     const disc = discriminatorOf(f);
     try {
       if (disc === SQUADS_ACCOUNT_DISCRIMINATOR.Multisig) {
-        return parsed.index ? { kind: "proposal", inspection: await inspectProposal(address, parsed.index, signer) } : { kind: "multisig", overview: await inspectMultisig(address, signer) };
+        return parsed.index ? { kind: "proposal", inspection: await inspectProposal(address, parsed.index, signer, policy) } : { kind: "multisig", overview: await inspectMultisig(address, signer, policy) };
       }
       if (disc === SQUADS_ACCOUNT_DISCRIMINATOR.Proposal) {
         const p = decodeProposalAccount(f.data);
-        return { kind: "proposal", inspection: await inspectProposal(p.multisig, p.transactionIndex, signer) };
+        return { kind: "proposal", inspection: await inspectProposal(p.multisig, p.transactionIndex, signer, policy) };
       }
       if (disc === SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction) {
         const t = decodeVaultTransactionAccount(f.data);
-        return { kind: "proposal", inspection: await inspectProposal(t.multisig, t.index, signer) };
+        return { kind: "proposal", inspection: await inspectProposal(t.multisig, t.index, signer, policy) };
       }
       if (disc === SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction) {
         const t = decodeConfigTransactionAccount(f.data);
-        return { kind: "proposal", inspection: await inspectProposal(t.multisig, t.index, signer) };
+        return { kind: "proposal", inspection: await inspectProposal(t.multisig, t.index, signer, policy) };
       }
     } catch (error) {
       if (error instanceof AppError) throw error;

@@ -109,6 +109,14 @@ export function formatAlert(event: WatchEvent, baseUrl: string, inspection: Prop
         lines.push(`• ${s.severity}: ${s.title}`);
         html.push(`• <b>${escapeHtml(s.severity)}</b>: ${escapeHtml(s.title)}`);
       }
+      const policy = inspection.policy;
+      if (policy) {
+        const broken = policy.checks.filter((c) => c.status === "violation").map((c) => c.label);
+        const unknown = policy.checks.filter((c) => c.status === "unverifiable").map((c) => c.label);
+        const text = broken.length ? `BROKEN — ${broken.join("; ")}` : unknown.length ? `not fully checkable — ${unknown.join("; ")}` : "complies";
+        lines.push(`Team policy "${policy.name}": ${text}`);
+        html.push(`Team policy "${escapeHtml(policy.name)}": ${broken.length ? "<b>BROKEN</b>" : unknown.length ? "<i>not fully checkable</i>" : "complies"}${broken.length || unknown.length ? ` — ${escapeHtml((broken.length ? broken : unknown).join("; "))}` : ""}`);
+      }
       if (inspection.risk.status !== "COMPLETE") {
         lines.push(`Analysis ${inspection.risk.status}: some checks could not run.`);
         html.push(`<i>Analysis ${escapeHtml(inspection.risk.status)}: some checks could not run.</i>`);

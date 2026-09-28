@@ -1,4 +1,5 @@
 import type { Gate } from "@/lib/agent/gate";
+import type { PolicyReport } from "@/lib/policy/types";
 import type { GuardActionInspection, GuardOverview, ScheduledActions } from "@/lib/guard/types";
 import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
 import type { UpgradeCheck } from "@/lib/verify/upgrade";
@@ -114,6 +115,8 @@ export interface ProposalInspection {
   brief: SignerBrief | null;
   /** Deterministic action for automated signers. */
   gate: Gate;
+  /** Team policy check, when a policy was supplied (its signals are already in `risk`). */
+  policy: PolicyReport | null;
   cluster: "mainnet-beta" | "devnet";
   inspectedAt: string;
 }
@@ -138,6 +141,8 @@ export interface MultisigOverview {
   accountStatus: MultisigAnalysis["accountStatus"];
   vaults: string[];
   posture: RiskAssessment;
+  /** Setup rules of the team policy (time lock, threshold), when a policy was supplied; pending proposals are checked in full. */
+  policy: PolicyReport | null;
   proposals: ProposalSummary[];
   /** Pending proposals beyond the inspection cap are listed without a verdict. */
   inspectedLimit: number;

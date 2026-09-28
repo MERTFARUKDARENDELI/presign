@@ -1,6 +1,8 @@
 import type { InspectResult } from "../lib/multisig/types.ts";
 import type { RiskAssessment } from "../lib/security/risk.ts";
 import type { TransactionAnalysis } from "../lib/transaction/types.ts";
+import type { PolicyReport } from "../lib/policy/types.ts";
+import { firstAddress, policyFor, type PolicyJson } from "../lib/policy/file.ts";
 
 /**
  * Model Context Protocol handler for Presign (JSON-RPC 2.0 messages). Tools
@@ -71,6 +73,17 @@ function gateOf(risk: RiskAssessment): GateName {
   return "no_known_risk";
 }
 
+/** Team policy outcome (set by the operator with PRESIGN_POLICY_FILE, not by the agent). */
+function compactPolicy(p: PolicyReport | null | undefined) {
+  if (!p) return null;
+  return {
+    name: p.name,
+    status: p.status,
+    broken: p.checks.filter((c) => c.status === "violation").map((c) => ({ rule: c.label, findings: c.findings.slice(0, 3) })),
+    notCheckable: p.checks.filter((c) => c.status === "unverifiable").map((c) => c.label),
+  };
+}
+
 function compactRisk(risk: RiskAssessment) {
   return {
     verdict: risk.level,
@@ -86,6 +99,7 @@ export function summarizeTransaction(a: TransactionAnalysis) {
     ...compactRisk(a.risk),
     brief: a.brief ? { headline: a.brief.headline, neverExpires: a.brief.neverExpires, config: a.brief.config, ifExecuted: a.brief.payloads.map((p) => ({ label: p.label, status: p.status, steps: p.steps.map((s) => s.text), vaultChanges: p.vaultChanges })) } : null,
     authorityChanges: (a.multisig?.payloads ?? []).flatMap((p) => p.privileged).filter((x) => x.newAuthority !== undefined).map((x) => ({ program: x.programName, action: x.action, newHolder: x.newAuthority, control: x.control })),
+    policy: compactPolicy(a.policy),
     durableNonce: a.decoded.usesDurableNonce,
     messageHash: a.messageHash,
     cluster: a.cluster,
@@ -103,6 +117,7 @@ export function summarizeInspection(r: InspectResult) {
       ...compactRisk(i.risk),
       brief: i.brief ? { headline: i.brief.headline, config: i.brief.config, ifExecuted: i.brief.payloads.map((p) => ({ steps: p.steps.map((s) => s.text), vaultChanges: p.vaultChanges, simulation: p.simulation })) } : null,
       authorityChanges: i.analysis.payloads.flatMap((p) => p.privileged).filter((x) => x.newAuthority !== undefined).map((x) => ({ program: x.programName, action: x.action, newHolder: x.newAuthority, control: x.control })),
+      policy: compactPolicy(i.policy),
     };
   }
   if (r.kind === "guard-action") {
@@ -133,11 +148,12 @@ export function summarizeInspection(r: InspectResult) {
     kind: "multisig",
     multisig: o.multisig,
     setup: { ...compactRisk(o.posture), threshold: o.account?.threshold ?? null, members: o.account?.members.length ?? null, timeLockSeconds: o.account?.timeLock ?? null },
+    policy: compactPolicy(o.policy),
     proposals: o.proposals.filter((p) => p.status !== "NOT_FOUND").map((p) => ({ index: p.transactionIndex, status: p.status, approvals: p.approvals, stale: p.stale, verdict: p.verdict, topSignal: p.topSignal })),
   };
 }
 
-export function createHandler(apiUrl: string, fetchImpl: Fetch = fetch) {
+export function createHandler(apiUrl: string, fetchImpl: Fetch = fetch, policies: PolicyJson[] = []) {
   const base = apiUrl.replace(/\/$/, "");
 
   async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -152,12 +168,12 @@ export function createHandler(apiUrl: string, fetchImpl: Fetch = fetch) {
     switch (name) {
       case "presign_verify_transaction": {
         if (!str("transaction")) throw new Error("`transaction` is required.");
-        const a = await call<TransactionAnalysis>("/api/transaction/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: str("transaction"), walletAddress: str("signer") }) });
+        const a = await call<TransactionAnalysis>("/api/transaction/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: str("transaction"), walletAddress: str("signer"), policy: policyFor(policies, null) ?? undefined }) });
         return summarizeTransaction(a);
       }
       case "presign_inspect_multisig": {
         if (!str("query")) throw new Error("`query` is required.");
-        const r = await call<InspectResult>("/api/multisig/inspect", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: str("query"), signer: str("signer") }) });
+        const r = await call<InspectResult>("/api/multisig/inspect", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: str("query"), signer: str("signer"), policy: policyFor(policies, firstAddress(str("query")!)) ?? undefined }) });
         return summarizeInspection(r);
       }
       case "presign_check_token": {

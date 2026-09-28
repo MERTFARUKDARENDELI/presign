@@ -25,6 +25,8 @@ export type DataSource =
   | "SQUADS_ACCOUNT"
   /** OtterSec verified-builds registry (external opinion about source ↔ code). */
   | "VERIFIED_BUILDS"
+  /** The team policy supplied with the request (the team's own rules). */
+  | "TEAM_POLICY"
   | "DETERMINISTIC_RULE"
   | "DEMO";
 

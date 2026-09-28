@@ -18,9 +18,12 @@
  *   POLL_SECONDS         >= 10 (default 30)
  *   WATCH_DB             SQLite file (default .watchtower.db)
  *   ALERT_EXISTING=true  alert WATCH_* targets' already-pending items on first start
+ *   PRESIGN_POLICY_FILE  team policy JSON (one policy, or an array keyed by `multisig`) checked on every proposal
  */
 import type { InspectResult, ProposalInspection } from "../lib/multisig/types.ts";
 import type { GuardActionInspection } from "../lib/guard/types.ts";
+import { readFileSync } from "node:fs";
+import { firstAddress, parsePolicyFile, policyFor, type PolicyJson } from "../lib/policy/file.ts";
 import { handleMessage, type IncomingMessage } from "./bot.ts";
 import { diffGuard, diffOverview, formatAlert, formatGuardAlert, type Alert } from "./core.ts";
 import { WatchStore, type TargetKind } from "./store.ts";
@@ -34,6 +37,16 @@ function list(name: string): string[] {
   const bad = items.filter((m) => !BASE58_ADDRESS.test(m));
   if (bad.length) throw new Error(`${name}: not a Solana address: ${bad.join(", ")}`);
   return items;
+}
+
+function policies(): PolicyJson[] {
+  const path = process.env.PRESIGN_POLICY_FILE;
+  if (!path) return [];
+  try {
+    return parsePolicyFile(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`PRESIGN_POLICY_FILE: ${error instanceof Error ? error.message : "unreadable"}`);
+  }
 }
 
 function config() {
@@ -50,6 +63,7 @@ function config() {
     once: process.argv.includes("--once"),
     multisigs: list("WATCH_MULTISIGS"),
     guards: list("WATCH_GUARDS"),
+    policies: policies(),
   };
   if (!cfg.token && cfg.multisigs.length + cfg.guards.length === 0) throw new Error("Set TELEGRAM_BOT_TOKEN (self-service bot) and/or WATCH_MULTISIGS / WATCH_GUARDS.");
   return cfg;
@@ -62,7 +76,8 @@ function log(event: string, fields: Record<string, unknown> = {}) {
 }
 
 async function inspect(cfg: Config, input: string): Promise<InspectResult> {
-  const res = await fetch(`${cfg.api}/api/multisig/inspect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input }), signal: AbortSignal.timeout(90_000) });
+  const policy = policyFor(cfg.policies, firstAddress(input)) ?? undefined;
+  const res = await fetch(`${cfg.api}/api/multisig/inspect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input, policy }), signal: AbortSignal.timeout(90_000) });
   const body = (await res.json()) as { success: boolean; data: InspectResult | null; error: { code: string; message: string } | null };
   if (!res.ok || !body.success || !body.data) throw new Error(body.error?.message ?? `HTTP ${res.status}`);
   return body.data;
@@ -174,7 +189,7 @@ async function main() {
   const store = new WatchStore(cfg.db);
   for (const m of cfg.multisigs) store.subscribe(ENV_CHAT, m, "multisig");
   for (const g of cfg.guards) store.subscribe(ENV_CHAT, g, "guard");
-  log("watchtower.start", { api: cfg.api, pollSeconds: cfg.pollMs / 1000, bot: Boolean(cfg.token), envTargets: cfg.multisigs.length + cfg.guards.length, webhook: Boolean(cfg.webhook) });
+  log("watchtower.start", { api: cfg.api, pollSeconds: cfg.pollMs / 1000, bot: Boolean(cfg.token), envTargets: cfg.multisigs.length + cfg.guards.length, webhook: Boolean(cfg.webhook), policies: cfg.policies.length });
 
   let stopping = false;
   process.on("SIGINT", () => {

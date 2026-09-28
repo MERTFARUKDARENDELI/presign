@@ -9,6 +9,9 @@ import { logger } from "@/lib/api/logger";
 import { evaluateTransactionRisk } from "@/lib/security/rules/transaction";
 import type { AnalysisStatus } from "@/lib/security/types";
 import { getCluster } from "@/lib/solana/config";
+import { guardProgramId } from "@/lib/guard/constants";
+import { applyPolicy, evaluatePolicy, subjectFromAnalysis } from "@/lib/policy/evaluate";
+import type { TeamPolicy } from "@/lib/policy/schema";
 import { messageHashOfTx } from "@/lib/wallet/signing";
 import { decodeTransaction } from "./decoder";
 import { applyInnerInstructions } from "./inner";
@@ -30,7 +33,7 @@ function fillTransferMints(decoded: DecodedTransaction, mints: Record<string, { 
  * deterministic risk. Simulation failure to RUN yields INSUFFICIENT_DATA,
  * never SAFE.
  */
-export async function analyzeTransaction(rawInput: string, walletAddress?: string): Promise<TransactionAnalysis> {
+export async function analyzeTransaction(rawInput: string, walletAddress?: string, policy: TeamPolicy | null = null): Promise<TransactionAnalysis> {
   const parsed = parseTransactionInput(rawInput);
   if (parsed.kind === "invalid") throw new AppError("INVALID_TRANSACTION", parsed.reason);
 
@@ -75,7 +78,9 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
   const perspectiveWallet = walletAddress ?? decoded.feePayer;
   const multisig = await analyzeMultisig(tx, decoded, perspectiveWallet);
 
-  const risk = evaluateTransactionRisk({ decoded, effects, wallet: perspectiveWallet, tokenAccountOwners: owners, effectsStatus, multisig });
+  const report = policy ? evaluatePolicy(policy, subjectFromAnalysis(multisig, "transaction", decoded.usesDurableNonce), { guardProgram: guardProgramId() }) : null;
+  const base = evaluateTransactionRisk({ decoded, effects, wallet: perspectiveWallet, tokenAccountOwners: owners, effectsStatus, multisig });
+  const risk = report ? applyPolicy(base, report) : base;
 
   logger.info("tx.analyzed", { kind: parsed.kind, level: risk.level, status: risk.status, instructions: decoded.instructions.length, multisig: multisig !== null });
 
@@ -95,6 +100,7 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
     anchorIdl,
     brief,
     gate: gateFor(risk.level, risk.status),
+    policy: report,
     demo: false,
   };
 }
