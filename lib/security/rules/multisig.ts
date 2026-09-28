@@ -296,7 +296,9 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
     const voters = account.members.filter((m) => m.permissions.includes("Vote")).length;
     let accEvidence: string | null = null;
     const accId = () => (accEvidence ??= configEvidence(ms, account, ev));
-    const dangerous = privileged.some((p) => p.kind !== "admin-action") || signals.some((s) => s.code === "MS_DURABLE_NONCE_GOVERNANCE");
+    // Moving an authority to an address the multisig controls (or to its own guard) is not what a missing time lock makes dangerous.
+    const protective = (p: PrivilegedAction) => p.newAuthority !== undefined && (p.control === "multisig" || p.control === "guard");
+    const dangerous = privileged.some((p) => p.kind !== "admin-action" && !protective(p)) || signals.some((s) => s.code === "MS_DURABLE_NONCE_GOVERNANCE");
     if (account.timeLock === 0 && (privileged.length > 0 || governance.length > 0 || movesAssets)) {
       signals.push({ code: "MS_NO_TIME_LOCK", title: "No time lock", description: "Once the threshold is reached the proposal can execute immediately — nobody gets a window to notice and react.", severity: dangerous ? "HIGH" : "MEDIUM", evidenceIds: [accId()] });
     }

@@ -40,7 +40,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
 | Rule catalog `/rules` | VERIFIED | 72 rules; a test keeps it in sync with the rule sources |
 | Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
-| Presign Guard — Anchor program (`guard/`) | TESTING | builds with Anchor 1.x / Agave 3.1.10; 11 LiteSVM tests pass (delay, veto, cancel, missing accounts, guardian stripping, own-removal rule, config exactness, close); IDL cross-checked against the TS codec. Not yet deployed. Unaudited |
+| Presign Guard — Anchor program (`guard/`) | VERIFIED (local validator) | builds with Anchor 1.x / Agave 3.1.10; 11 LiteSVM tests; IDL cross-checked against the TS codec; end-to-end on a local validator with the real Squads v4 program cloned from devnet: multisig → authority to guard → scheduled takeover (Presign: CRITICAL, gate block) → veto prepared and submitted through the API → execution refused; a non-vetoed action executed after the delay (SPL Token CPI). Devnet deploy waits on devnet SOL. Unaudited |
 
 ### Open items
 

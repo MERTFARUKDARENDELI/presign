@@ -15,7 +15,8 @@
  * Run inside WSL/Linux (devnet must be reachable):
  *   node --experimental-transform-types --import ./scripts/devnet/register.mjs scripts/devnet/guard-demo.ts <step>
  * Env: SOLANA_RPC_URL (default devnet), GUARD_PROGRAM_ID (default guard/Anchor.toml's),
- * PRESIGN_PUBLIC_URL (for links), GUARD_DELAY_SECONDS (default 600), DEMO_PAYER (keypair file).
+ * PRESIGN_PUBLIC_URL (for links), GUARD_DELAY_SECONDS (default 600), DEMO_PAYER (keypair file),
+ * PRESIGN_DEMO_DIR (keys and state; default ~/.presign-demo — use another one for a local-validator rehearsal).
  * Keys and state stay in ~/.presign-demo, never in the repository. Devnet only.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -45,7 +46,7 @@ const RPC = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
 const PROGRAM = process.env.GUARD_PROGRAM_ID ?? readFileSync(new URL("../../guard/Anchor.toml", import.meta.url), "utf8").match(/\[programs\.devnet\]\s*presign_guard = "([^"]+)"/)![1];
 const PUBLIC_URL = (process.env.PRESIGN_PUBLIC_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const DELAY = Number(process.env.GUARD_DELAY_SECONDS ?? 600);
-const DIR = join(homedir(), ".presign-demo");
+const DIR = process.env.PRESIGN_DEMO_DIR ?? join(homedir(), ".presign-demo");
 const conn = new Connection(RPC, "confirmed");
 
 interface State {

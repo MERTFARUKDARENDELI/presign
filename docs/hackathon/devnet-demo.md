@@ -6,6 +6,20 @@ Runbook for the pitch scene "a guardian vetoes the takeover" and the technical d
 
 Rust, Agave (Solana CLI) 3.1.10, Anchor 1.1.x, Node 24 — inside WSL/Linux. Program id: `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS` (its keypair stays outside the repository, in `~/.config/solana/presign_guard-program-keypair.json` on the build machine).
 
+## Rehearsal on a local validator (no SOL needed)
+
+The whole scenario also runs against a local validator with the real Squads v4 program cloned from devnet — the way it was first verified (2026-09-28: setup, takeover proposal, pending action CRITICAL in Presign, veto prepared by `/api/guard/prepare` and submitted through `/api/transaction/submit`, a vetoed action refused with `NotPending`, and a non-vetoed one executed after the delay, moving the mint authority by CPI).
+
+```bash
+solana-test-validator --reset --url devnet --clone-upgradeable-program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf --clone BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr --upgradeable-program A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS guard/target/deploy/presign_guard.so ~/.config/solana/id.json
+```
+
+```bash
+SOLANA_RPC_URL=http://127.0.0.1:8899 PRESIGN_DEMO_DIR=~/.presign-demo-local GUARD_DELAY_SECONDS=120 npm run demo:guard -- setup
+```
+
+Presign against it: `SOLANA_CLUSTER=devnet HELIUS_API_KEY=" " SOLANA_FALLBACK_RPC_URL=http://127.0.0.1:8899 NEXT_PUBLIC_GUARD_PROGRAM_ID=A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS npm run dev`.
+
 ## 1. Fund the deployer
 
 The deployer is `~/.config/solana/id.json` (devnet only). Deploying needs about 2.6 SOL (the program's rent plus a temporary buffer); the demo needs about 0.3 SOL more.

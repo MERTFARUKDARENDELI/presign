@@ -300,6 +300,8 @@ describe("Handing an authority to the multisig's own guard", () => {
     expect(codes).toContain("MS_AUTHORITY_TO_GUARD:0");
     expect(codes.some((c) => c.startsWith("MS_AUTHORITY_LEAVES_MULTISIG"))).toBe(false);
     expect(r.inspection.risk.signals.find((s) => s.code === "MS_AUTHORITY_TO_GUARD:0")?.description).toContain("after a 1 day(s) delay");
+    // A protective move does not make the missing time lock HIGH (found in the local-validator rehearsal).
+    expect(r.inspection.risk.signals.find((s) => s.code === "MS_NO_TIME_LOCK")?.severity).toBe("MEDIUM");
   });
 
   it("a guard proposed by someone else, or guards that cannot be listed, leave it outside", async () => {
