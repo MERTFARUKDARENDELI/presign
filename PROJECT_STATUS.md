@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **406 tests / 32 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **410 tests / 32 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -38,7 +38,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
 | Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
-| Rule catalog `/rules` | VERIFIED | 70 rules; a test keeps it in sync with the rule sources |
+| Rule catalog `/rules` | VERIFIED | 72 rules; a test keeps it in sync with the rule sources |
 | Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
 | Presign Guard — Anchor program (`guard/`) | IN_PROGRESS | source written; not yet compiled, tested or deployed (needs the Solana toolchain in WSL). Unaudited |
 

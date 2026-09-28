@@ -67,12 +67,14 @@ export const RULE_CATALOG: RuleEntry[] = [
   { code: "UPGRADE_MATCHES_VERIFIED_BUILD", family: "upgrade", severity: "LOW", when: "The new code is exactly a verified build (source repository and commit shown)." },
 
   // Presign Guard
+  { code: "GUARD_CONFIG_WEAKENED", family: "guard", severity: "CRITICAL if the proposer leaves or every guardian is replaced · HIGH if guardians are removed or the delay shrinks", when: "A scheduled change of the guard's own configuration weakens it — the first thing an attacker holding the proposer would schedule." },
   { code: "GUARD_ACTION_UNDECODED", family: "guard", severity: "HIGH", when: "Part of a scheduled action could not be decoded." },
   { code: "GUARD_MS_*", family: "guard", severity: "one level below the immediate rule", when: "A privileged action scheduled through a guard whose delay and veto were verified on-chain; unchanged severity when the guard cannot be verified." },
   { code: "GUARD_ACTION_EXECUTABLE", family: "guard", severity: "MEDIUM", when: "The delay has passed: anyone can execute the action now." },
   { code: "GUARD_SHORT_DELAY", family: "guard", severity: "MEDIUM", when: "The guard's delay is under one hour." },
   { code: "GUARD_SINGLE_GUARDIAN", family: "guard", severity: "MEDIUM", when: "Only one guardian can veto." },
   { code: "GUARD_UNVERIFIED", family: "guard", severity: "MEDIUM", when: "The guard account could not be loaded, so its delay and guardians are unknown." },
+  { code: "GUARD_CONFIG_CHANGE", family: "guard", severity: "MEDIUM if the current setup is unknown · LOW otherwise", when: "A scheduled configuration change that weakens nothing (adds guardians, lengthens the delay)." },
   { code: "GUARD_SCHEDULED", family: "guard", severity: "LOW", when: "The proposal schedules actions through Presign Guard." },
   { code: "GUARD_ACTION_PENDING", family: "guard", severity: "LOW", when: "The action is waiting and can still be vetoed." },
   { code: "GUARD_PROPOSER_IS_GUARDIAN", family: "guard", severity: "LOW", when: "The proposer is also a guardian." },

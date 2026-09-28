@@ -3,7 +3,7 @@ import type { ScheduledActions } from "@/lib/guard/types";
 import { buildAssessment } from "../engine";
 import type { RiskAssessment, RiskSignal } from "../risk";
 import type { AnalysisStatus, Evidence } from "../types";
-import { formatDelay, privilegedSignal, type EvFn } from "./multisig";
+import { formatDelay, guardConfigSignals, privilegedSignal, type EvFn } from "./multisig";
 
 /**
  * Rules for Presign Guard itself: how strong a guard's setup is, and what a
@@ -43,6 +43,7 @@ export function evaluateGuardAction(s: ScheduledActions, action: ActionAccountDa
 
   if (action.status === "Pending") {
     for (const [i, p] of s.privileged.entries()) signals.push(privilegedSignal(p, i, ev, false, [statusId]));
+    signals.push(...guardConfigSignals(s, ev, "action", [statusId]));
     if (nowSeconds < eta) {
       signals.push({ code: "GUARD_ACTION_PENDING", title: "Waiting — can still be vetoed", description: `Runs after ${new Date(Number(eta) * 1000).toISOString().replace("T", " ").slice(0, 16)} UTC unless a guardian vetoes it. Any one guardian can veto now.`, severity: "LOW", evidenceIds: [statusId] });
     } else {

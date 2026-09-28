@@ -31,7 +31,7 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 
 **Proof.** Run Presign on the exact bytes Drift's council members signed (signatures removed) and it returns **CRITICAL: "Admin moves outside the multisig — Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"** — before execution. The same check flags the council's later proposals #8 and #9 as requiring the attacker's key as a signer.
 
-**Principles.** Deterministic rules (70, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; read-only — no keys, no signing.
+**Principles.** Deterministic rules (72, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; read-only — no keys, no signing.
 
 ## How it uses Solana
 
@@ -45,7 +45,7 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (406 tests, no network), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (410 tests, no network), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
 
 ## Links
 

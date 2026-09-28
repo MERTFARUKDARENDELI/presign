@@ -316,3 +316,35 @@ describe("Handing an authority to the multisig's own guard", () => {
     expect(r2.inspection.risk.level).toBe("CRITICAL");
   });
 });
+
+describe("Scheduled guard configuration changes", () => {
+  /** guard.update_config(proposer, guardians, delay), signed by the guard signer (only reachable through a scheduled action). */
+  function updateConfig(proposer: string, guardians: string[], delay: number): GuardInstructionData {
+    const w = new W().hex(GUARD_IX_DISCRIMINATOR.updateConfig).key(proposer).u32(guardians.length);
+    guardians.forEach((g) => w.key(g));
+    return { programId: PROGRAM, accounts: [{ pubkey: GUARD, isSigner: false, isWritable: true }, { pubkey: SIGNER, isSigner: true, isWritable: false }], data: w.u32(delay).done() };
+  }
+
+  async function inspectPendingConfig(change: GuardInstructionData) {
+    const address = actionPda(PROGRAM, GUARD, 0);
+    serve(new Map([[GUARD, { data: guardBytes(), owner: PROGRAM }], [address, { data: actionBytes({ eta: BigInt(Math.floor(Date.now() / 1000) + 86_400), instructions: [change] }), owner: PROGRAM }]]));
+    const r = await inspect(address);
+    if (r.kind !== "guard-action") throw new Error("expected action");
+    return r.inspection.risk.signals.filter((s) => s.code.startsWith("GUARD_CONFIG"));
+  }
+
+  it("replacing every guardian or handing the proposer role away is CRITICAL", async () => {
+    expect(await inspectPendingConfig(updateConfig(VAULT, [OUTSIDER], 86_400))).toEqual([expect.objectContaining({ code: "GUARD_CONFIG_WEAKENED:action:0", severity: "CRITICAL" })]);
+    const [s] = await inspectPendingConfig(updateConfig(OUTSIDER, [M1, M2, M3], 86_400));
+    expect(s).toMatchObject({ severity: "CRITICAL" });
+    expect(s.description).toContain(`the proposer changes to ${OUTSIDER}`);
+  });
+
+  it("removing a guardian or shortening the delay is HIGH; adding guardians or lengthening the delay is LOW", async () => {
+    const [removed] = await inspectPendingConfig(updateConfig(VAULT, [M1, M2], 86_400));
+    expect(removed).toMatchObject({ code: "GUARD_CONFIG_WEAKENED:action:0", severity: "HIGH" });
+    const [shorter] = await inspectPendingConfig(updateConfig(VAULT, [M1, M2, M3], 3_600));
+    expect(shorter.description).toContain("the delay shrinks from 1 day(s) to 1 hour(s)");
+    expect(await inspectPendingConfig(updateConfig(VAULT, [M1, M2, M3, OUTSIDER], 172_800))).toEqual([expect.objectContaining({ code: "GUARD_CONFIG_CHANGE:action:0", severity: "LOW" })]);
+  });
+});

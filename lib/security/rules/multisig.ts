@@ -1,3 +1,4 @@
+import type { ScheduledActions } from "@/lib/guard/types";
 import type { MultisigAnalysis, PrivilegedAction } from "@/lib/multisig/types";
 import type { MultisigAccount } from "@/lib/squads/types";
 import { formatLamports } from "@/lib/token/amount";
@@ -99,6 +100,53 @@ export function privilegedSignal(p: PrivilegedAction, i: number, ev: EvFn, membe
   };
 }
 
+/**
+ * A scheduled change of the guard's own configuration, compared with the
+ * current one. Weakening the guard (new proposer, fewer guardians, shorter
+ * delay) is the first thing an attacker holding the proposer would schedule.
+ */
+export function guardConfigSignals(s: ScheduledActions, ev: EvFn, scope: string, extraEvidence: string[] = [], controlled: ReadonlySet<string> = new Set()): RiskSignal[] {
+  const out: RiskSignal[] = [];
+  for (const ix of s.decoded.instructions) {
+    if (ix.type !== "guard:updateConfig") continue;
+    const next = { proposer: ix.info.proposer ?? "", guardians: (ix.info.guardians ?? "").split(", ").filter(Boolean), delaySeconds: Number(ix.info.delaySeconds ?? 0) };
+    const id = ev({ source: "TRANSACTION_DECODER", label: `${s.origin}: guard configuration change (instruction ${ix.index})`, observed: `proposer ${next.proposer}; ${next.guardians.length} guardian(s): ${next.guardians.join(", ")}; delay ${next.delaySeconds}s`, condition: "new configuration, compared with the guard's current one" });
+    const evidenceIds = [id, ...extraEvidence];
+    const code = (c: string) => `${c}:${scope}:${ix.index}`;
+    const cur = s.guardAccount;
+    if (!cur) {
+      out.push({ code: code("GUARD_CONFIG_CHANGE"), title: "Guard configuration change", description: "The guard's current configuration could not be loaded, so this change cannot be compared with it. Check the new proposer, guardians and delay yourself.", severity: "MEDIUM", evidenceIds });
+      continue;
+    }
+    const issues: string[] = [];
+    let severity: RiskSignal["severity"] = "LOW";
+    const raise = (to: RiskSignal["severity"]) => { if (["LOW", "MEDIUM", "HIGH", "CRITICAL"].indexOf(to) > ["LOW", "MEDIUM", "HIGH", "CRITICAL"].indexOf(severity)) severity = to; };
+    if (next.proposer !== cur.proposer) {
+      const internal = controlled.has(next.proposer);
+      issues.push(internal ? `the proposer moves to ${short(next.proposer)}, another address of this multisig` : `the proposer changes to ${next.proposer}, which could then schedule anything`);
+      raise(internal ? "MEDIUM" : "CRITICAL");
+    }
+    const removed = cur.guardians.filter((g) => !next.guardians.includes(g));
+    if (removed.length === cur.guardians.length) {
+      issues.push("every current guardian is replaced");
+      raise("CRITICAL");
+    } else if (removed.length) {
+      issues.push(`${removed.length} guardian(s) removed (${removed.map((g) => short(g)).join(", ")})`);
+      raise("HIGH");
+    }
+    if (next.delaySeconds < cur.delaySeconds) {
+      issues.push(`the delay shrinks from ${formatDelay(cur.delaySeconds)} to ${formatDelay(next.delaySeconds)}`);
+      raise("HIGH");
+    }
+    out.push(
+      issues.length
+        ? { code: code("GUARD_CONFIG_WEAKENED"), title: "Guard protection is weakened", description: `This change: ${issues.join("; ")}. Weakening the guard is the first step of a takeover through it — veto unless the whole team intended it.`, severity, evidenceIds }
+        : { code: code("GUARD_CONFIG_CHANGE"), title: "Guard configuration change", description: `Nothing is weakened: ${next.guardians.length} guardian(s), delay ${formatDelay(next.delaySeconds)}, same proposer.`, severity: "LOW", evidenceIds },
+    );
+  }
+  return out;
+}
+
 function configEvidence(ms: { multisig: string | null }, account: MultisigAccount, ev: EvFn): string {
   const voters = account.members.filter((m) => m.permissions.includes("Vote")).length;
   return ev({ source: "SQUADS_ACCOUNT", label: `Multisig ${short(ms.multisig)} configuration`, observed: `threshold ${account.threshold} of ${voters} voting member(s), time lock ${account.timeLock}s, config authority ${account.configAuthority ?? "none (autonomous)"}`, condition: "current on-chain state" });
@@ -187,6 +235,7 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
       statuses.push("PARTIAL");
     }
     for (const [i, p] of s.privileged.entries()) signals.push(privilegedSignal(p, i, ev, account !== null, [gid], g ? { delaySeconds: g.delaySeconds, guardians: g.guardians.length, key: `${s.guard}:${n}` } : null, `scheduled:${s.guard}:${n}`));
+    signals.push(...guardConfigSignals(s, ev, `${s.guard}:${n}`, [gid], new Set(ms.controlled)));
   }
 
   // Asset movements out of the vault: from the payload's simulation when it ran, otherwise from the decoded instructions.
