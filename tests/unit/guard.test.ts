@@ -151,6 +151,10 @@ describe("a multisig proposal that schedules through Guard", () => {
     expect(byCode.get("GUARD_SCHEDULED")).toMatchObject({ severity: "LOW" });
     expect(byCode.get("GUARD_MS_AUTHORITY_LEAVES_MULTISIG")).toMatchObject({ severity: "HIGH", title: "Scheduled: token authority moves outside the multisig" });
     expect(byCode.get("GUARD_MS_AUTHORITY_LEAVES_MULTISIG")!.description).toContain("any one of 3 guardian(s) can veto");
+
+    const brief = r.inspection.brief!;
+    expect(brief.payloads[0].scheduled[0]).toMatchObject({ verified: true, protection: "waits 1 day(s) after this proposal executes; any one of 3 guardian(s) can veto", memo: "rotate mint authority" });
+    expect(brief.payloads[0].scheduled[0].steps[0].privileged).toMatchObject({ kind: "token-authority", control: "outside", newAuthority: OUTSIDER });
   });
 
   it("an unverifiable guard keeps the finding CRITICAL", async () => {
@@ -161,6 +165,52 @@ describe("a multisig proposal that schedules through Guard", () => {
     expect(codes).toContain(`GUARD_UNVERIFIED:${GUARD}`);
     expect(r.inspection.risk.signals.find((s) => s.code.startsWith("MS_AUTHORITY_LEAVES_MULTISIG"))).toMatchObject({ severity: "CRITICAL" });
     expect(r.inspection.risk.level).toBe("CRITICAL");
+  });
+});
+
+describe("veto / execute preparation", () => {
+  const future = BigInt(Math.floor(Date.now() / 1000) + 3600);
+  const past = BigInt(Math.floor(Date.now() / 1000) - 60);
+  const address = () => actionPda(PROGRAM, GUARD, 0);
+  const serveAction = (eta: bigint, status = 0) => {
+    const accounts = new Map<string, ChainAccount>([[GUARD, { data: guardBytes(), owner: PROGRAM }], [address(), { data: actionBytes({ eta, status, instructions: [setMintAuthority(OUTSIDER)] }), owner: PROGRAM }]]);
+    rpc.mockImplementation((async (method: string, params: unknown[]) => {
+      const ok = (result: unknown) => ({ result, source: "HELIUS_RPC", fallbackUsed: false });
+      if (method === "getAccountInfo") return ok({ context: { slot: 1 }, value: accountInfoValue(accounts.get(params[0] as string)) });
+      if (method === "getLatestBlockhash") return ok({ value: { blockhash: key(99).toBase58(), lastValidBlockHeight: 1 } });
+      throw new Error(`unexpected rpc ${method}`);
+    }) as unknown as typeof rpcCall);
+  };
+
+  it("a guardian gets an unsigned veto paid by themselves, with a verifiable hash", async () => {
+    const { prepareGuardTransaction } = await import("@/lib/guard/prepare");
+    const { messageHashOfTx } = await import("@/lib/wallet/signing");
+    serveAction(future);
+    const p = await prepareGuardTransaction("veto", address(), M2);
+    const bytes = Uint8Array.from(Buffer.from(p.transaction, "base64"));
+    const d = decodeTransaction(VersionedTransaction.deserialize(bytes));
+    expect(d.feePayer).toBe(M2);
+    expect(d.instructions.map((i) => i.type)).toEqual(["guard:veto"]);
+    expect(d.signaturesPresent).toBe(0);
+    expect(await messageHashOfTx(bytes)).toBe(p.messageHash);
+  });
+
+  it("refuses a veto from a non-guardian, an early execute, and anything on a finished action", async () => {
+    const { prepareGuardTransaction } = await import("@/lib/guard/prepare");
+    serveAction(future);
+    await expect(prepareGuardTransaction("veto", address(), OUTSIDER)).rejects.toMatchObject({ code: "OWNERSHIP_MISMATCH" });
+    await expect(prepareGuardTransaction("execute", address(), OUTSIDER)).rejects.toThrow(/delay has not passed/);
+    serveAction(past, 2);
+    await expect(prepareGuardTransaction("veto", address(), M1)).rejects.toThrow(/already vetoed/);
+  });
+
+  it("anyone can prepare the execution once the delay has passed", async () => {
+    const { prepareGuardTransaction } = await import("@/lib/guard/prepare");
+    serveAction(past);
+    const p = await prepareGuardTransaction("execute", address(), OUTSIDER);
+    const d = decodeTransaction(VersionedTransaction.deserialize(Uint8Array.from(Buffer.from(p.transaction, "base64"))));
+    expect(d.instructions[0]).toMatchObject({ type: "guard:execute" });
+    expect(d.accounts.map((a) => a.address)).toEqual(expect.arrayContaining([MINT, TOKEN_PROGRAM_ID, SIGNER]));
   });
 });
 

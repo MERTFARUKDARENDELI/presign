@@ -1,4 +1,4 @@
-import { AlertOctagon, Clock, FileSearch, FlaskConical, Fingerprint, Users } from "lucide-react";
+import { AlertOctagon, Clock, FileSearch, FlaskConical, Fingerprint, ShieldCheck, Users } from "lucide-react";
 import { briefSourceFromAnalysis, buildSignerBrief, CONTROL_TEXT, type BriefStep, type SignerBrief as Brief } from "@/lib/multisig/brief";
 import type { RiskVerdict } from "@/lib/security/risk";
 import type { AnalysisStatus } from "@/lib/security/types";
@@ -66,6 +66,15 @@ export function BriefCard({ brief, title = "Signer brief", verdict }: { brief: B
                 <AlertOctagon className="mt-0.5 size-4 shrink-0" aria-hidden /> {p.detail ?? "The proposal contents could not be verified."} Do not approve what you cannot see.
               </p>
             )}
+            {p.scheduled.map((s, k) => (
+              <div key={k} className="mt-3 rounded-xl border border-sky-500/40 bg-sky-500/5 p-3">
+                <p className="flex items-start gap-2 text-sm text-sky-100">
+                  <ShieldCheck className="mt-0.5 size-4 shrink-0 text-sky-300" aria-hidden />
+                  <span><span className="font-semibold">Scheduled through Presign Guard</span> — {s.protection}.{s.memo ? <span className="text-sky-200/80"> Memo (untrusted): “{s.memo}”</span> : null}</span>
+                </p>
+                <ol className="mt-2 space-y-2">{s.steps.map((st, j) => <Step key={j} step={st} />)}</ol>
+              </div>
+            ))}
             {p.vaultChanges.length > 0 && (
               <ul className="mt-2 space-y-0.5 rounded-lg bg-zinc-950 px-3 py-2 text-sm text-zinc-300">{p.vaultChanges.map((c) => <li key={c}>{c}</li>)}</ul>
             )}

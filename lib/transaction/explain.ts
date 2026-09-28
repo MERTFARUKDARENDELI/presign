@@ -55,6 +55,16 @@ export function describeInstruction(i: DecodedInstruction, symbols: Record<strin
   const f = i.info;
   const sym = (mint: string | null | undefined) => (mint ? (symbols[mint] ?? `token ${short(mint)}`) : "tokens");
   if (i.type.startsWith("squads:")) return describeSquads(i);
+  if (i.type.startsWith("guard:")) {
+    const op = i.type.slice("guard:".length);
+    if (op === "schedule") return `Schedule ${f.scheduledInstructions ?? "?"} instruction(s) through Presign Guard; they run only after the guard's delay, unless a guardian vetoes.`;
+    if (op === "veto") return `Veto Presign Guard action ${short(i.accounts[1]?.address)} — it will never execute.`;
+    if (op === "execute") return `Execute Presign Guard action ${short(i.accounts[1]?.address)} now that its delay has passed.`;
+    if (op === "cancel") return `Cancel Presign Guard action ${short(i.accounts[1]?.address)}.`;
+    if (op === "updateConfig") return `Change the guard's configuration: delay ${f.delaySeconds}s, guardians ${f.guardians}.`;
+    if (op === "createGuard") return `Create a Presign Guard with a ${f.delaySeconds}s delay.`;
+    return `Presign Guard: ${op}.`;
+  }
   if (i.type.startsWith("anchor:")) {
     const args = Object.entries(f).filter(([k]) => !k.startsWith("_")).map(([k, v]) => `${k} = ${v === null ? "?" : v.length > 44 ? `${v.slice(0, 41)}…` : v}`);
     return `${i.programName}: ${i.type.slice("anchor:".length)}(${args.join(", ")}) — named from the program's own on-chain IDL.`;

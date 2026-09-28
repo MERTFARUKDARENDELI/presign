@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { GuardActionReport, GuardOverviewView } from "@/components/guard/GuardViews";
 import { MultisigOverview } from "@/components/multisig/MultisigOverview";
 import { ProposalReport } from "@/components/multisig/ProposalReport";
 import { api, ApiClientError } from "@/lib/client/api";
@@ -110,6 +111,8 @@ export default function VerifyClient() {
       )}
       {data?.kind === "proposal" && <ProposalReport inspection={data.inspection} />}
       {data?.kind === "multisig" && <MultisigOverview overview={data.overview} onInspect={(index) => run(`${data.overview.multisig} #${index}`, signer)} />}
+      {data?.kind === "guard" && <GuardOverviewView overview={data.overview} onInspect={(address) => run(address, signer)} />}
+      {data?.kind === "guard-action" && <GuardActionReport inspection={data.inspection} onChanged={() => run(data.inspection.address, signer)} />}
       {!data && !loading && !error && (
         <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
           Nothing inspected yet. Read-only: Presign never asks for keys and never signs.

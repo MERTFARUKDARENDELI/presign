@@ -65,6 +65,13 @@ export const multisigInspectSchema = z.object({
   signer: publicKeySchema.optional(),
 });
 
+/** Unsigned veto / execute transaction for a Presign Guard action. */
+export const guardPrepareSchema = z.object({
+  kind: z.enum(["veto", "execute"]),
+  action: publicKeySchema,
+  signer: publicKeySchema,
+});
+
 /** Unsigned raw integer amount (u64) as a decimal string. */
 export const u64StringSchema = z
   .string()

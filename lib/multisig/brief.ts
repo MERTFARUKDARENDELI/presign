@@ -1,4 +1,5 @@
 import bs58 from "bs58";
+import { formatDelay } from "@/lib/security/rules/multisig";
 import { formatLamports, formatRawAmount } from "@/lib/token/amount";
 import { describeInstruction } from "@/lib/transaction/explain";
 import type { TransactionAnalysis } from "@/lib/transaction/types";
@@ -24,6 +25,17 @@ export interface BriefPayload {
   /** Vault balance changes from the simulation, as plain text. */
   vaultChanges: string[];
   simulation: string | null;
+  /** Instructions scheduled through Presign Guard (run later, vetoable). */
+  scheduled: BriefScheduled[];
+}
+
+export interface BriefScheduled {
+  guard: string;
+  /** Plain text: "waits 1 day(s); any one of 3 guardian(s) can veto", or why it could not be verified. */
+  protection: string;
+  verified: boolean;
+  memo: string;
+  steps: BriefStep[];
 }
 
 export interface SignerBrief {
@@ -136,6 +148,18 @@ export function buildSignerBrief(src: BriefSource): SignerBrief | null {
     steps: steps(p),
     vaultChanges: vaultChanges(p),
     simulation: simulationText(p),
+    scheduled: (p.scheduled ?? []).map((s) => ({
+      guard: s.guard,
+      verified: s.guardAccount !== null,
+      protection: s.guardAccount
+        ? `waits ${formatDelay(s.guardAccount.delaySeconds)} after this proposal executes; any one of ${s.guardAccount.guardians.length} guardian(s) can veto`
+        : "the guard account could not be verified, so the delay and veto are not confirmed",
+      memo: s.memo,
+      steps: s.decoded.instructions.map((i) => {
+        const x = s.privileged.find((v) => v.origin.endsWith(`instruction ${i.index}`) && v.programId === i.programId);
+        return { text: describeInstruction(i), privileged: x ? { kind: x.kind, control: x.control, newAuthority: x.newAuthority } : null };
+      }),
+    })),
   }));
   let messageHash: SignerBrief["messageHash"] = null;
   if (src.messageHash && /^[0-9a-f]{64}$/.test(src.messageHash)) {
