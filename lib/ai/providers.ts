@@ -1,13 +1,19 @@
 import "server-only";
 import { AppError } from "@/lib/api/errors";
 import { buildDemoTransaction, buildDemoWalletScan } from "@/lib/demo/scenario";
+import { inspect } from "@/lib/multisig/inspect";
+import type { TeamPolicy } from "@/lib/policy/schema";
 import { analyzeToken } from "@/lib/token/scanner";
 import { analyzeTransaction } from "@/lib/transaction/analyze";
 import { scanWallet } from "@/lib/wallet/scan";
 import type { WalletSecurityScan } from "@/lib/wallet/scan-core";
 import type { SecurityDataProvider } from "./tools";
 
-export function createLiveProvider(wallet: string | null): SecurityDataProvider {
+/**
+ * `signer` and `policy` must be the ones the page used, so the assistant sees
+ * the same verdict (policy signals change the risk) as the report beside it.
+ */
+export function createLiveProvider(wallet: string | null, context: { signer?: string | null; policy?: TeamPolicy | null } = {}): SecurityDataProvider {
   let scan: Promise<WalletSecurityScan> | null = null;
   return {
     mode: "live",
@@ -19,6 +25,7 @@ export function createLiveProvider(wallet: string | null): SecurityDataProvider 
     },
     analyzeToken: (mint) => analyzeToken(mint),
     analyzeTransaction: (input) => analyzeTransaction(input, wallet ?? undefined),
+    inspect: (input) => inspect(input, context.signer ?? null, context.policy ?? null),
   };
 }
 
@@ -34,5 +41,8 @@ export function createDemoProvider(): SecurityDataProvider {
       return t.report;
     },
     analyzeTransaction: async () => buildDemoTransaction().analysis,
+    inspect: async () => {
+      throw new AppError("INVALID_INPUT", "Multisig inspection is not part of the demo wallet. Use /verify with a real proposal.");
+    },
   };
 }

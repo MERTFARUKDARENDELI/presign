@@ -15,14 +15,13 @@
     "demo:guard": "node --no-warnings --experimental-transform-types --import ./scripts/devnet/register.mjs scripts/devnet/guard-demo.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^4.0.73",
+    "@anthropic-ai/sdk": "^0.131.0",
     "@base-ui/react": "^1.8.0",
     "@noble/curves": "^2.4.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/wallet-adapter-base": "^0.9.28",
     "@solana/wallet-adapter-react": "^0.15.40",
     "@solana/web3.js": "^1.99.0",
-    "ai": "^7.0.112",
     "bs58": "^6.0.0",
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",

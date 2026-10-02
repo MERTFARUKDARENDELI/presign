@@ -1,10 +1,12 @@
 import "server-only";
-import { APICallError, RetryError } from "ai";
 import { logger } from "@/lib/api/logger";
+import { configuredKey, createAnthropicClient, isAuthError } from "./client";
+
+export { isAuthError };
 
 /**
  * AI readiness without probing the provider on health polls. The health
- * endpoint must not call OpenAI (cost, latency, rate limits), so readiness is
+ * endpoint must not call Anthropic (cost, latency, rate limits), so readiness is
  * derived from configuration plus the outcome of the last REAL provider call in
  * this server process (an agent call, or an explicit on-demand diagnostic):
  *   NOT_CONFIGURED — no key
@@ -33,13 +35,9 @@ function state(): AiStatusState {
   return (g[STATE_KEY] ??= { lastOutcome: null, diagnostic: null, inFlight: null });
 }
 
-function configuredKey(): string | null {
-  return process.env.OPENAI_API_KEY?.trim() || null;
-}
-
-/** OpenAI secret keys always start with "sk-"; anything else cannot authenticate. */
+/** Anthropic API keys always start with "sk-ant-"; anything else cannot authenticate. */
 function hasPlausibleKeyFormat(key: string): boolean {
-  return key.startsWith("sk-") && key.length >= 20 && !/\s/.test(key);
+  return key.startsWith("sk-ant-") && key.length >= 20 && !/\s/.test(key);
 }
 
 export function getAiStatus(): AiStatus {
@@ -52,12 +50,6 @@ export function getAiStatus(): AiStatus {
 /** Only READY means a real provider call succeeded; CONFIGURED is unverified. */
 export function isAiVerified(status: AiStatus): boolean {
   return status === "READY";
-}
-
-/** True when an error means the provider rejected the credentials (not a transient failure). */
-export function isAuthError(error: unknown): boolean {
-  const inner = RetryError.isInstance(error) ? error.lastError : error;
-  return APICallError.isInstance(inner) && (inner.statusCode === 401 || inner.statusCode === 403);
 }
 
 export function recordAiSuccess(): void {
@@ -110,22 +102,13 @@ async function probeProvider(): Promise<AiStatus> {
   if (!key) return "NOT_CONFIGURED";
   const s = state();
   try {
-    const res = await fetch("https://api.openai.com/v1/models", {
-      method: "GET",
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(DIAGNOSTIC_TIMEOUT_MS),
-      cache: "no-store",
-    });
-    // Body is never read or logged; only the status code matters.
-    await res.body?.cancel().catch(() => {});
-    if (res.ok) s.lastOutcome = "READY";
-    else if (res.status === 401 || res.status === 403) s.lastOutcome = "INVALID_KEY";
-    else s.lastOutcome = "UNAVAILABLE";
-    logger.info("ai.diagnostic", { httpStatus: res.status, outcome: s.lastOutcome });
-  } catch {
-    s.lastOutcome = "UNAVAILABLE";
-    logger.warn("ai.diagnostic", { outcome: "UNAVAILABLE", reason: "network_or_timeout" });
+    // The response body is never logged; only the outcome matters.
+    await createAnthropicClient(key, { timeoutMs: DIAGNOSTIC_TIMEOUT_MS, maxRetries: 0 }).models.list({ limit: 1 });
+    s.lastOutcome = "READY";
+  } catch (error) {
+    s.lastOutcome = isAuthError(error) ? "INVALID_KEY" : "UNAVAILABLE";
   }
+  logger.info("ai.diagnostic", { outcome: s.lastOutcome });
   return s.lastOutcome;
 }
 

@@ -1,7 +1,7 @@
 /**
  * In-memory sliding-window rate limiter keyed by client + route.
  * Per-instance only: on multi-instance deployments use a shared store
- * (documented limitation). Protects Helius/RugCheck/OpenAI quotas.
+ * (documented limitation). Protects Helius/RugCheck/Anthropic quotas.
  */
 
 interface Bucket {

@@ -4,6 +4,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { FileSearch, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AiChat } from "@/components/ai/AiChat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -117,6 +118,12 @@ export default function VerifyClient() {
       {data?.kind === "multisig" && <MultisigOverview overview={data.overview} onInspect={(index) => run(`${data.overview.multisig} #${index}`, signer)} />}
       {data?.kind === "guard" && <GuardOverviewView overview={data.overview} onInspect={(address) => run(address, signer)} />}
       {data?.kind === "guard-action" && <GuardActionReport inspection={data.inspection} onChanged={() => run(data.inspection.address, signer)} />}
+      {data && request && (
+        <div className="h-[520px]">
+          {/* Same input, signer and policy as the report above, so the explanation quotes the same verdict. */}
+          <AiChat key={request.id} walletAddress={null} inspectInput={request.q} signer={request.signer || undefined} policy={request.policy} />
+        </div>
+      )}
       {!data && !loading && !error && (
         <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
           Nothing inspected yet. Read-only: Presign never asks for keys and never signs.

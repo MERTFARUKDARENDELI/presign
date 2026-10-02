@@ -139,4 +139,6 @@ export const chatRequestSchema = z.object({
   messages: z.array(chatMessageSchema).min(1).max(20),
   walletAddress: walletAddressSchema.optional(),
   demo: z.boolean().optional(),
+  /** Member address the /verify page inspected with (same perspective as the report). */
+  signer: publicKeySchema.optional(),
 });

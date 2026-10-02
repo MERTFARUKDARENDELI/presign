@@ -82,7 +82,7 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 - **Tests:** 419, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Presign Guard program:** deployed on devnet (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, IDL published); 11 LiteSVM tests of its invariants pass; its IDL is checked against the TypeScript codec; the full scenario ran end-to-end on devnet with a real Squads v4 multisig — takeover scheduled, CRITICAL in Presign, vetoed through Presign by an independent guardian, execution refused by the program. Unaudited.
 - **Batches and buffers on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows; a proposal created from a real pending transaction buffer decodes from the buffer.
-- **Not yet verified:** Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live OpenAI explanations.
+- **Not yet verified:** Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live Claude explanations (needs an `ANTHROPIC_API_KEY`).
 
 ## Limitations
 

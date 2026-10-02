@@ -32,10 +32,10 @@ const AI_SUFFIX: Record<Health["ai"], string> = {
 
 /** Outcome of an explicit "Verify AI" click, shown as a message (not only as a badge change). */
 const AI_CHECK_RESULT: Record<Health["ai"], { tone: "ok" | "warn" | "bad"; text: string }> = {
-  READY: { tone: "ok", text: "AI check: OpenAI accepted the API key. Billing/quota is only checked by the first AI request; if it fails, deterministic reports are shown." },
-  INVALID_KEY: { tone: "bad", text: "AI check: OpenAI rejected the API key (invalid or revoked). AI chat is off; deterministic security reports still work." },
-  UNAVAILABLE: { tone: "warn", text: "AI check: OpenAI could not be reached or returned an error. Deterministic reports still work; try again later." },
-  NOT_CONFIGURED: { tone: "warn", text: "AI check: no OpenAI API key is configured on the server. Deterministic reports only." },
+  READY: { tone: "ok", text: "AI check: Anthropic accepted the API key. Billing/quota is only checked by the first AI request; if it fails, deterministic reports are shown." },
+  INVALID_KEY: { tone: "bad", text: "AI check: Anthropic rejected the API key (invalid or revoked). AI chat is off; deterministic security reports still work." },
+  UNAVAILABLE: { tone: "warn", text: "AI check: Anthropic could not be reached or returned an error. Deterministic reports still work; try again later." },
+  NOT_CONFIGURED: { tone: "warn", text: "AI check: no Anthropic API key is configured on the server. Deterministic reports only." },
   CONFIGURED: { tone: "warn", text: "AI check: the key could not be verified yet." },
 };
 

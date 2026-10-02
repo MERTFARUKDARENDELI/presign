@@ -44,7 +44,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 
 ### Open items
 
-1. **BLOCKED — OpenAI key.** `/api/ai/diagnose` returns `INVALID_KEY` (2026-10-02). AI explanations are off; the app says so and the deterministic analysis is unaffected. Needs a new key in `.env.local` / the deployment.
+1. **BLOCKED — Anthropic key.** The AI layer moved from OpenAI to Claude Sonnet 5.5 (`claude-sonnet-5-5`, official Anthropic SDK) on 2026-10-02 and now also explains `/verify` proposals. No key is configured yet: AI explanations are off, the app says so, and the deterministic analysis is unaffected. Set `ANTHROPIC_API_KEY` in `.env.local` / the deployment, then use "Verify AI".
 2. Deployment (needs the team's hosting account) and a public repository.
 3. Telegram / webhook delivery test with a real bot (needs a bot token).
 4. Items carried over from the original engine: wallet-extension signing, mobile wallets.

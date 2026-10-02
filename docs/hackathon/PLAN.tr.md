@@ -21,7 +21,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 | 2 | GitHub'da **public** repo | Hemen | ✅ 2 Eki | https://github.com/MERTFARUKDARENDELI/solana-ai-defender — tüm commit geçmişi push edildi, CI GitHub Actions'ta çalışıyor |
 | 3 | **Devnet SOL** | — | ✅ 2 Eki | 15 SOL geldi; Guard devnet'e deploy edildi ve demo uçtan uca çalıştı (aşağıya bakın) |
 | 4 | Deploy (Vercel önerilir) | 3–4 Ekim |  | Env: `HELIUS_API_KEY`, `SOLANA_CLUSTER=mainnet-beta`, `NEXT_PUBLIC_SOLANA_CLUSTER=mainnet-beta`; `NEXT_PUBLIC_GUARD_PROGRAM_ID` mainnet'te boş kalsın |
-| 5 | **Yeni OpenAI anahtarı** (isteğe bağlı) | Uygun olduğunda |  | Mevcut anahtar geçersiz (`INVALID_KEY`). AI açıklamaları kapalı; kesin analiz etkilenmiyor. Yeni anahtarı `.env.local`'e ve Vercel'e siz ekleyin |
+| 5 | **Anthropic API anahtarı** (isteğe bağlı) | Uygun olduğunda |  | AI katmanı Claude Sonnet 5.5'e geçti. Anahtar yok; AI açıklamaları kapalı, kesin analiz etkilenmiyor. `ANTHROPIC_API_KEY`'i `.env.local`'e ve Vercel'e siz ekleyin |
 | 6 | Telegram botu: @BotFather → `/newbot` → token | 4 Ekim |  | Token'ı bana yazmayın; `.env.local`'e siz ekleyin. Sonra `npm run watchtower -- --once` ile canlı test ederiz |
 | 7 | Müşteri görüşmeleri: 10+ görüşme, 3 design partner | 2–7 Ekim |  | Kit: `customer-discovery.tr.md`. Başvurunun en zayıf kısmı burası |
 | 8 | Ekip bilgileri: isim, rol, arka plan, "neden biz" | 5 Ekim |  | Başvuru metni, deck ve pitch bu bilgiyle tamamlanacak |

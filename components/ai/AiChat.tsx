@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { AgentReply } from "@/lib/ai/agent";
 import { api, ApiClientError } from "@/lib/client/api";
+import type { TeamPolicy } from "@/lib/policy/schema";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -15,6 +16,7 @@ interface Message {
 }
 
 const SUGGESTIONS = ["Cüzdanımda riskli ne var?", "Why is this token risky?", "What does the suspicious transaction do?", "Which tokens can I clean up?"];
+const INSPECT_SUGGESTIONS = ["Bu teklif ne yapıyor? Sade bir dille anlat.", "Explain what this proposal does and who controls what afterwards", "What should I ask the proposer before deciding?"];
 
 /** Evidence citations like [ev:id] render as small tags; everything is plain text (no HTML injection). */
 function Rendered({ text }: { text: string }) {
@@ -32,9 +34,19 @@ function Rendered({ text }: { text: string }) {
   );
 }
 
-export function AiChat({ walletAddress, demo = false, transactionInput }: { walletAddress: string | null; demo?: boolean; transactionInput?: string }) {
-  const enabled = Boolean(walletAddress || demo || transactionInput);
-  const suggestions = transactionInput ? ["Explain this transaction in plain language", "Bu işlem ne yapıyor?"] : SUGGESTIONS;
+interface AiChatProps {
+  walletAddress: string | null;
+  demo?: boolean;
+  transactionInput?: string;
+  /** /verify: the proposal / multisig / guard input, plus the signer and policy the report used. */
+  inspectInput?: string;
+  signer?: string;
+  policy?: TeamPolicy | null;
+}
+
+export function AiChat({ walletAddress, demo = false, transactionInput, inspectInput, signer, policy }: AiChatProps) {
+  const enabled = Boolean(walletAddress || demo || transactionInput || inspectInput);
+  const suggestions = inspectInput ? INSPECT_SUGGESTIONS : transactionInput ? ["Explain this transaction in plain language", "Bu işlem ne yapıyor?"] : SUGGESTIONS;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,7 +59,8 @@ export function AiChat({ walletAddress, demo = false, transactionInput }: { wall
       setError("It looks like you may be pasting a seed phrase or private key. Never share it — not with this app, not with anyone.");
       return;
     }
-    const withContext = transactionInput && messages.length === 0 ? `${content}\n\nTransaction input: ${transactionInput}` : content;
+    const context = messages.length > 0 ? null : inspectInput ? `Proposal / multisig input: ${inspectInput}` : transactionInput ? `Transaction input: ${transactionInput}` : null;
+    const withContext = context ? `${content}\n\n${context}` : content;
     const next = [...messages, { role: "user" as const, content: withContext }];
     setMessages(next);
     setInput("");
@@ -55,14 +68,16 @@ export function AiChat({ walletAddress, demo = false, transactionInput }: { wall
     setError(null);
     try {
       const reply = await api<AgentReply>("/api/ai/chat", {
-        json: { messages: next.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })), walletAddress: walletAddress ?? undefined, demo },
+        json: { messages: next.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })), walletAddress: walletAddress ?? undefined, demo, signer: signer || undefined, policy: policy ?? undefined },
       });
       const why =
         reply.unavailableReason === "NOT_CONFIGURED"
           ? "AI is not configured on this server"
           : reply.unavailableReason === "INVALID_KEY"
             ? "The server's AI API key is invalid"
-            : "The AI provider returned an error";
+            : reply.unavailableReason === "REFUSED"
+              ? "The AI model declined this request"
+              : "The AI provider returned an error";
       const body = reply.available ? reply.text : `${why} — showing the deterministic security summary instead (no AI was used).\n\n${reply.deterministicFallback ?? ""}`;
       setMessages([...next, { role: "assistant", content: body, meta: reply }]);
     } catch (e) {
@@ -75,8 +90,8 @@ export function AiChat({ walletAddress, demo = false, transactionInput }: { wall
   return (
     <div className="flex h-full min-h-[420px] flex-col rounded-xl border border-zinc-800 bg-zinc-900/40">
       <div className="border-b border-zinc-800 px-4 py-3">
-        <div className="flex items-center gap-2 font-semibold"><Bot className="size-4" /> AI Security Agent</div>
-        <p className="text-xs text-zinc-500">Explains deterministic findings with evidence. It cannot change risk levels, and it cannot sign or send transactions.</p>
+        <div className="flex items-center gap-2 font-semibold"><Bot className="size-4" /> AI explanation</div>
+        <p className="text-xs text-zinc-500">Explains the deterministic findings in plain language, with evidence. It cannot change a verdict, and it cannot sign, approve or send anything.</p>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -128,7 +143,7 @@ export function AiChat({ walletAddress, demo = false, transactionInput }: { wall
           }}
           maxLength={4000}
           rows={1}
-          placeholder={enabled ? "Ask about your wallet, a token, a transaction or cleanup…" : "Scan a wallet first"}
+          placeholder={!enabled ? "Scan a wallet first" : inspectInput ? "Ask about this proposal or multisig…" : "Ask about your wallet, a token, a transaction or cleanup…"}
           disabled={!enabled || busy}
           className="min-h-10 resize-none border-zinc-800 bg-zinc-950"
         />

@@ -25,7 +25,7 @@ const accounts = vi.mocked(getParsedAccounts);
 
 const W = WALLET.toBase58();
 const OWNER = keypair(1);
-const FAKE_KEY = `sk-test-${"x".repeat(40)}`;
+const FAKE_KEY = `sk-ant-test-${"x".repeat(40)}`;
 
 let ip = 0;
 function post(path: string, body: unknown, clientIp = `10.1.${Math.floor(++ip / 250)}.${ip % 250}`) {
@@ -176,7 +176,7 @@ describe("POST /api/cleanup/prepare", () => {
 
 describe("POST /api/ai/diagnose", () => {
   it("returns NOT_CONFIGURED without a key and makes no provider call", async () => {
-    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
     const r = await json(await diagnoseRoute(post("/api/ai/diagnose", "")));
@@ -186,7 +186,7 @@ describe("POST /api/ai/diagnose", () => {
   });
 
   it("never returns the key, even when the provider rejects it", async () => {
-    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
+    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: `Incorrect API key provided: ${FAKE_KEY}` } }), { status: 401 })));
     const r = await json(await diagnoseRoute(post("/api/ai/diagnose", "")));
     expect((r.body.data as { status: string }).status).toBe("INVALID_KEY");
@@ -195,7 +195,7 @@ describe("POST /api/ai/diagnose", () => {
   });
 
   it("is rate limited to 3 requests per minute per client", async () => {
-    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
     for (let i = 0; i < 3; i++) expect((await diagnoseRoute(post("/api/ai/diagnose", "", "10.8.8.8"))).status).toBe(200);
     expect((await diagnoseRoute(post("/api/ai/diagnose", "", "10.8.8.8"))).status).toBe(429);
   });
