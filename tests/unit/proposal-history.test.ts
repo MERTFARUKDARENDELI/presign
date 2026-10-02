@@ -1,5 +1,6 @@
 import { SystemProgram } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildSignerBrief } from "@/lib/multisig/brief";
 import { clearProposalHistoryCache, loadProposalHistory, nonceSignedAction } from "@/lib/multisig/history";
 import type { MultisigAnalysis, ProposalHistory } from "@/lib/multisig/types";
 import { evaluatePolicy } from "@/lib/policy/evaluate";
@@ -94,6 +95,17 @@ describe("votes signed with a durable nonce (proposal history)", () => {
     const f = evaluateProposalRisk(emptyAnalysis(), null, failed);
     expect(f.signals.some((x) => x.code === "MS_VOTE_SIGNED_IN_ADVANCE")).toBe(false);
     expect(f.sources).toContainEqual(expect.objectContaining({ source: "ONCHAIN_RPC", status: "FAILED" }));
+  });
+
+  it("puts each vote signed in advance in the signer brief", async () => {
+    serve([{ signature: drift.transactions[1].signature }, { signature: drift.transactions[0].signature }]);
+    const history = await loadProposalHistory(PROPOSAL_7);
+    const brief = buildSignerBrief({ mode: "proposal", multisig: emptyAnalysis(), usesDurableNonce: false, messageHash: null, proposal: { transactionIndex: "7", stale: false, transactionKind: "vault" }, history })!;
+    expect(brief.signedInAdvance).toEqual([
+      "39Jy…7Aq8: create + approve landed inside a durable nonce; its nonce account had sat unused for 8 days.",
+      "6UJb…u924: approve + execute landed inside a durable nonce; its nonce account had sat unused for 8 days.",
+    ]);
+    expect(buildSignerBrief({ mode: "proposal", multisig: emptyAnalysis(), usesDurableNonce: false, messageHash: null })!.signedInAdvance).toEqual([]);
   });
 
   it("violates a no-durable-nonce policy, and is unverifiable when the history is unavailable", async () => {

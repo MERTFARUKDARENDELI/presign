@@ -97,7 +97,7 @@ export function summarizeTransaction(a: TransactionAnalysis) {
   return {
     gate: a.gate,
     ...compactRisk(a.risk),
-    brief: a.brief ? { headline: a.brief.headline, neverExpires: a.brief.neverExpires, config: a.brief.config, ifExecuted: a.brief.payloads.map((p) => ({ label: p.label, status: p.status, steps: p.steps.map((s) => s.text), vaultChanges: p.vaultChanges })) } : null,
+    brief: a.brief ? { headline: a.brief.headline, neverExpires: a.brief.neverExpires, signedInAdvance: a.brief.signedInAdvance, config: a.brief.config, ifExecuted: a.brief.payloads.map((p) => ({ label: p.label, status: p.status, steps: p.steps.map((s) => s.text), vaultChanges: p.vaultChanges })) } : null,
     authorityChanges: (a.multisig?.payloads ?? []).flatMap((p) => p.privileged).filter((x) => x.newAuthority !== undefined).map((x) => ({ program: x.programName, action: x.action, newHolder: x.newAuthority, control: x.control })),
     policy: compactPolicy(a.policy),
     durableNonce: a.decoded.usesDurableNonce,

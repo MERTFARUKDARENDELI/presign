@@ -15,8 +15,8 @@ interface Message {
   meta?: AgentReply;
 }
 
-const SUGGESTIONS = ["Cüzdanımda riskli ne var?", "Why is this token risky?", "What does the suspicious transaction do?", "Which tokens can I clean up?"];
-const INSPECT_SUGGESTIONS = ["Bu teklif ne yapıyor? Sade bir dille anlat.", "Explain what this proposal does and who controls what afterwards", "What should I ask the proposer before deciding?"];
+const SUGGESTIONS = ["What is risky in my wallet?", "Why is this token risky?", "What does the suspicious transaction do?", "Which tokens can I clean up?"];
+const INSPECT_SUGGESTIONS = ["In plain words: what happens if this executes?", "Explain what this proposal does and who controls what afterwards", "What should I ask the proposer before deciding?"];
 
 /** Evidence citations like [ev:id] render as small tags; everything is plain text (no HTML injection). */
 function Rendered({ text }: { text: string }) {

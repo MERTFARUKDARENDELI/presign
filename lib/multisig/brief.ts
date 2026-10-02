@@ -1,9 +1,9 @@
 import bs58 from "bs58";
-import { formatDelay } from "@/lib/security/rules/multisig";
+import { formatDelay, roughDuration } from "@/lib/security/rules/multisig";
 import { formatLamports, formatRawAmount } from "@/lib/token/amount";
 import { describeInstruction } from "@/lib/transaction/explain";
 import type { TransactionAnalysis } from "@/lib/transaction/types";
-import type { AuthorityControl, MultisigAnalysis, PrivilegedAction, ProposalInspection, VaultPayload } from "./types";
+import type { AuthorityControl, MultisigAnalysis, PrivilegedAction, ProposalHistory, ProposalInspection, VaultPayload } from "./types";
 
 /**
  * The Signer Brief: one screen that tells a multisig member what their
@@ -45,6 +45,8 @@ export interface SignerBrief {
   multisig: string | null;
   config: string | null;
   neverExpires: boolean;
+  /** Proposal mode: votes already on chain that landed inside a durable nonce, one plain-text line each. */
+  signedInAdvance: string[];
   payloads: BriefPayload[];
   /** sha256 of the message bytes, hex and base58 (the form hardware wallets show when blind signing). */
   messageHash: { hex: string; base58: string } | null;
@@ -57,6 +59,7 @@ export interface BriefSource {
   messageHash: string | null;
   /** Proposal inspection only. */
   proposal?: Pick<ProposalInspection, "transactionIndex" | "stale" | "transactionKind"> | null;
+  history?: ProposalHistory | null;
 }
 
 const short = (a: string | null | undefined) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : "unknown");
@@ -74,7 +77,7 @@ export function briefSourceFromAnalysis(a: TransactionAnalysis): BriefSource {
 }
 
 export function briefSourceFromInspection(i: ProposalInspection): BriefSource {
-  return { mode: "proposal", multisig: i.analysis, usesDurableNonce: false, messageHash: null, proposal: i };
+  return { mode: "proposal", multisig: i.analysis, usesDurableNonce: false, messageHash: null, proposal: i, history: i.history };
 }
 
 function headline(src: BriefSource): string {
@@ -138,6 +141,27 @@ function simulationText(p: VaultPayload): string | null {
   return p.effects.success ? `Simulated as the vault executing it now (slot ${p.effects.slot ?? "?"}); the result can change before execution.` : `The simulation fails if executed now${p.effects.error ? ` (${p.effects.error.slice(0, 120)})` : ""}.`;
 }
 
+const VOTE_VERB: Record<string, string> = {
+  proposalCreate: "create",
+  proposalActivate: "activate",
+  proposalApprove: "approve",
+  proposalReject: "reject",
+  proposalCancel: "cancel",
+  proposalCancelV2: "cancel",
+  vaultTransactionExecute: "execute",
+  configTransactionExecute: "execute",
+  batchExecuteTransaction: "execute",
+};
+
+function signedInAdvance(history: ProposalHistory | null | undefined): string[] {
+  return (history?.nonceSigned ?? []).map((n) => {
+    const who = n.members.map((m) => short(m)).join(", ") || "Unknown member";
+    const verbs = [...new Set(n.actions.map((a) => VOTE_VERB[a] ?? a))].join(" + ");
+    const idle = n.nonceIdleSince !== null && n.blockTime !== null && n.blockTime - n.nonceIdleSince >= 3_600 ? `; its nonce account had sat unused for ${roughDuration(n.blockTime - n.nonceIdleSince)}` : "";
+    return `${who}: ${verbs} landed inside a durable nonce${idle}.`;
+  });
+}
+
 export function buildSignerBrief(src: BriefSource): SignerBrief | null {
   const ms = src.multisig;
   if (!ms) return null;
@@ -178,6 +202,7 @@ export function buildSignerBrief(src: BriefSource): SignerBrief | null {
     multisig: ms.multisig,
     config: acc ? `${acc.threshold} of ${voters} voting members · time lock ${acc.timeLock === 0 ? "none" : `${acc.timeLock}s`}${acc.configAuthority ? ` · config authority ${short(acc.configAuthority)}` : ""}` : null,
     neverExpires: src.usesDurableNonce,
+    signedInAdvance: signedInAdvance(src.history),
     payloads,
     messageHash,
   };

@@ -52,6 +52,16 @@ export function BriefCard({ brief, title = "Signer brief", verdict }: { brief: B
         </div>
       )}
 
+      {brief.signedInAdvance.length > 0 && (
+        <div className="mt-4 flex gap-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100">
+          <Clock className="mt-0.5 size-5 shrink-0 text-red-300" aria-hidden />
+          <div>
+            <p><span className="font-semibold">Votes signed in advance.</span> These votes may have been signed long before they landed. Confirm with each member directly before you add yours.</p>
+            <ul className="mt-1 list-disc pl-5">{brief.signedInAdvance.map((s) => <li key={s}>{s}</li>)}</ul>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 space-y-4">
         {brief.payloads.length === 0 && <p className="text-sm text-zinc-400">No vault transaction is created, approved or executed here.</p>}
         {brief.payloads.map((p, i) => (

@@ -53,7 +53,7 @@ export function actionEvidence(p: PrivilegedAction, ev: EvFn): string {
 const ONE_LOWER: Record<RiskSignal["severity"], RiskSignal["severity"]> = { CRITICAL: "HIGH", HIGH: "MEDIUM", MEDIUM: "LOW", LOW: "LOW" };
 
 /** "8 days", "5 hours": for elapsed times read from chain, where exact seconds are noise. */
-function roughDuration(seconds: number): string {
+export function roughDuration(seconds: number): string {
   const days = Math.floor(seconds / 86_400);
   if (days >= 1) return `${days} day${days === 1 ? "" : "s"}`;
   const hours = Math.floor(seconds / 3600);
