@@ -18,7 +18,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 | # | İş | Ne zaman | Durum | Not |
 |---|---|---|---|---|
 | 1 | İki ekip üyesi de colosseum.com'da kayıtlı, takım kurulmuş | Hemen |  | Kayıt olmayan üye diskalifiye olabilir |
-| 2 | GitHub'da **public** repo | Hemen |  | URL'yi verirseniz commit geçmişiyle push'u ben yaparım (`gh auth` gerekir) |
+| 2 | GitHub'da **public** repo | Hemen | ✅ 2 Eki | https://github.com/MERTFARUKDARENDELI/solana-ai-defender — tüm commit geçmişi push edildi, CI GitHub Actions'ta çalışıyor |
 | 3 | **Devnet SOL** | VPN açılınca |  | Ağınız Solana devnet uç noktalarını engelliyor. Cloudflare WARP (1.1.1.1) açın → https://devnetfaucet.org veya faucet.solana.com (GitHub ile) → adres `5XSWEAJ42LZMqcrKMF66Cj3s39174gMucNP9UtLMQbGq`, ~3 SOL. Gelince deploy + devnet demosu tek adım |
 | 4 | Deploy (Vercel önerilir) | 3–4 Ekim |  | Env: `HELIUS_API_KEY`, `SOLANA_CLUSTER=mainnet-beta`, `NEXT_PUBLIC_SOLANA_CLUSTER=mainnet-beta`; `NEXT_PUBLIC_GUARD_PROGRAM_ID` mainnet'te boş kalsın |
 | 5 | **Yeni OpenAI anahtarı** (isteğe bağlı) | Uygun olduğunda |  | Mevcut anahtar geçersiz (`INVALID_KEY`). AI açıklamaları kapalı; kesin analiz etkilenmiyor. Yeni anahtarı `.env.local`'e ve Vercel'e siz ekleyin |
