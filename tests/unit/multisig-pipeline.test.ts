@@ -295,3 +295,40 @@ describe("rent deposits", () => {
     expect(rentExemptMinimum(165n)).toBe(2_039_280n);
   });
 });
+
+describe("proposals created from a transaction buffer", () => {
+  /** The raw (SmallVec) transaction message Drift's malicious vaultTransactionCreate carried in its arguments. */
+  const rawMessage = () => {
+    const tx = VersionedTransaction.deserialize(txBytes(0));
+    const data = tx.message.compiledInstructions[1].data;
+    const len = Buffer.from(data).readUInt32LE(8 + 2);
+    return Uint8Array.from(data.subarray(8 + 2 + 4, 8 + 2 + 4 + len));
+  };
+
+  it("loads the buffer: the program's six-byte placeholder must not read as an empty proposal", async () => {
+    const creator = key(80).toBase58();
+    const buffer = key(81).toBase58();
+    const message = rawMessage();
+    const chain = await chainAtAttack();
+    // TransactionBuffer: multisig, creator, buffer_index, vault_index, final_buffer_hash, final_buffer_size, buffer.
+    const bufferData = new W().hex(SQUADS_ACCOUNT_DISCRIMINATOR.TransactionBuffer).key(MULTISIG).key(creator).u8(0).u8(0)
+      .hex(createHash("sha256").update(message).digest("hex")).u16(message.length).bytes(message).done();
+    chain.accounts.set(buffer, { data: bufferData, owner: SQUADS_V4_PROGRAM_ID });
+    serve(chain);
+
+    // vault_transaction_create_from_buffer, exactly as clients send it: vault 0, no ephemeral signers, the placeholder, no memo.
+    const data = Buffer.concat([sha8("global:vault_transaction_create_from_buffer"), Buffer.from([0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])]);
+    const tx = transactionPda(MULTISIG, TX_INDEX + 1n);
+    const ix = new TransactionInstruction({
+      programId: new PublicKey(SQUADS_V4_PROGRAM_ID),
+      data,
+      keys: [MULTISIG, tx, creator, creator, "11111111111111111111111111111111", buffer, creator].map((k, i) => ({ pubkey: new PublicKey(k), isSigner: [2, 3, 6].includes(i), isWritable: [0, 1, 3, 5, 6].includes(i) })),
+    });
+    const a = await analyzeTransaction(buildTx([ix], new PublicKey(creator)).base64, creator);
+    const payload = a.multisig!.payloads[0];
+    expect(payload).toMatchObject({ source: "BUFFER_ACCOUNT", status: "DECODED" });
+    expect(payload.decoded!.instructions[0]).toMatchObject({ type: "anchor:updateAdmin", programId: DRIFT });
+    expect(a.risk.level).toBe("CRITICAL");
+    expect(codes(a)).toContain("MS_AUTHORITY_LEAVES_MULTISIG:0");
+  });
+});

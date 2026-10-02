@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **413 tests / 33 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **414 tests / 33 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -48,8 +48,9 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 2. **BLOCKED — OpenAI key.** `/api/ai/diagnose` returns `INVALID_KEY` (2026-10-02). AI explanations are off; the app says so and the deterministic analysis is unaffected. Needs a new key in `.env.local` / the deployment.
 3. Deployment (needs the team's hosting account) and a public repository.
 4. Telegram / webhook delivery test with a real bot (needs a bot token).
-5. Buffer-created proposals against a real mainnet example (batches: verified on mainnet 2026-10-02, including lookup tables).
-6. Items carried over from the original engine: wallet-extension signing, mobile wallets.
+5. Items carried over from the original engine: wallet-extension signing, mobile wallets.
+
+Verified on mainnet 2026-10-02: batch proposals (lookup tables included) and a proposal created from a real pending transaction buffer.
 
 ## Original engine (history)
 

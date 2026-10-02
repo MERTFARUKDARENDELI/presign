@@ -79,10 +79,10 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 
 - **Mainnet, read-only:** both Drift exploit transactions analyzed by signature and from their unsigned bytes (CRITICAL); the Drift Security Council multisig inspected live (proposal #7 admin takeover; #8 / #9 require the attacker's key as signer); census of all 157,117 Squads v4 multisigs; MCP and Watchtower exercised against a running instance.
 - **Program hashes:** the `solana-verify` convention was checked against OtterSec's `on_chain_hash` for the live Squads v4 program (`scripts/research/hash-check.ts`).
-- **Tests:** 413, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
+- **Tests:** 414, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Presign Guard program:** builds with Anchor 1.x; 11 LiteSVM tests of its invariants pass; its IDL is checked against the TypeScript codec; the full scenario (real Squads v4 cloned from devnet, veto and execute prepared by Presign) ran end-to-end on a local validator. Not on devnet yet, unaudited.
-- **Batches on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows.
-- **Not yet verified:** Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); buffer-created proposals against mainnet data (unit-tested with synthetic accounts); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live OpenAI explanations.
+- **Batches and buffers on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows; a proposal created from a real pending transaction buffer decodes from the buffer.
+- **Not yet verified:** Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live OpenAI explanations.
 
 ## Limitations
 

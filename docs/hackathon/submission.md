@@ -45,7 +45,7 @@ This is not an edge case. Our read-only census of Solana mainnet (2026-09-27) fo
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (413 tests, no network; 11 LiteSVM tests for the Guard program), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (414 tests, no network; 11 LiteSVM tests for the Guard program), GitHub Actions CI. Node services for Watchtower and the MCP server. Apache-2.0.
 
 ## Links
 

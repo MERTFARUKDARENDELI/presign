@@ -212,8 +212,9 @@ export function decodeSquadsInstruction(data: Uint8Array, accounts: Array<string
       out.extra.ephemeralSigners = String(r.u8());
       const message = r.bytes();
       out.memo = memo(r);
-      // From-buffer carries an empty message; the real one lives in the buffer account.
-      out.message = message.length > 0 ? parseTransactionMessage(message) : null;
+      // From-buffer carries a placeholder (the program requires exactly six zero bytes); the real message lives in
+      // the buffer account. Parsing the placeholder would yield an empty message and hide the proposal's contents.
+      out.message = name === "vaultTransactionCreate" && message.length > 0 ? parseTransactionMessage(message) : null;
       break;
     }
     case "batchAddTransaction": {
