@@ -1,4 +1,5 @@
-import { ArrowRight, Bot, BellRing, Clock, FileSearch, KeyRound, Landmark, ListChecks, Scale, ShieldAlert, SlidersHorizontal, Users } from "lucide-react";
+import { ArrowRight, Bot, BellRing, Clock, FileSearch, Hourglass, KeyRound, Landmark, ListChecks, Scale, ShieldAlert, SlidersHorizontal, Users } from "lucide-react";
+import { RULE_CATALOG } from "@/lib/security/catalog";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import census from "@/docs/research/multisig-census.json";
@@ -27,7 +28,7 @@ const PRINCIPLES = [
 
 const AUDIENCES = [
   { icon: Users, title: "Multisig signers & security councils", body: "Verify a proposal from a second, independent screen before approving it.", href: "/verify", cta: "Verify a proposal" },
-  { icon: BellRing, title: "Protocol & treasury teams", body: "Watchtower sends every new proposal's brief to all signers the moment it is created.", href: "/docs#watchtower", cta: "Set up alerts" },
+  { icon: BellRing, title: "Protocol & treasury teams", body: "Watchtower sends every new proposal's brief to all signers the moment it is created, checked against your own team policy.", href: "/docs#policy", cta: "Set up alerts & policy" },
   { icon: Bot, title: "Wallets, custodians & AI agents", body: "The same engine over HTTP and MCP: a pre-sign check an LLM cannot talk its way past.", href: "/docs", cta: "Use the API" },
 ];
 
@@ -75,7 +76,10 @@ export default function Home() {
       </section>
 
       <section aria-labelledby="catches">
-        <h3 id="catches" className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">What {BRAND.name} catches</h3>
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="catches" className="text-sm font-semibold uppercase tracking-wider text-zinc-500">What {BRAND.name} catches</h3>
+          <Link href="/rules" className="text-sm text-fuchsia-300 underline-offset-4 hover:underline">All {RULE_CATALOG.length} rules →</Link>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {CATCHES.map((c) => (
             <div key={c.title} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
@@ -98,6 +102,25 @@ export default function Home() {
             </li>
           ))}
         </ol>
+      </section>
+
+      <section aria-labelledby="guard" className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <Hourglass className="size-6 shrink-0 text-fuchsia-300" aria-hidden />
+          <div className="space-y-2">
+            <h3 id="guard" className="font-semibold">
+              Presign Guard <span className="ml-1 rounded border border-amber-500/40 px-1.5 text-xs font-normal text-amber-200">in development</span>
+            </h3>
+            <p className="text-sm text-zinc-400">
+              A warning helps only if someone can act on it. Presign Guard is an on-chain program that holds a protocol&apos;s critical authorities: anything done with them is
+              scheduled, waits a fixed delay, and any single guardian can veto it — even a compromised multisig cannot remove the guardians. Routine operations stay fast.
+            </p>
+            <p className="text-xs text-zinc-500">
+              Built and tested, and run end-to-end against the real Squads program on a local validator (schedule → alert → veto). Not yet on devnet; unaudited.{" "}
+              <Link href="/docs#presign-guard" className="text-fuchsia-300 underline-offset-4 hover:underline">How it works</Link>
+            </p>
+          </div>
+        </div>
       </section>
 
       <section aria-labelledby="who">

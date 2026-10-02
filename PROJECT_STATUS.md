@@ -44,11 +44,12 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 
 ### Open items
 
-1. Presign Guard: compile, Rust tests, devnet deploy, end-to-end demo (Squads devnet multisig → guard holds a mint authority → scheduled takeover → Watchtower alert → guardian veto).
-2. Deployment (needs the team's hosting account) and a public repository.
-3. Telegram / webhook delivery test with a real bot.
-4. Buffer-created proposals and batches against real mainnet examples.
-5. Items carried over from the original engine: wallet-extension signing, mobile wallets, live OpenAI key.
+1. **BLOCKED — devnet SOL.** Presign Guard devnet deploy and the devnet demo wait on ~3 devnet SOL for the deployer (`5XSWEAJ42LZMqcrKMF66Cj3s39174gMucNP9UtLMQbGq`). Faucets fail from the team's network (TLS resets to Solana endpoints); retry over a VPN. Everything else is done and rehearsed on a local validator.
+2. **BLOCKED — OpenAI key.** `/api/ai/diagnose` returns `INVALID_KEY` (2026-10-02). AI explanations are off; the app says so and the deterministic analysis is unaffected. Needs a new key in `.env.local` / the deployment.
+3. Deployment (needs the team's hosting account) and a public repository.
+4. Telegram / webhook delivery test with a real bot (needs a bot token).
+5. Buffer-created proposals against a real mainnet example (batches: verified on mainnet 2026-10-02, including lookup tables).
+6. Items carried over from the original engine: wallet-extension signing, mobile wallets.
 
 ## Original engine (history)
 
