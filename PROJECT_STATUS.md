@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **430 tests / 35 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **434 tests / 35 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -33,7 +33,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Proposal inspector API + `/verify` UI | VERIFIED (live) | headless browser on the Drift multisig overview and proposal #7 |
 | `/case/drift` replay | VERIFIED (live) | both pre-signed transactions analyzed from unsigned bytes in the browser: CRITICAL |
 | Brief + deterministic gate in API responses | VERIFIED | unit + live |
-| Watchtower (self-service Telegram bot: /watch, /unwatch, /list, /check; SQLite state; guard watching) | PARTIAL | live on devnet 2026-10-02 (console delivery): baseline, then a new proposal (HIGH) and a scheduled guard action (CRITICAL, countdown, untrusted memo, veto link) announced; earlier live cycle on the Drift multisig. Telegram / webhook delivery not exercised against real endpoints (needs a bot token) |
+| Watchtower (self-service Telegram bot: /watch, /unwatch, /list, /check; SQLite state; guard watching; alert when a vote lands through a durable nonce) | PARTIAL | live on devnet 2026-10-02 (console delivery): baseline, then a new proposal (HIGH) and a scheduled guard action (CRITICAL, countdown, untrusted memo, veto link) announced; earlier live cycle on the Drift multisig. Telegram / webhook delivery not exercised against real endpoints (needs a bot token) |
 | MCP server | VERIFIED (live) | stdio session: initialize → tools/call on Drift #7 returned `gate: block` |
 | Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
 | Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |

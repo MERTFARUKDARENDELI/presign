@@ -8,6 +8,8 @@ import type { WatchState } from "./core.ts";
  */
 
 export type TargetKind = "multisig" | "guard";
+
+const NONCE_PREFIX = "nonce:";
 export interface Subscription {
   chat: string;
   target: string;
@@ -53,9 +55,11 @@ export class WatchStore {
   }
 
   state(): WatchState {
-    const state: WatchState = { proposals: {}, posture: {} };
+    const state: WatchState = { proposals: {}, posture: {}, nonceVotes: {} };
     for (const r of this.db.prepare("select target, id, status from items").all() as Array<{ target: string; id: string; status: string }>) {
-      (state.proposals[r.target] ??= {})[r.id] = r.status;
+      // Durable-nonce vote counts share the items table under a "nonce:" prefix (no schema change).
+      if (r.id.startsWith(NONCE_PREFIX)) (state.nonceVotes[r.target] ??= {})[r.id.slice(NONCE_PREFIX.length)] = Number(r.status) || 0;
+      else (state.proposals[r.target] ??= {})[r.id] = r.status;
     }
     for (const r of this.db.prepare("select target, level from posture").all() as Array<{ target: string; level: string }>) state.posture[r.target] = r.level;
     return state;
@@ -68,6 +72,7 @@ export class WatchStore {
     try {
       const upsert = this.db.prepare("insert into items (target, id, status) values (?, ?, ?) on conflict (target, id) do update set status = excluded.status");
       for (const [id, status] of Object.entries(items)) upsert.run(target, id, status);
+      for (const [id, count] of Object.entries(state.nonceVotes[target] ?? {})) upsert.run(target, NONCE_PREFIX + id, String(count));
       const level = state.posture[target];
       if (level !== undefined) this.db.prepare("insert into posture (target, level) values (?, ?) on conflict (target) do update set level = excluded.level").run(target, level);
       this.db.exec("commit");

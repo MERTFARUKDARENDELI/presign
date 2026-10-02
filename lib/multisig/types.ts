@@ -162,6 +162,8 @@ export interface ProposalSummary {
   /** Set for pending proposals, which are fully inspected. */
   verdict: RiskVerdict | null;
   topSignal: string | null;
+  /** Votes already on chain that landed inside a durable nonce; null when not inspected or the history could not be read. */
+  signedInAdvance: number | null;
 }
 
 export interface MultisigOverview {

@@ -12,18 +12,21 @@ export interface WatchState {
   proposals: Record<string, Record<string, string>>;
   /** multisig → last seen setup verdict (config changes show up here). */
   posture: Record<string, string>;
+  /** multisig → proposal index → votes seen that landed inside a durable nonce. */
+  nonceVotes: Record<string, Record<string, number>>;
 }
 
 export type WatchEvent =
   | { kind: "new-proposal"; multisig: string; index: string; status: string }
   | { kind: "status-change"; multisig: string; index: string; from: string; to: string }
-  | { kind: "posture-change"; multisig: string; from: string; to: string };
+  | { kind: "posture-change"; multisig: string; from: string; to: string }
+  | { kind: "nonce-vote"; multisig: string; index: string; count: number };
 
 const PENDING = new Set(["Draft", "Active", "Approved"]);
 const NOTIFY_STATUSES = new Set(["Approved", "Executed", "Rejected", "Cancelled"]);
 
 export function emptyState(): WatchState {
-  return { proposals: {}, posture: {} };
+  return { proposals: {}, posture: {}, nonceVotes: {} };
 }
 
 /**
@@ -35,6 +38,8 @@ export function diffOverview(state: WatchState, o: MultisigOverview, alertExisti
   const seen = state.proposals[o.multisig];
   const firstRun = seen === undefined;
   const current: Record<string, string> = {};
+  const votesSeen = state.nonceVotes[o.multisig] ?? {};
+  const votes: Record<string, number> = {};
   const events: WatchEvent[] = [];
   for (const p of o.proposals) {
     if (p.status === "NOT_FOUND" || p.status === "UNREADABLE") continue;
@@ -45,6 +50,13 @@ export function diffOverview(state: WatchState, o: MultisigOverview, alertExisti
     } else if (before !== p.status && NOTIFY_STATUSES.has(p.status)) {
       events.push({ kind: "status-change", multisig: o.multisig, index: p.transactionIndex, from: before, to: p.status });
     }
+    // A vote that lands through a durable nonce on a proposal already being watched (a new proposal's alert lists it already).
+    if (p.signedInAdvance !== null) {
+      votes[p.transactionIndex] = p.signedInAdvance;
+      if (before !== undefined && p.signedInAdvance > (votesSeen[p.transactionIndex] ?? 0)) {
+        events.push({ kind: "nonce-vote", multisig: o.multisig, index: p.transactionIndex, count: p.signedInAdvance });
+      }
+    }
   }
   const postureBefore = state.posture[o.multisig];
   if (postureBefore !== undefined && postureBefore !== o.posture.level) {
@@ -52,7 +64,11 @@ export function diffOverview(state: WatchState, o: MultisigOverview, alertExisti
   }
   return {
     events,
-    next: { proposals: { ...state.proposals, [o.multisig]: { ...seen, ...current } }, posture: { ...state.posture, [o.multisig]: o.posture.level } },
+    next: {
+      proposals: { ...state.proposals, [o.multisig]: { ...seen, ...current } },
+      posture: { ...state.posture, [o.multisig]: o.posture.level },
+      nonceVotes: { ...state.nonceVotes, [o.multisig]: { ...votesSeen, ...votes } },
+    },
   };
 }
 
@@ -85,6 +101,9 @@ export function formatAlert(event: WatchEvent, baseUrl: string, inspection: Prop
   if (event.kind === "posture-change") {
     lines.push(`Multisig ${short(event.multisig)} setup risk changed: ${event.from} → ${event.to}`);
     html.push(`<b>Multisig ${short(event.multisig)}</b> setup risk changed: ${escapeHtml(event.from)} → <b>${escapeHtml(event.to)}</b>`);
+  } else if (event.kind === "nonce-vote") {
+    lines.push(`🔶 Proposal #${event.index} of multisig ${short(event.multisig)}: a vote landed through a durable nonce (${event.count} so far). It may have been signed long before it was submitted. Confirm with the member directly before approving or executing.`);
+    html.push(`🔶 <b>Proposal #${escapeHtml(event.index)}</b> of multisig ${short(event.multisig)}: a vote landed through a <b>durable nonce</b> (${event.count} so far). It may have been signed long before it was submitted. Confirm with the member directly before approving or executing.`);
   } else if (event.kind === "status-change") {
     lines.push(`Proposal #${event.index} of multisig ${short(event.multisig)}: ${event.from} → ${event.to}`);
     html.push(`Proposal <b>#${escapeHtml(event.index)}</b> of multisig ${short(event.multisig)}: ${escapeHtml(event.from)} → <b>${escapeHtml(event.to)}</b>`);
@@ -149,7 +168,7 @@ export function diffGuard(state: WatchState, o: GuardOverview, alertExisting = f
       events.push({ kind: "guard-action-status", guard: o.guard, action: a.address, index: a.index, from: before, to: a.status });
     }
   }
-  return { events, next: { proposals: { ...state.proposals, [o.guard]: { ...seen, ...current } }, posture: { ...state.posture, [o.guard]: o.posture.level } } };
+  return { events, next: { ...state, proposals: { ...state.proposals, [o.guard]: { ...seen, ...current } }, posture: { ...state.posture, [o.guard]: o.posture.level } } };
 }
 
 export function formatDuration(seconds: number): string {

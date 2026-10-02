@@ -7,7 +7,7 @@ import { WatchStore } from "../../watchtower/store";
 
 const MS = "2LW6PSEjp81xSEttWwXDB6Etb1eKdhYPbFEojYbyhx88";
 
-const summary = (index: string, status: ProposalSummary["status"], stale = false): ProposalSummary => ({ transactionIndex: index, proposalAddress: `p${index}`, transactionAddress: `t${index}`, status, statusTimestamp: null, approvals: 0, rejections: 0, stale, verdict: null, topSignal: null });
+const summary = (index: string, status: ProposalSummary["status"], stale = false): ProposalSummary => ({ transactionIndex: index, proposalAddress: `p${index}`, transactionAddress: `t${index}`, status, statusTimestamp: null, approvals: 0, rejections: 0, stale, verdict: null, topSignal: null, signedInAdvance: null });
 
 const overview = (proposals: ProposalSummary[], posture = "MEDIUM"): MultisigOverview =>
   ({ multisig: MS, account: null, accountStatus: "OK", vaults: [], posture: { level: posture, signals: [] }, proposals, inspectedLimit: 5, cluster: "mainnet-beta", inspectedAt: "" }) as unknown as MultisigOverview;
@@ -163,5 +163,43 @@ describe("watchtower bot", () => {
   it("reports inspection errors with the message only", async () => {
     const d = deps({ inspect: vi.fn(async () => { throw new Error("No Squads account was found for this input on devnet."); }) });
     expect(await handleMessage(msg("/check abc", "private"), d)).toBe("Could not inspect that: No Squads account was found for this input on devnet.");
+  });
+});
+
+describe("watchtower: votes signed through a durable nonce", () => {
+  const voted = (index: string, status: ProposalSummary["status"], signedInAdvance: number | null): ProposalSummary => ({ ...summary(index, status), signedInAdvance });
+
+  it("alerts when a watched pending proposal gains a vote that landed inside a durable nonce", () => {
+    const base = diffOverview(emptyState(), overview([voted("2", "Active", 0)])).next;
+    expect(base.nonceVotes[MS]).toEqual({ "2": 0 });
+    const { events, next } = diffOverview(base, overview([voted("2", "Active", 1)]));
+    expect(events).toEqual([{ kind: "nonce-vote", multisig: MS, index: "2", count: 1 }]);
+    // Seen once, not again; an unreadable history (null) keeps the last count instead of resetting it.
+    expect(diffOverview(next, overview([voted("2", "Active", 1)])).events).toEqual([]);
+    const unread = diffOverview(next, overview([voted("2", "Active", null)]));
+    expect(unread.events).toEqual([]);
+    expect(unread.next.nonceVotes[MS]).toEqual({ "2": 1 });
+  });
+
+  it("leaves a new proposal's nonce votes to its new-proposal alert, and records the first sight silently", () => {
+    const base = diffOverview(emptyState(), overview([voted("1", "Executed", 0)])).next;
+    expect(diffOverview(base, overview([voted("2", "Active", 2), voted("1", "Executed", 0)])).events).toEqual([{ kind: "new-proposal", multisig: MS, index: "2", status: "Active" }]);
+    expect(diffOverview(emptyState(), overview([voted("3", "Active", 1)])).events).toEqual([]);
+  });
+
+  it("persists the counts next to proposal statuses", () => {
+    const store = new WatchStore(":memory:");
+    store.saveTarget(MS, diffOverview(emptyState(), overview([voted("4", "Active", 2)])).next);
+    expect(store.state().proposals[MS]).toEqual({ "4": "Active" });
+    expect(store.state().nonceVotes[MS]).toEqual({ "4": 2 });
+    store.close();
+  });
+
+  it("tells every signer to confirm with the member, with a link to verify", () => {
+    const a = formatAlert({ kind: "nonce-vote", multisig: MS, index: "7", count: 2 }, "https://presign.example");
+    expect(a.text).toContain("Proposal #7 of multisig 2LW6…hx88: a vote landed through a durable nonce (2 so far)");
+    expect(a.text).toContain("Confirm with the member directly");
+    expect(a.html).toContain("<b>durable nonce</b>");
+    expect(a.text).toContain(verifyLink("https://presign.example", MS, "7"));
   });
 });

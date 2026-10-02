@@ -12,7 +12,7 @@ The technical demo explains *how*, not *why*. Show the product, then the parts o
 | 1:40–1:55 | `lib/policy/evaluate.ts` → `/verify` policy card with one ✗ and one ? | "Team policies are data, not code. Each rule passes, fails, or is *unverifiable* — never compliant by default — and feeds the same verdict and gate." |
 | 1:55–2:25 | `guard/programs/presign-guard/src/lib.rs` (`schedule`, `veto`, `execute`) → `guard/DESIGN.md` invariants | "Presign Guard: the multisig vault schedules, the guard signer PDA signs only after the delay, any guardian vetoes. Two details matter. A config change can't strip the guardians — only a removal of one guardian, and nothing else, is exempt from that guardian's own veto. And the config a guardian reviews is byte-for-byte what executes. Presign flags any scheduled change that weakens the guard." |
 | 2:25–2:40 | Terminal: MCP stdio call → `gate: block`; Watchtower `/watch` in Telegram | "The same engine is an MCP server for agents and Watchtower, a Telegram bot teams add themselves." |
-| 2:40–2:50 | `npm test` (430 passing), `docs/research/multisig-census.json`, CI badge | "430 deterministic tests, CI on every push, and a reproducible census of every Squads multisig on mainnet." |
+| 2:40–2:50 | `npm test` (434 passing), `docs/research/multisig-census.json`, CI badge | "434 deterministic tests, CI on every push, and a reproducible census of every Squads multisig on mainnet." |
 
 ## Before recording
 

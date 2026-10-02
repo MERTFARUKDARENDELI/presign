@@ -89,7 +89,7 @@ export async function inspectMultisig(multisig: string, signer: string | null = 
     const transactionAddress = transactionPda(multisig, i);
     const pf = fetched.get(proposalAddress) ?? { status: "FAILED" as const };
     const tf = fetched.get(transactionAddress) ?? { status: "FAILED" as const };
-    const base = { transactionIndex: i.toString(), proposalAddress, transactionAddress, stale: account ? i <= BigInt(account.staleTransactionIndex) : false, verdict: null, topSignal: null };
+    const base = { transactionIndex: i.toString(), proposalAddress, transactionAddress, stale: account ? i <= BigInt(account.staleTransactionIndex) : false, verdict: null, topSignal: null, signedInAdvance: null };
     if (pf.status === "OK") {
       try {
         const p = decodeProposalAccount(pf.data);
@@ -111,6 +111,7 @@ export async function inspectMultisig(multisig: string, signer: string | null = 
       const r = await inspectProposal(multisig, p.transactionIndex, signer, policy);
       p.verdict = r.risk.level;
       p.topSignal = r.risk.signals[0]?.title ?? null;
+      p.signedInAdvance = r.history.status === "FAILED" ? null : r.history.nonceSigned.length;
     } catch {
       p.verdict = null;
     }
