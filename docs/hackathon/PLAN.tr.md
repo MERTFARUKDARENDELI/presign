@@ -9,7 +9,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 - **Kural koymak:** ekip politikası motoru (11 kural; `/verify`, API, Watchtower, MCP) ve 73 kurallık herkese açık katalog (`/rules`).
 - Watchtower Telegram botu (`/watch`, `/check`), MCP sunucusu, API'de deterministik `gate`, program upgrade'lerinde verified-build kontrolü.
 - Mainnet doğrulamaları: Drift saldırısı (CRITICAL), census (157.117 multisig), gerçek batch ve buffer teklifleri, 20 aktif multisig ve 15 gerçek işlemle duman testi (hatasız).
-- 428 uygulama testi + 11 program testi, CI, Apache-2.0, README, başvuru metni, video senaryoları, pitch deck.
+- 430 uygulama testi + 11 program testi, CI, Apache-2.0, README, başvuru metni, video senaryoları, pitch deck.
 
 ## Sadece sizin yapabileceğiniz işler (öncelik sırasıyla)
 
@@ -24,7 +24,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 | 5 | **Anthropic API anahtarı** (isteğe bağlı) | Uygun olduğunda |  | AI katmanı Claude Sonnet 5.5'e geçti. Anahtar yok; AI açıklamaları kapalı, kesin analiz etkilenmiyor. `ANTHROPIC_API_KEY`'i `.env.local`'e ve Vercel'e siz ekleyin |
 | 6 | Telegram botu: @BotFather → `/newbot` → token | 4 Ekim |  | Token'ı bana yazmayın; `.env.local`'e siz ekleyin. Sonra `npm run watchtower -- --once` ile canlı test ederiz |
 | 7 | Müşteri görüşmeleri: 10+ görüşme, 3 design partner | 2–7 Ekim |  | Kit: `customer-discovery.tr.md`. Başvurunun en zayıf kısmı burası |
-| 8 | Ekip bilgileri: isim, rol, arka plan, "neden biz" | 5 Ekim |  | Başvuru metni, deck ve pitch bu bilgiyle tamamlanacak |
+| 8 | Ekip bilgileri: rol, arka plan, "neden biz" | 5 Ekim |  | İsimler ve takım adı (Nonce Sense) başvuru metnine, deck'e ve pitch senaryosuna yazıldı; rol ve arka plan sizden |
 | 9 | Pitch ve demo videoları | 9–10 Ekim |  | Senaryolar: `pitch-video.md`, `demo-video.md`; devnet sahnesi: `devnet-demo.md` |
 | 10 | Başvuruyu gönderin | 11 Ekim |  | Metin: `submission.md` (köşeli parantezli yerleri doldurun) |
 

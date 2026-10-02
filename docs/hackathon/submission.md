@@ -58,7 +58,7 @@ Drift made this problem visible, and several teams now work on it. We list them 
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (428 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (430 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
 
 ## Links
 
@@ -69,8 +69,10 @@ Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vit
 
 ## Team
 
-- [Name 1] — [role, relevant background: e.g. security / Solana engineering]
-- [Name 2] — [role, relevant background: e.g. product / go-to-market]
+Team Nonce Sense.
+
+- Mert Faruk Darendeli — [role, relevant background: e.g. security / Solana engineering]
+- Nurullah Tarık Köseler — [role, relevant background: e.g. product / go-to-market]
 - Why us: [one or two sentences of founder-market fit — what you saw first-hand]
 
 ## Go-to-market
