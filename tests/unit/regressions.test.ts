@@ -3,6 +3,7 @@ import { evaluateTokenRisk } from "@/lib/security/rules/token";
 import { evaluateWalletRisk } from "@/lib/security/rules/wallet";
 import { masterEditionPda } from "@/lib/solana/metaplex";
 import { parseMintAccount, parseTokenAccount } from "@/lib/solana/parsers";
+import { rpcCall } from "@/lib/solana/client";
 import { getAssetsByOwner } from "@/lib/solana/tokens";
 import { getRugcheckReport } from "@/lib/token/rugcheck";
 import { parseRugcheck } from "@/lib/token/rugcheck-types";
@@ -111,5 +112,30 @@ describe("regression: RugCheck (mainnet-only) is never queried on devnet", () =>
     expect(r.sources.find((s) => s.source === "RUGCHECK")).toMatchObject({ status: "UNSUPPORTED" });
     expect(r.status).toBe("PARTIAL");
     expect(r.level).not.toBe("SAFE");
+  });
+});
+
+describe("regression: a rate limit gets a real pause before the retry", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("waits at least a second after HTTP 429, then succeeds on the same provider", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("HELIUS_API_KEY", "k");
+    vi.stubEnv("SOLANA_DISABLE_PUBLIC_FALLBACK", "true");
+    const calls: number[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(Date.now());
+      const id = JSON.parse(String(init?.body)).id;
+      return calls.length === 1 ? new Response("{}", { status: 429 }) : new Response(JSON.stringify({ jsonrpc: "2.0", id, result: 42 }), { status: 200 });
+    }));
+    const pending = rpcCall<number>("getSlot", [], { retries: 1 });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(pending).resolves.toMatchObject({ result: 42, fallbackUsed: false });
+    expect(calls).toHaveLength(2);
+    expect(calls[1] - calls[0]).toBeGreaterThanOrEqual(1_000);
   });
 });

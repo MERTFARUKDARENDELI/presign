@@ -125,7 +125,9 @@ export async function rpcCall<T>(
             rpcCode: lastError.rpcCode,
           });
         }
-        if (attempt < retries) await sleep(Math.min(200 * 2 ** attempt, 2_000));
+        // A rate limit needs a real pause; other transient errors retry quickly.
+        const rateLimited = lastError.rpcCode === 429 || /HTTP 429/.test(lastError.message);
+        if (attempt < retries) await sleep(rateLimited ? Math.min(1_000 * (attempt + 1), 3_000) : Math.min(200 * 2 ** attempt, 2_000));
       }
     }
     logger.warn("rpc.provider_failed", { method, provider: provider.name, reason: lastError?.message });
