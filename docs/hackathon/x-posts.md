@@ -4,11 +4,11 @@ Post from the team's accounts. Attach a screen recording or screenshot to each. 
 
 ## Day 1 — launch thread
 
-1/ On April 1, $285M left Drift in minutes. No contract bug. No stolen keys. Two Security Council members had pre-signed approvals they couldn't read.
+1/ April 1, 16:05:18 UTC: a proposal appears in Drift's Security Council. 16:05:19: it executes and hands the admin to an attacker. About $285M of users' funds followed.
 
-We built the screen they should have seen. 🧵
+No contract bug, no stolen key: two members blind-signed approvals after months of social engineering. 🧵
 
-2/ The approvals used durable nonces — they never expire. The multisig was 2-of-5 with no time lock. Inside one approval: `updateAdmin(admin = H7Pi…)` — an address the multisig didn't control.
+2/ The approvals used durable nonces — they never expire, and they sat in the attacker's pocket, not on chain. Days earlier the council had moved to 2-of-5 with no time lock. Inside one approval: `updateAdmin(admin = H7Pi…)` — an address the multisig didn't control.
 
 3/ Presign reads the exact bytes a signer is about to approve, decodes the Squads proposal inside, reads the program's own on-chain IDL, and says it in one line:
 
@@ -24,10 +24,10 @@ Open source, read-only, no keys. Built for #Colosseum Crypto World's Fair.
 
 We read every Squads v4 multisig on Solana mainnet. 157,117 of them.
 
-• 98.2% have no time lock
+• 98.2% have no time lock — 99% of the 18,939 active ones
 • 13 of 36 major programs are upgradeable through a Squads multisig — 8 of those have no time lock
 
-No time lock = an approved proposal executes instantly. That's what made Drift a one-second takeover. Method + script: [repo link]
+No time lock = an approved proposal executes instantly. That's what made Drift a one-second takeover. Method + script: https://github.com/MERTFARUKDARENDELI/solana-ai-defender
 
 ## Day 3 — for signers
 
@@ -45,3 +45,9 @@ Agents with wallets can be prompt-injected. So we made the pre-sign check determ
 ## Day 5 — Watchtower
 
 Every new Squads proposal → a plain-language brief to every signer on Telegram, before anyone approves. Independent of the UI that created the proposal. [video]
+
+## Day 6 — Presign Guard
+
+A warning helps only if someone can act on it. Presign Guard (devnet) holds a protocol's critical authorities: anything done with them is scheduled, waits a delay, and any one guardian can veto it. Routine ops stay fast.
+
+We replayed a Drift-style takeover against it: flagged CRITICAL, vetoed, refused. [video]

@@ -2,7 +2,7 @@
 
 Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or the transaction you are about to sign), decodes every instruction the vault would run, simulates it, and tells each signer — in one sentence, with evidence — **what it does and who controls what afterwards**.
 
-> On April 1, 2026, ~$285M left Drift Protocol in minutes. There was no contract bug and no stolen key: two of five Security Council members had pre-signed durable-nonce transactions they could not read, on a 2-of-5 multisig with no time lock. Run Presign on the exact bytes they signed and it answers **CRITICAL — "Admin moves outside the multisig" · "This signature never expires"** before anything is executed. See [`/case/drift`](app/case/drift/page.tsx).
+> On April 1, 2026, about $285M was drained from Drift Protocol's users (Drift later put the loss at $295M). There was no contract bug and no private key was stolen: after a months-long social-engineering operation, two of five Security Council members had pre-signed durable-nonce transactions they did not fully understand, on a 2-of-5 multisig whose time lock had been removed days earlier. The proposal that handed over Drift's admin appeared on chain and executed one second apart. Run Presign on the exact bytes they signed and it answers **CRITICAL — "Admin moves outside the multisig" · "This signature never expires"** before anything is executed. See [`/case/drift`](app/case/drift/page.tsx).
 
 ## Why
 

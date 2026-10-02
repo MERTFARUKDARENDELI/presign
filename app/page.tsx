@@ -39,7 +39,7 @@ export default function Home() {
         <div className="mb-6 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-1.5 text-sm text-zinc-400">Pre-sign verification for Solana multisigs</div>
         <h2 className="max-w-4xl text-4xl font-bold tracking-tight sm:text-6xl">{BRAND.tagline}</h2>
         <p className="mt-6 max-w-2xl text-base leading-7 text-zinc-400 sm:text-lg">
-          On April 1, 2026, $285M left Drift in minutes. No contract bug, no stolen keys: two Security Council members had pre-signed approvals they could not read.
+          On April 1, 2026, about $285M was drained from Drift&apos;s users. No contract bug, no stolen private key: after months of social engineering, two Security Council members had pre-signed approvals they did not fully understand.
           {" "}{BRAND.name} decodes every multisig proposal, simulates it, and tells signers — in one sentence, with evidence — who controls what afterwards.
         </p>
         <div className="mt-10 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
