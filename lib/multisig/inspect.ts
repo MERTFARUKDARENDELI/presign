@@ -14,10 +14,11 @@ import { decodeConfigTransactionAccount, decodeProposalAccount, decodeVaultTrans
 import { controlledAddresses, proposalPda, transactionPda, vaultPda } from "@/lib/squads/pda";
 import { feePayerCandidates, loadMultisigAccount, payloadsFromTransactionAccount, proposalRefFrom } from "./analyze";
 import { fetchSquadsAccounts, type SquadsFetch } from "./chain";
+import { loadProposalHistory } from "./history";
 import { parseInspectInput } from "./input";
 import { applyPolicy, evaluatePolicy, subjectFromAnalysis } from "@/lib/policy/evaluate";
 import type { TeamPolicy } from "@/lib/policy/schema";
-import type { InspectResult, MultisigAnalysis, MultisigOverview, ProposalInspection, ProposalSummary } from "./types";
+import type { InspectResult, MultisigAnalysis, MultisigOverview, ProposalHistory, ProposalInspection, ProposalSummary } from "./types";
 
 export type { InspectResult, MultisigOverview, ProposalInspection, ProposalSummary };
 
@@ -36,8 +37,8 @@ function discriminatorOf(f: SquadsFetch): string | null {
   return f.status === "OK" && f.data.length >= 8 ? hex(f.data.subarray(0, 8)) : null;
 }
 
-function checkPolicy(policy: TeamPolicy | null, analysis: MultisigAnalysis, mode: "proposal" | "multisig") {
-  return policy ? evaluatePolicy(policy, subjectFromAnalysis(analysis, mode), { guardProgram: guardProgramId() }) : null;
+function checkPolicy(policy: TeamPolicy | null, analysis: MultisigAnalysis, history: ProposalHistory) {
+  return policy ? evaluatePolicy(policy, subjectFromAnalysis(analysis, "proposal", false, history), { guardProgram: guardProgramId() }) : null;
 }
 
 export async function inspectProposal(multisig: string, index: string, signer: string | null = null, policy: TeamPolicy | null = null): Promise<ProposalInspection> {
@@ -45,7 +46,7 @@ export async function inspectProposal(multisig: string, index: string, signer: s
   if (loaded.status === "NOT_FOUND") throw new AppError("ACCOUNT_NOT_FOUND", `No Squads multisig exists at this address on ${getCluster()}.`);
   const proposalAddress = proposalPda(multisig, index);
   const transactionAddress = transactionPda(multisig, index);
-  const fetched = await fetchSquadsAccounts([proposalAddress, transactionAddress]);
+  const [fetched, history] = await Promise.all([fetchSquadsAccounts([proposalAddress, transactionAddress]), loadProposalHistory(proposalAddress)]);
   const txFetch = fetched.get(transactionAddress) ?? { status: "FAILED" as const };
   const controlled = controlledAddresses(multisig);
   const analysis: MultisigAnalysis = {
@@ -65,12 +66,12 @@ export async function inspectProposal(multisig: string, index: string, signer: s
   const disc = discriminatorOf(txFetch);
   const transactionKind = disc === SQUADS_ACCOUNT_DISCRIMINATOR.VaultTransaction ? "vault" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.Batch ? "batch" : disc === SQUADS_ACCOUNT_DISCRIMINATOR.ConfigTransaction ? "config" : "missing";
   const stale = loaded.account ? BigInt(index) <= BigInt(loaded.account.staleTransactionIndex) : false;
-  const report = checkPolicy(policy, analysis, "proposal");
-  const base = evaluateProposalRisk(analysis, signer);
+  const report = checkPolicy(policy, analysis, history);
+  const base = evaluateProposalRisk(analysis, signer, history);
   const risk = report ? applyPolicy(base, report) : base;
   logger.info("multisig.inspected", { kind: transactionKind, level: risk.level, status: risk.status, policy: report?.status ?? "none" });
   const brief = buildSignerBrief({ mode: "proposal", multisig: analysis, usesDurableNonce: false, messageHash: null, proposal: { transactionIndex: index, stale, transactionKind } });
-  return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, brief, gate: gateFor(risk.level, risk.status), policy: report, cluster: getCluster(), inspectedAt: new Date().toISOString() };
+  return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, brief, gate: gateFor(risk.level, risk.status), policy: report, history, cluster: getCluster(), inspectedAt: new Date().toISOString() };
 }
 
 export async function inspectMultisig(multisig: string, signer: string | null = null, policy: TeamPolicy | null = null): Promise<MultisigOverview> {

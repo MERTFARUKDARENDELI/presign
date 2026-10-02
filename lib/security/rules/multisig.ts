@@ -1,5 +1,5 @@
 import type { ScheduledActions } from "@/lib/guard/types";
-import type { MultisigAnalysis, PrivilegedAction } from "@/lib/multisig/types";
+import type { MultisigAnalysis, PrivilegedAction, ProposalHistory } from "@/lib/multisig/types";
 import type { MultisigAccount } from "@/lib/squads/types";
 import { formatLamports } from "@/lib/token/amount";
 import { buildAssessment } from "../engine";
@@ -51,6 +51,14 @@ export function actionEvidence(p: PrivilegedAction, ev: EvFn): string {
 }
 
 const ONE_LOWER: Record<RiskSignal["severity"], RiskSignal["severity"]> = { CRITICAL: "HIGH", HIGH: "MEDIUM", MEDIUM: "LOW", LOW: "LOW" };
+
+/** "8 days", "5 hours": for elapsed times read from chain, where exact seconds are noise. */
+function roughDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86_400);
+  if (days >= 1) return `${days} day${days === 1 ? "" : "s"}`;
+  const hours = Math.floor(seconds / 3600);
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 
 export function formatDelay(seconds: number): string {
   if (seconds % 86_400 === 0) return `${seconds / 86_400} day(s)`;
@@ -158,10 +166,12 @@ export interface MultisigRuleInput {
   signer: string | null;
   /** Durable nonce of the analyzed transaction; null when it has none or there is no transaction (proposal inspection). */
   nonce: { nonce: string | null; authority: string | null } | null;
+  /** Proposal inspection: the durable-nonce check of the votes already on chain. */
+  history?: ProposalHistory | null;
 }
 
 export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: RiskSignal[], statuses: AnalysisStatus[], sources: DataSourceStatus[]) {
-  const { ms, signer, nonce } = input;
+  const { ms, signer, nonce, history } = input;
   const account = ms.account;
 
   sources.push({ source: "SQUADS_ACCOUNT", status: ms.accountStatus === "OK" ? "OK" : ms.accountStatus === "NOT_FOUND" ? "SKIPPED" : "FAILED", detail: ms.accountStatus === "OK" ? `Multisig ${short(ms.multisig)}: ${account?.threshold} of ${account?.members.length}, time lock ${account?.timeLock}s` : ms.accountStatus === "NOT_FOUND" ? "Multisig account not found on this cluster" : "Multisig account could not be loaded" });
@@ -186,6 +196,25 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
       severity: "CRITICAL",
       evidenceIds: [nonceId, squadsIxEvidence],
     });
+  }
+
+  // 1b. Votes already on chain that landed inside a durable nonce: they may have been signed long before.
+  if (history) {
+    sources.push({ source: "ONCHAIN_RPC", status: history.status === "FAILED" ? "FAILED" : "OK", detail: history.status === "FAILED" ? "Proposal history could not be loaded: votes were not checked for durable nonces" : `Proposal history: ${history.checked} transaction(s) checked for durable nonces${history.status === "PARTIAL" ? " (not all of them)" : ""}` });
+    if (history.nonceSigned.length) {
+      const when = (t: number | null) => (t === null ? "unknown time" : new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC");
+      const ids = history.nonceSigned.map((n) => ev({ source: "ONCHAIN_RPC", label: `Transaction ${short(n.signature)}`, observed: `${n.actions.join(" + ")} at slot ${n.slot}, instruction #0 AdvanceNonceAccount (nonce ${n.nonceAccount}, authority ${n.nonceAuthority})`, condition: "durable nonce: the signature may predate the transaction by days or weeks" }));
+      const idle = (n: (typeof history.nonceSigned)[number]) => (n.nonceIdleSince !== null && n.blockTime !== null && n.blockTime - n.nonceIdleSince >= 3_600 ? `; its nonce account had sat unused for ${roughDuration(n.blockTime - n.nonceIdleSince)}` : "");
+      const lines = history.nonceSigned.map((n) => `${n.actions.join(" + ")} by ${n.members.map((m) => short(m)).join(", ") || "unknown"} (${when(n.blockTime)}, nonce authority ${short(n.nonceAuthority)}${idle(n)})`);
+      const who = [...new Set(history.nonceSigned.flatMap((n) => n.members))].map((m) => short(m));
+      signals.push({
+        code: "MS_VOTE_SIGNED_IN_ADVANCE",
+        title: "Votes signed in advance with a durable nonce",
+        description: `${lines.join("; ")}. A durable-nonce transaction can be signed long before it lands, so these votes may not reflect what the member saw, or when. Pre-signed durable-nonce votes are how the Drift Security Council was taken over in April 2026. Confirm with ${who.join(", ") || "the members"} directly that they meant this before approving or executing.`,
+        severity: "HIGH",
+        evidenceIds: ids,
+      });
+    }
   }
 
   // 2. Payload: what the vault will do if this proposal executes.
@@ -374,12 +403,12 @@ function evidenceSink(prefix: string) {
 }
 
 /** Risk of a proposal inspected on its own (no transaction to sign yet). */
-export function evaluateProposalRisk(ms: MultisigAnalysis, signer: string | null = null, now?: Date): RiskAssessment {
+export function evaluateProposalRisk(ms: MultisigAnalysis, signer: string | null = null, history: ProposalHistory | null = null, now?: Date): RiskAssessment {
   const { evidence, ev } = evidenceSink("proposal");
   const signals: RiskSignal[] = [];
   const statuses: AnalysisStatus[] = ["COMPLETE"];
   const sources: DataSourceStatus[] = [];
-  multisigSignals({ ms, signer, nonce: null }, ev, signals, statuses, sources);
+  multisigSignals({ ms, signer, nonce: null, history }, ev, signals, statuses, sources);
   if (ms.payloads.length === 0 && ms.configActions.length === 0) statuses.push("INSUFFICIENT_DATA");
   return buildAssessment({ category: "proposal", signals, evidence, sources, status: reduceStatuses(statuses), now });
 }

@@ -22,17 +22,17 @@ Two things were missing: a screen that says what a signature does, and a hand th
 
 **Product.** One deterministic engine, three jobs:
 
-- **See — Verify.** Paste a Squads link, a proposal address or `<multisig> #<n>`. Presign loads the proposal from chain, decodes every instruction the vault would run (Squads, SPL, Token-2022, BPF loader, and any Anchor program through the IDL it publishes on chain), simulates it *as the vault* (lookup tables included), and produces a one-screen **Signer Brief**: what executes, which assets move, and for every authority change whether the new holder is the multisig, a single member, nobody, or **an address the multisig does not control**. The transaction check does the same for the bytes you are about to sign: durable-nonce signatures are flagged as never-expiring, and the message hash is shown to compare on a hardware wallet.
+- **See — Verify.** Paste a Squads link, a proposal address or `<multisig> #<n>`. Presign loads the proposal from chain, decodes every instruction the vault would run (Squads, SPL, Token-2022, BPF loader, and any Anchor program through the IDL it publishes on chain), simulates it *as the vault* (lookup tables included), and produces a one-screen **Signer Brief**: what executes, which assets move, and for every authority change whether the new holder is the multisig, a single member, nobody, or **an address the multisig does not control**. For votes already cast, Presign reads the proposal's own history: a create, approve or execute that landed inside a durable nonce is flagged as signed in advance, with how long its nonce account had sat unused. The transaction check does the same for the bytes you are about to sign: durable-nonce signatures are flagged as never-expiring, and the message hash is shown to compare on a hardware wallet.
 - **Stop — Presign Guard** (on-chain, live on devnet: `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, unaudited). An Anchor program that holds a protocol's critical authorities: anything done with them is scheduled, waits a fixed delay, and any single guardian can veto it. Routine operations stay fast on the multisig; only critical ones wait. A compromised multisig cannot strip the guardians, and a rogue guardian cannot block its own removal (11 program tests). Presign decodes scheduled actions inside proposals, shows the countdown, and prepares veto / execute.
 - **Enforce — team policy and alerts.** A team writes its rules once as JSON (approved authority holders, actions that must go through Guard, minimum time lock and threshold, approved programs and recipients, outflow caps, verified upgrades, no durable nonces). Every proposal, alert and API call is checked against it; a rule that cannot be checked is flagged, never assumed. Watchtower sends each new proposal's brief — and each scheduled Guard action with its countdown — to every signer's Telegram (or Slack / Discord), on a channel the proposer does not control.
 - **API + MCP** — the same engine for wallets, custodians and AI agents, with a deterministic `gate` (`block` / `require_human_review` / `no_known_risk`) that an LLM cannot argue past.
 
 **Proof.**
-- Run Presign on the exact bytes Drift's council members signed (signatures removed): **CRITICAL — "Admin moves outside the multisig: Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"**, before execution. The council's later proposals #8 and #9 are flagged as requiring the attacker's key as a signer.
+- Run Presign on the exact bytes Drift's council members signed (signatures removed): **CRITICAL — "Admin moves outside the multisig: Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"**, before execution. Inspecting proposal #7 itself flags both votes as **signed in advance with a durable nonce** — nonce accounts that had sat unused for 8 days and 1 day. The council's later proposals #8 and #9 are flagged as requiring the attacker's key as a signer.
 - On devnet, the same attack against a guarded protocol: a real Squads multisig schedules "mint authority → attacker" through Presign Guard; Presign marks it CRITICAL before the second approval, Watchtower announces the countdown, an independent guardian vetoes through Presign, and the program refuses to execute it.
 - Mainnet checks: real batch proposals (lookup tables included) and a proposal created from a real transaction buffer decode and simulate; a smoke test over 20 active multisigs and 15 recent Squads transactions ran without errors.
 
-**Principles.** Deterministic rules (72, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; the web app is read-only — no keys, no signing.
+**Principles.** Deterministic rules (73, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; the web app is read-only — no keys, no signing.
 
 ## Landscape
 
@@ -58,7 +58,7 @@ Drift made this problem visible, and several teams now work on it. We list them 
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (422 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (428 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
 
 ## Links
 

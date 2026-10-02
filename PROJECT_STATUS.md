@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **419 tests / 34 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **428 tests / 35 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -29,7 +29,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | BPF upgradeable loader decoding | VERIFIED | unit tests (upgrade, set authority, immutable) |
 | Multisig layer (config, proposals, payloads from args / accounts / buffers / batches, privileged actions, foreign signers) | VERIFIED (live) | Drift Security Council proposals #7 (admin → attacker, CRITICAL), #8 / #9 (require the attacker's key as signer) |
 | Vault payload simulation (executing member as fee payer) | IMPLEMENTED | unit-tested with mocked simulation; live simulations of historical Drift proposals fail against today's state, as reported |
-| Rules (durable-nonce governance, authority leaving multisig, time lock, thresholds, config changes, unverifiable payloads, vault outflows) and posture | VERIFIED | unit + live |
+| Rules (durable-nonce governance, votes signed in advance from the proposal history, authority leaving multisig, time lock, thresholds, config changes, unverifiable payloads, vault outflows) and posture | VERIFIED | unit + live |
 | Proposal inspector API + `/verify` UI | VERIFIED (live) | headless browser on the Drift multisig overview and proposal #7 |
 | `/case/drift` replay | VERIFIED (live) | both pre-signed transactions analyzed from unsigned bytes in the browser: CRITICAL |
 | Brief + deterministic gate in API responses | VERIFIED | unit + live |
@@ -38,7 +38,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
 | Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
-| Rule catalog `/rules` | VERIFIED | 72 rules; a test keeps it in sync with the rule sources |
+| Rule catalog `/rules` | VERIFIED | 73 rules; a test keeps it in sync with the rule sources |
 | Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
 | Presign Guard — Anchor program (`guard/`) | VERIFIED (devnet) | deployed on devnet 2026-10-02 (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, slot 506577649, IDL via Program Metadata); 11 LiteSVM tests; IDL cross-checked against the TS codec; end-to-end on devnet with a real Squads v4 multisig: authority to guard → scheduled takeover (Presign: CRITICAL, gate block) → veto prepared by /api/guard/prepare, signed by an independent guardian, submitted through /api/transaction/submit → execution refused (NotPending). Also rehearsed on a local validator, including a non-vetoed execution. Unaudited |
 

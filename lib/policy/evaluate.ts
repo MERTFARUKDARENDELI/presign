@@ -1,5 +1,5 @@
 import { guardSignerPda } from "@/lib/guard/constants";
-import type { MultisigAnalysis, PrivilegedAction, VaultPayload } from "@/lib/multisig/types";
+import type { MultisigAnalysis, PrivilegedAction, ProposalHistory, VaultPayload } from "@/lib/multisig/types";
 import { buildAssessment } from "@/lib/security/engine";
 import type { RiskAssessment, RiskSignal } from "@/lib/security/risk";
 import { formatDelay } from "@/lib/security/rules/multisig";
@@ -28,6 +28,8 @@ export interface PolicySubject {
   payloads: VaultPayload[];
   configActions: Array<{ origin: string; action: ConfigAction }>;
   usesDurableNonce: boolean;
+  /** Proposal mode: how the votes already on chain were signed. */
+  history?: ProposalHistory | null;
 }
 
 export interface PolicyContext {
@@ -35,7 +37,7 @@ export interface PolicyContext {
   guardProgram: string | null;
 }
 
-export function subjectFromAnalysis(ms: MultisigAnalysis | null, mode: PolicySubject["mode"], usesDurableNonce = false): PolicySubject {
+export function subjectFromAnalysis(ms: MultisigAnalysis | null, mode: PolicySubject["mode"], usesDurableNonce = false, history: ProposalHistory | null = null): PolicySubject {
   return {
     mode,
     multisig: ms?.multisig ?? null,
@@ -44,6 +46,7 @@ export function subjectFromAnalysis(ms: MultisigAnalysis | null, mode: PolicySub
     payloads: ms?.payloads ?? [],
     configActions: ms?.configActions ?? [],
     usesDurableNonce,
+    history,
   };
 }
 
@@ -294,6 +297,10 @@ export function evaluatePolicy(policy: TeamPolicy, subject: PolicySubject, ctx: 
     if (subject.mode === "transaction") {
       c.applicable = true;
       if (subject.usesDurableNonce) c.violate("This transaction uses a durable nonce: the signature does not expire and can be executed at any later time.");
+    } else if (subject.mode === "proposal" && subject.history) {
+      c.applicable = true;
+      for (const n of subject.history.nonceSigned) c.violate(`${n.actions.join(" + ")} landed in a durable-nonce transaction (${short(n.signature)}): it may have been signed long before.`);
+      if (subject.history.status === "FAILED") c.unknown("The proposal's history could not be loaded, so its votes were not checked for durable nonces.");
     }
     checks.push(c.done());
   }

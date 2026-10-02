@@ -32,7 +32,7 @@ const POLICY_RULES: Array<[string, string]> = [
   ["allowedRecipients", "Wallets that may receive SOL or tokens from the vault, or be approved as delegates. Token recipients are resolved to their owners from the simulation."],
   ["outflowLimits", 'Maximum net outflow per proposal from the vaults, in UI units, keyed by "SOL" or a mint. Batches add up; scheduled transfers count too.'],
   ["requireVerifiedUpgrades", "Program upgrades must deploy exactly a build verified in the OtterSec registry."],
-  ["forbidDurableNonce", "Signatures must not use a durable nonce (checked on transactions)."],
+  ["forbidDurableNonce", "Signatures must not use a durable nonce: checked on the transaction you sign, and on the votes already cast on a proposal."],
 ];
 
 const ENDPOINTS = [

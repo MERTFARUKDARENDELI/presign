@@ -103,6 +103,30 @@ export interface MultisigAnalysis {
   malformed: number[];
 }
 
+/** A landed transaction that acted on a proposal inside a durable nonce (see lib/multisig/history.ts). */
+export interface NonceSignedAction {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+  nonceAccount: string;
+  nonceAuthority: string;
+  /** Squads instructions in that transaction that act on the proposal, e.g. proposalCreate, proposalApprove. */
+  actions: string[];
+  /** Members (or creators) named by those instructions. */
+  members: string[];
+  /** Block time of the nonce account's previous transaction: the vote may have been signed any time since (or before). */
+  nonceIdleSince: number | null;
+}
+
+/** How a proposal's votes reached the chain. */
+export interface ProposalHistory {
+  /** PARTIAL: some transactions could not be loaded, or there were more than the cap. */
+  status: "OK" | "PARTIAL" | "FAILED";
+  /** Landed transactions that were checked. */
+  checked: number;
+  nonceSigned: NonceSignedAction[];
+}
+
 /** Proposal inspection and multisig overview results (see lib/multisig/inspect.ts). */
 
 export interface ProposalInspection {
@@ -120,6 +144,8 @@ export interface ProposalInspection {
   gate: Gate;
   /** Team policy check, when a policy was supplied (its signals are already in `risk`). */
   policy: PolicyReport | null;
+  /** Durable-nonce check of the votes already on chain. */
+  history: ProposalHistory;
   cluster: "mainnet-beta" | "devnet";
   inspectedAt: string;
 }

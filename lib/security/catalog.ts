@@ -28,6 +28,7 @@ export const RULE_CATALOG: RuleEntry[] = [
   // Multisig proposals
   { code: "MS_AUTHORITY_LEAVES_MULTISIG", family: "proposal", severity: "CRITICAL", when: "An admin, upgrade, token or config authority goes to an address that is not the multisig, one of its vaults, a member, or the multisig's own Presign Guard." },
   { code: "MS_DURABLE_NONCE_GOVERNANCE", family: "proposal", severity: "CRITICAL", when: "A Squads create, approve or execute instruction is signed inside a durable-nonce transaction: the signature never expires." },
+  { code: "MS_VOTE_SIGNED_IN_ADVANCE", family: "proposal", severity: "HIGH", when: "A create, approve or execute of this proposal already on chain landed inside a durable-nonce transaction: it may have been signed days or weeks before (the Drift takeover pattern)." },
   { code: "MS_CONFIG_AUTHORITY_SET", family: "proposal", severity: "CRITICAL", when: "A single key becomes the multisig's config authority and could change members and threshold without a vote." },
   { code: "MS_THRESHOLD_CHANGE", family: "proposal", severity: "CRITICAL if set to 1 · HIGH if lowered · LOW if raised", when: "The proposal changes the approval threshold." },
   { code: "MS_AUTHORITY_TO_SINGLE_KEY", family: "proposal", severity: "HIGH", when: "An authority goes to one member's key, which can then act without a vote." },
