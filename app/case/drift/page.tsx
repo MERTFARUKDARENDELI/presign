@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ExternalLink } from "lucide-react";
 import { Address } from "@/components/security/badges";
-import { DRIFT_EXPLOIT_TXS, DRIFT_MULTISIG, DRIFT_NEW_ADMIN } from "@/lib/demo/drift";
+import { DRIFT_EXPLOIT_TXS, DRIFT_MULTISIG, DRIFT_NEW_ADMIN, DRIFT_NONCE_ACCOUNTS } from "@/lib/demo/drift";
 import { DriftReplay } from "./DriftReplay";
 
 export const metadata: Metadata = {
@@ -21,7 +21,9 @@ const SOURCES = [
 
 export default function DriftCasePage() {
   const [t1, t2] = DRIFT_EXPLOIT_TXS;
+  const [n1, n2] = DRIFT_NONCE_ACCOUNTS;
   const gap = t2.blockTime - t1.blockTime;
+  const days = (from: number, to: number) => Math.floor((to - from) / 86_400);
   return (
     <div className="space-y-10">
       <header className="max-w-3xl">
@@ -46,12 +48,28 @@ export default function DriftCasePage() {
             </p>
           </li>
           <li>
+            <p className="text-sm text-zinc-500">{utc(n1.blockTime)} · slot {n1.slot.toLocaleString("en-US")} · on chain</p>
+            <p className="text-zinc-200">
+              An address that is not a council member, <Address value={n1.createdBy} n={6} />, creates durable nonce account <Address value={n1.account} n={6} /> and names member{" "}
+              <Address value={n1.authority} n={6} /> as its authority. That needs no signature from the member. The account is not used again until the attack, so the member&apos;s
+              signature on the attack transaction was made after this moment.
+            </p>
+            <a href={`https://explorer.solana.com/tx/${n1.signature}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200">View on explorer <ExternalLink className="size-3" aria-hidden /></a>
+          </li>
+          <li>
             <p className="text-sm text-zinc-500">March 26, 2026 (per Chainalysis)</p>
             <p className="text-zinc-200">The Security Council migrates to a 2-of-5 multisig with zero time lock.</p>
           </li>
           <li>
+            <p className="text-sm text-zinc-500">{utc(n2.blockTime)} · slot {n2.slot.toLocaleString("en-US")} · on chain</p>
+            <p className="text-zinc-200">
+              The same address creates a second nonce account, <Address value={n2.account} n={6} />, for member <Address value={n2.authority} n={6} />. It too stays unused until the attack.
+            </p>
+            <a href={`https://explorer.solana.com/tx/${n2.signature}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200">View on explorer <ExternalLink className="size-3" aria-hidden /></a>
+          </li>
+          <li>
             <p className="text-sm text-zinc-500">Late March (per incident reports)</p>
-            <p className="text-zinc-200">Two members sign transactions with durable nonces — blind signing. The signatures stay valid indefinitely and never appear on chain until used.</p>
+            <p className="text-zinc-200">The two members sign transactions that use these nonces — blind signing. The signatures stay valid indefinitely and are not on chain until used.</p>
           </li>
           <li>
             <p className="text-sm text-zinc-500">{utc(t1.blockTime)} · slot {t1.slot.toLocaleString("en-US")}</p>
@@ -83,6 +101,12 @@ export default function DriftCasePage() {
           have been faked too. That is why {"Presign"} sends the same brief to every signer&apos;s phone through Watchtower, shows the message hash to compare on a hardware wallet,
           and why <a href="/docs#presign-guard" className="text-fuchsia-300 underline-offset-4 hover:underline">Presign Guard</a> makes critical actions wait for a veto by any
           one guardian. We cannot say Presign would have stopped this attack; we can show what these bytes do.
+        </p>
+        <p>
+          The trail was also public before the attack: the nonce accounts naming two council members as their authority were on chain {days(n1.blockTime, t1.blockTime)} days and{" "}
+          {days(n2.blockTime, t2.blockTime)} day{days(n2.blockTime, t2.blockTime) === 1 ? "" : "s"} earlier, created by an address outside the council. Presign now flags any vote
+          that lands through a durable nonce (inspect <a href={`/verify?q=${DRIFT_MULTISIG}%20%237`} className="text-fuchsia-300 underline-offset-4 hover:underline">proposal #7</a>).
+          Watching for new nonce accounts that name a member is on our roadmap: it needs a full transaction stream, because about 240 transactions per second touch durable nonces on mainnet.
         </p>
       </section>
 

@@ -1,6 +1,6 @@
 # Project Status — Presign
 
-Last updated: 2026-09-28. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
+Last updated: 2026-10-02. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
 
 "VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready".
 
@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **428 tests / 35 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **429 tests / 35 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -25,11 +25,11 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Area | Status | Notes |
 |---|---|---|
 | Squads v4 decoder (36 instructions; Multisig, Proposal, VaultTransaction, ConfigTransaction, TransactionBuffer, Batch, VaultBatchTransaction accounts; PDAs) | VERIFIED (live) | Discriminators recomputed from names in tests; decoded the real Drift exploit bytes; PDAs match on-chain addresses |
-| Anchor IDL decoding (legacy + 0.30 formats) from the program's on-chain IDL account | VERIFIED (live) | Drift `updateAdmin(admin)` decoded live; IDL accounts not owned by the program are ignored; unsupported arg types stop decoding (marked incomplete) |
+| Anchor IDL decoding (legacy + 0.30 formats) from the program's legacy IDL account or, for Anchor 1.x, its canonical Program Metadata account | VERIFIED (live) | Drift `updateAdmin(admin)` decoded live; Presign Guard's IDL read from Program Metadata on devnet; IDL accounts not owned by the program are ignored; unsupported arg types stop decoding (marked incomplete) |
 | BPF upgradeable loader decoding | VERIFIED | unit tests (upgrade, set authority, immutable) |
 | Multisig layer (config, proposals, payloads from args / accounts / buffers / batches, privileged actions, foreign signers) | VERIFIED (live) | Drift Security Council proposals #7 (admin → attacker, CRITICAL), #8 / #9 (require the attacker's key as signer) |
 | Vault payload simulation (executing member as fee payer) | IMPLEMENTED | unit-tested with mocked simulation; live simulations of historical Drift proposals fail against today's state, as reported |
-| Rules (durable-nonce governance, votes signed in advance from the proposal history, authority leaving multisig, time lock, thresholds, config changes, unverifiable payloads, vault outflows) and posture | VERIFIED | unit + live |
+| Rules (durable-nonce governance, votes signed in advance from the proposal history, authority leaving multisig, time lock, thresholds, config changes, unverifiable payloads, vault outflows) and posture | VERIFIED | unit + live; on Drift #7 both votes are flagged as signed in advance (nonce accounts idle 8 days and 1 day) |
 | Proposal inspector API + `/verify` UI | VERIFIED (live) | headless browser on the Drift multisig overview and proposal #7 |
 | `/case/drift` replay | VERIFIED (live) | both pre-signed transactions analyzed from unsigned bytes in the browser: CRITICAL |
 | Brief + deterministic gate in API responses | VERIFIED | unit + live |
@@ -39,13 +39,13 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
 | Rule catalog `/rules` | VERIFIED | 73 rules; a test keeps it in sync with the rule sources |
-| Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
+| Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | VERIFIED (devnet) | unit-tested against the program's account layouts; exercised against the deployed devnet program (schedule decoded, CRITICAL, veto prepared and submitted through the API) |
 | Presign Guard — Anchor program (`guard/`) | VERIFIED (devnet) | deployed on devnet 2026-10-02 (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, slot 506577649, IDL via Program Metadata); 11 LiteSVM tests; IDL cross-checked against the TS codec; end-to-end on devnet with a real Squads v4 multisig: authority to guard → scheduled takeover (Presign: CRITICAL, gate block) → veto prepared by /api/guard/prepare, signed by an independent guardian, submitted through /api/transaction/submit → execution refused (NotPending). Also rehearsed on a local validator, including a non-vetoed execution. Unaudited |
 
 ### Open items
 
 1. **BLOCKED — Anthropic key.** The AI layer moved from OpenAI to Claude Sonnet 5.5 (`claude-sonnet-5-5`, official Anthropic SDK) on 2026-10-02 and now also explains `/verify` proposals. No key is configured yet: AI explanations are off, the app says so, and the deterministic analysis is unaffected. Set `ANTHROPIC_API_KEY` in `.env.local` / the deployment, then use "Verify AI".
-2. Deployment (needs the team's hosting account) and a public repository.
+2. Deployment (needs the team's hosting account). The repository is public: https://github.com/MERTFARUKDARENDELI/solana-ai-defender
 3. Telegram / webhook delivery test with a real bot (needs a bot token).
 4. Items carried over from the original engine: wallet-extension signing, mobile wallets.
 
@@ -53,7 +53,7 @@ Verified on mainnet 2026-10-02: batch proposals (lookup tables included) and a p
 
 ## Original engine (history)
 
-Nothing below reflects the Presign work; it is kept as the record of the engine's validation.
+Nothing below reflects the Presign work; it is kept as the record of the engine's validation. The AI provider in this history was OpenAI; it is now Anthropic (see Open items above).
 
 ## Verification baseline (re-run 2026-09-25, after the read-only live validation)
 

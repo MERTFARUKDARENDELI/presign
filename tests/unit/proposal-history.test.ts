@@ -1,5 +1,6 @@
 import { SystemProgram } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DRIFT_NONCE_ACCOUNTS } from "@/lib/demo/drift";
 import { buildSignerBrief } from "@/lib/multisig/brief";
 import { clearProposalHistoryCache, loadProposalHistory, nonceSignedAction } from "@/lib/multisig/history";
 import type { MultisigAnalysis, ProposalHistory } from "@/lib/multisig/types";
@@ -52,6 +53,14 @@ describe("votes signed with a durable nonce (proposal history)", () => {
     const execute = nonceSignedAction(bytes(1), drift.transactions[1].meta.loadedAddresses, PROPOSAL_7, meta(1));
     expect(execute).toMatchObject({ actions: ["proposalApprove", "vaultTransactionExecute"], members: [SIGNER_2], nonceAuthority: SIGNER_2 });
     expect(create!.nonceAccount).not.toBe(execute!.nonceAccount);
+  });
+
+  it("matches the nonce accounts the Drift case page cites, created before the votes", () => {
+    DRIFT_NONCE_ACCOUNTS.forEach((n, i) => {
+      const a = nonceSignedAction(bytes(i), undefined, PROPOSAL_7, meta(i))!;
+      expect({ account: a.nonceAccount, authority: a.nonceAuthority }).toEqual({ account: n.account, authority: n.authority });
+      expect(n.slot).toBeLessThan(drift.transactions[i].slot);
+    });
   });
 
   it("ignores transactions without a durable nonce, and nonce transactions that do not touch the proposal", () => {

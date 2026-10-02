@@ -28,7 +28,7 @@ Two things were missing: a screen that says what a signature does, and a hand th
 - **API + MCP** — the same engine for wallets, custodians and AI agents, with a deterministic `gate` (`block` / `require_human_review` / `no_known_risk`) that an LLM cannot argue past.
 
 **Proof.**
-- Run Presign on the exact bytes Drift's council members signed (signatures removed): **CRITICAL — "Admin moves outside the multisig: Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"**, before execution. Inspecting proposal #7 itself flags both votes as **signed in advance with a durable nonce** — nonce accounts that had sat unused for 8 days and 1 day. The council's later proposals #8 and #9 are flagged as requiring the attacker's key as a signer.
+- Run Presign on the exact bytes Drift's council members signed (signatures removed): **CRITICAL — "Admin moves outside the multisig: Drift `updateAdmin` → H7Pi…7ZgL"** and **"Multisig approval that never expires"**, before execution. Inspecting proposal #7 itself flags both votes as **signed in advance with a durable nonce** — nonce accounts that had sat unused for 8 days and 1 day. The chain shows more: an address outside the council created both nonce accounts, naming the two members as authority, and nothing used them until the attack (`docs/research/drift-nonce-trail.md`). An alert on that is our next Watchtower feature; it needs a transaction stream, which we measured at about 240 nonce transactions per second. The council's later proposals #8 and #9 are flagged as requiring the attacker's key as a signer.
 - On devnet, the same attack against a guarded protocol: a real Squads multisig schedules "mint authority → attacker" through Presign Guard; Presign marks it CRITICAL before the second approval, Watchtower announces the countdown, an independent guardian vetoes through Presign, and the program refuses to execute it.
 - Mainnet checks: real batch proposals (lookup tables included) and a proposal created from a real transaction buffer decode and simulate; a smoke test over 20 active multisigs and 15 recent Squads transactions ran without errors.
 
@@ -80,6 +80,13 @@ Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vit
 3. **API / MCP (usage-based).** Wallets, custodians and agent frameworks call the gate before every signature.
 
 Pricing hypotheses to validate: Team $99–$499 per multisig per month; API per verification. Illustrative ceiling for the Team plan alone: 18,939 active multisigs × $99–$499 × 12 ≈ $22M–$113M ARR (an upper bound from on-chain counts, not a forecast).
+
+## What's next
+
+1. **Nonce watch.** Alert every signer when a new durable nonce account names one of them as its authority. Drift's two were created by an address outside the council 8 days and 1 day before the attack. This needs a transaction stream (Geyser), not RPC polling.
+2. **Design partners** on Watchtower and team policies; first paid Team plans.
+3. **Presign Guard**: external audit, then mainnet with design partners.
+4. **Squads v5** support next to v4, then SPL Governance.
 
 ## Demand validation
 

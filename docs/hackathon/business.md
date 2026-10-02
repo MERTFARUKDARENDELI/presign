@@ -45,7 +45,7 @@ Drift made the problem visible and several teams now work on it; that confirms t
 
 ## 12-month plan
 
-1. **Hackathon → Q4 2026:** 10 design partners on Watchtower; verifier usage from signers; first paid Team plans.
+1. **Hackathon → Q4 2026:** 10 design partners on Watchtower; verifier usage from signers; first paid Team plans; nonce watch (an alert when a new durable nonce account names a watched member as its authority, from a transaction stream; Drift's two were on chain 8 days and 1 day before the attack).
 2. **Q1 2027:** audit log; Guard audit and mainnet launch; Slack / email integrations; Squads v5 support.
 3. **Q2 2027:** API / MCP for wallets and agent frameworks; enterprise pilots with custodians.
 4. **Beyond:** other multisig and governance programs (Squads v3, SPL Governance) and other chains' multisigs.

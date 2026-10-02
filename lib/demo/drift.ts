@@ -34,3 +34,39 @@ export const DRIFT_EXPLOIT_TXS: DriftExploitTx[] = [
     unsignedBase64: "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAYLUUkEz7FfLaJjygMX5cDGGgvNfu9lTnGt5EUq42wAKo1KPu9LA8gqcVmeoHoW7kvPbc4xNX2EYLKsG9TDqYYMnZBPyJU9z8nztReYk+4S/JxEXK2ImpV9Yc+428wXL2pPzJDOxGOxYgUeKqXn+B9ykwj35IqmqnNj79y+Fl67ZQH8076t9/m/97Bb74GUNE6z/PJdKB9WR+buAYgPE8T4NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE9qeIs7eYan3uJJdRDfdKOm+7rHHKIhq+mqnybJuqBkU8jIOHbEcooVIeOwm6I7YyvlYnAX8S5nsUFsORx0VgwlU276eyWDJinopP+ITNpZv4YDRUa5LgXlWH4mFSlP2BoHEzkfiI2i4sVVeyIevCS78fvu2bKP1L79o1Kyct6gGp9UXGSxWjuCKhF9z0peIzwNcMUWyGrNE2AYuqUAAAM4akCj91T+pyjf3uPgYecSepeQVNwg7z9tO/Usf8OuYAwUDAwoABAQAAAAJAwYABAmQJaSIvNgq+AAJBwYEBwACAQgIwgihV5mkGas="
   }
 ];
+
+export interface DriftNonceAccount {
+  account: string;
+  /** The council member named as nonce authority (the only key that can advance it). */
+  authority: string;
+  /** Who created it: an address that is not a council member, with six transactions in total. */
+  createdBy: string;
+  signature: string;
+  slot: number;
+  blockTime: number;
+}
+
+/**
+ * The durable nonce accounts the two attack transactions used (public mainnet
+ * data). Each was created and initialized in one transaction and never used
+ * again until the attack, so the member's signature on the attack transaction
+ * was made after its creation: the nonce value it carries did not exist before.
+ */
+export const DRIFT_NONCE_ACCOUNTS: DriftNonceAccount[] = [
+  {
+    account: "7s7s6saC5LHZoLyBXLM3pCjpWaA7meyQdP8NiH9ktAeC",
+    authority: "39JyWrdbVdRqjzw9yyEjxNtTbTKcTPLdtdCgbz7C7Aq8",
+    createdBy: "FMJnBkVpHj5JzN7w4XFysCwY931CYSYk1DsXzqNi7YPF",
+    signature: "LJuBqSWpfW6GSgWi2v64B6czZfd618ZXxPLBTQt2tSgF4hHCUgfYvUuAMxeSmfL4FnS8Wt9cKNaSK9YNke7kTz1",
+    slot: 408444056,
+    blockTime: 1774315326,
+  },
+  {
+    account: "EmYEryTDXtuVCxrjNqJXbiwr4hfiJajd4g5P58vvhQnc",
+    authority: "6UJbu9ut5VAsFYQFgPEa5xPfoyF5bB5oi4EknFPvu924",
+    createdBy: "FMJnBkVpHj5JzN7w4XFysCwY931CYSYk1DsXzqNi7YPF",
+    signature: "59yWWZjnLeu3WP6Dqj4NW21NWHhdNwkToCbypdNrAHKmhk5C37ZDUygbuDVPSN2XqYzME88k6Ss3sBKGdrmrWrX3",
+    slot: 409999217,
+    blockTime: 1774924549,
+  },
+];

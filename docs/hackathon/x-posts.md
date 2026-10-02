@@ -51,3 +51,9 @@ Every new Squads proposal → a plain-language brief to every signer on Telegram
 A warning helps only if someone can act on it. Presign Guard (devnet) holds a protocol's critical authorities: anything done with them is scheduled, waits a delay, and any one guardian can veto it. Routine ops stay fast.
 
 We replayed a Drift-style takeover against it: flagged CRITICAL, vetoed, refused. [video]
+
+## Day 7 — the nonce trail
+
+Drift's takeover left a trail on chain. Both votes on proposal #7 landed inside durable nonces held by the voters. Those nonce accounts had sat unused for 8 days and 1 day.
+
+Presign now reads each proposal's history and flags votes signed in advance: [link]/verify
