@@ -6,7 +6,7 @@ import { resetRateLimits } from "@/lib/api/rate-limit";
 import { clearIdlCache } from "@/lib/anchor/source";
 import { parseInspectInput } from "@/lib/multisig/input";
 import { inspect } from "@/lib/multisig/inspect";
-import { foreignSignersOf, withFeePayer } from "@/lib/multisig/payload";
+import { foreignSignersOf, promoteLookupPrograms, withFeePayer } from "@/lib/multisig/payload";
 import { rpcCall } from "@/lib/solana/client";
 import { SQUADS_V4_PROGRAM_ID } from "@/lib/squads/constants";
 import { toVersionedTransaction } from "@/lib/squads/decode";
@@ -137,7 +137,7 @@ describe("proposal inspection", () => {
     expect(r.inspection.analysis.payloads[0].simulationNote).toMatch(/Not simulated/);
   });
 
-  it("a proposal whose program id comes from a lookup table decodes but is not simulated", async () => {
+  it("a proposal whose program id comes from a lookup table is simulated with that id listed directly", async () => {
     const table = key(45).toBase58();
     const m = { ...vaultSolTransfer(VAULT, OUTSIDER, 5n), accountKeys: [VAULT, OUTSIDER], instructions: [{ programIdIndex: 2, accountIndexes: [0, 1], data: vaultSolTransfer(VAULT, OUTSIDER, 5n).instructions[0].data }], addressTableLookups: [{ accountKey: table, writableIndexes: [], readonlyIndexes: [0] }] };
     const accounts = chain({ message: m });
@@ -152,8 +152,40 @@ describe("proposal inspection", () => {
     if (r.kind !== "proposal") throw new Error("expected proposal");
     const p = r.inspection.analysis.payloads[0];
     expect(p.decoded!.instructions[0].type).toBe("system:transfer");
-    expect(p.simulationNote).toMatch(/lookup table/);
-    expect(simulate).not.toHaveBeenCalled();
+    // A regular transaction cannot invoke a program loaded from a lookup table; the simulated one lists it statically.
+    expect(simulate).toHaveBeenCalledTimes(1);
+    const [simTx, simDecoded] = simulate.mock.calls[0];
+    expect(simTx.message.staticAccountKeys.map((k) => k.toBase58())).toEqual([M1, VAULT, OUTSIDER, DEFAULT_PUBKEY]);
+    expect(simTx.message.addressTableLookups).toEqual([{ accountKey: new PublicKey(table), writableIndexes: [], readonlyIndexes: [] }]);
+    expect(simDecoded.solTransfers).toEqual([{ instruction: 0, from: VAULT, to: OUTSIDER, lamports: "5" }]);
+  });
+
+  it("listing lookup-table program ids statically keeps every instruction's program and accounts", () => {
+    const [S1, S2, W1, R1, R2, R3] = [key(60), key(61), key(62), key(63), key(64), key(65)].map((k) => k.toBase58());
+    const table = key(66).toBase58();
+    // Static: vault (signer), S1, S2. Lookups: writable W1; read-only R1 (a program), R2, R3 (another program).
+    const m = {
+      numSigners: 1, numWritableSigners: 1, numWritableNonSigners: 1,
+      accountKeys: [VAULT, S1, S2],
+      instructions: [
+        { programIdIndex: 4, accountIndexes: [0, 3, 5, 4], data: Uint8Array.from([1]) },
+        { programIdIndex: 6, accountIndexes: [1, 2, 6, 3], data: Uint8Array.from([2]) },
+      ],
+      addressTableLookups: [{ accountKey: table, writableIndexes: [7], readonlyIndexes: [8, 9, 10] }],
+    };
+    const lookups = { writable: [W1], readonly: [R1, R2, R3] };
+    const resolve = (msg: typeof m, l: typeof lookups) => {
+      const all = [...msg.accountKeys, ...l.writable, ...l.readonly];
+      return msg.instructions.map((ix) => ({ program: all[ix.programIdIndex], accounts: ix.accountIndexes.map((i) => all[i]) }));
+    };
+    const p = promoteLookupPrograms(m, lookups)!;
+    expect(p.message.accountKeys).toEqual([VAULT, S1, S2, R1, R3]);
+    expect(p.lookups).toEqual({ writable: [W1], readonly: [R2] });
+    expect(p.message.addressTableLookups).toEqual([{ accountKey: table, writableIndexes: [7], readonlyIndexes: [9] }]);
+    expect(resolve(p.message, p.lookups)).toEqual(resolve(m, lookups));
+    expect(p.message.instructions.every((ix) => ix.programIdIndex < p.message.accountKeys.length)).toBe(true);
+    // A program id from a writable lookup is left alone (not simulated).
+    expect(promoteLookupPrograms({ ...m, instructions: [{ programIdIndex: 3, accountIndexes: [0], data: Uint8Array.from([1]) }] }, lookups)).toBeNull();
   });
 
   it("a batch proposal inspects each of its transactions; a missing one is unverified, not ignored", async () => {

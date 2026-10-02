@@ -37,6 +37,51 @@ export function withFeePayer(m: SquadsMessage, feePayer: string): SquadsMessage 
   };
 }
 
+type Lookups = { writable: string[]; readonly: string[] };
+
+/**
+ * Squads can invoke programs whose ids come from an address lookup table (it
+ * executes by CPI); a regular transaction cannot. For simulation only, moves
+ * those program ids into the static keys (as read-only non-signers) and
+ * re-indexes every instruction. The instructions and their accounts are
+ * unchanged; only their positions in the account list move. Null when it
+ * cannot be done safely (a program id in a writable lookup).
+ */
+export function promoteLookupPrograms(m: SquadsMessage, lookups: Lookups): { message: SquadsMessage; lookups: Lookups } | null {
+  const s = m.accountKeys.length;
+  const w = lookups.writable.length;
+  const r = lookups.readonly.length;
+  const programIndexes = new Set(m.instructions.map((ix) => ix.programIdIndex).filter((i) => i >= s));
+  if ([...programIndexes].some((i) => i < s + w || i >= s + w + r)) return null;
+  // Positions within the read-only lookups that move, in order.
+  const moved = [...programIndexes].map((i) => i - s - w).sort((a, b) => a - b);
+  const movedAt = new Map(moved.map((pos, k) => [pos, k]));
+  const p = moved.length;
+  const remap = (old: number): number => {
+    if (old < s) return old;
+    if (old < s + w) return old + p;
+    const pos = old - s - w;
+    const k = movedAt.get(pos);
+    if (k !== undefined) return s + k;
+    return s + p + w + (pos - moved.filter((x) => x < pos).length);
+  };
+  // Remove the moved entries from each table's read-only indexes (tables list read-only indexes in global order).
+  let pos = 0;
+  const addressTableLookups = m.addressTableLookups.map((t) => {
+    const readonlyIndexes = t.readonlyIndexes.filter(() => !movedAt.has(pos++));
+    return { ...t, readonlyIndexes };
+  });
+  return {
+    message: {
+      ...m,
+      accountKeys: [...m.accountKeys, ...moved.map((i) => lookups.readonly[i])],
+      instructions: m.instructions.map((ix) => ({ programIdIndex: remap(ix.programIdIndex), accountIndexes: ix.accountIndexes.map(remap), data: ix.data })),
+      addressTableLookups,
+    },
+    lookups: { writable: lookups.writable, readonly: lookups.readonly.filter((_, i) => !movedAt.has(i)) },
+  };
+}
+
 export interface PayloadContext {
   controlled: ReadonlySet<string>;
   members: ReadonlySet<string>;
@@ -88,12 +133,16 @@ export async function buildVaultPayload(
   let effects: TransactionEffects | null = null;
   let effectsStatus: AnalysisStatus = "INSUFFICIENT_DATA";
   let owners: Record<string, string> = {};
-  if (message.instructions.some((ix) => ix.programIdIndex >= message.accountKeys.length)) {
-    // Squads can execute programs loaded from lookup tables (via CPI); a regular transaction cannot, so it cannot be simulated as one.
-    payload.simulationNote = "Not simulated: the proposal loads a program id from an address lookup table, which only the multisig program can execute.";
+  // Squads can execute programs whose ids come from a lookup table (via CPI); a regular transaction cannot, so for
+  // simulation those ids move into the static keys. The instructions are unchanged.
+  const lutPrograms = message.instructions.some((ix) => ix.programIdIndex >= message.accountKeys.length);
+  const promoted = lutPrograms && lookups ? promoteLookupPrograms(message, lookups) : null;
+  if (lutPrograms && !promoted) {
+    payload.simulationNote = "Not simulated: the proposal loads a program id from an address lookup table that could not be resolved.";
   } else {
     try {
-      const sim = await simulatePayload(message, lookups, base.vault, ctx.feePayers);
+      const sim = await simulatePayload(promoted?.message ?? message, promoted?.lookups ?? lookups, base.vault, ctx.feePayers);
+      if (promoted) sim.effects.notes.push("The proposal loads program ids from an address lookup table; for this simulation they were listed directly. The instructions are the same.");
       effects = sim.effects;
       effectsStatus = sim.effects.stale ? "PARTIAL" : "COMPLETE";
       owners = sim.tokenAccountOwners;
