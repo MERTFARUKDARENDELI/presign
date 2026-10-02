@@ -174,7 +174,7 @@ describe("proposal inspection", () => {
       addressTableLookups: [{ accountKey: table, writableIndexes: [7], readonlyIndexes: [8, 9, 10] }],
     };
     const lookups = { writable: [W1], readonly: [R1, R2, R3] };
-    const resolve = (msg: typeof m, l: typeof lookups) => {
+    const resolve = (msg: SquadsMessage, l: typeof lookups) => {
       const all = [...msg.accountKeys, ...l.writable, ...l.readonly];
       return msg.instructions.map((ix) => ({ program: all[ix.programIdIndex], accounts: ix.accountIndexes.map((i) => all[i]) }));
     };
