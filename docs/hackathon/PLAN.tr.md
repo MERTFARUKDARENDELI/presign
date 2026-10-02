@@ -5,7 +5,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 ## Hazır olanlar (kod tarafı)
 
 - **Görmek:** Squads v4 çözücü (36 talimat, 7 hesap türü, batch ve buffer dahil), Anchor IDL çözücü, BPF loader; kasa simülasyonu (lookup table kullanan teklifler dahil); `/verify`, `/transaction`, `/case/drift`.
-- **Durdurmak:** Presign Guard on-chain programı (Anchor 1.x). 11 program testi geçiyor. Gerçek Squads programıyla yerel validator'da uçtan uca çalıştı: zamanlama → uyarı → veto → yürütme reddi. **Devnet'e henüz deploy edilmedi** (aşağıdaki 3. madde).
+- **Durdurmak:** Presign Guard on-chain programı (Anchor 1.x). 11 program testi geçiyor. Gerçek Squads programıyla yerel validator'da uçtan uca çalıştı: zamanlama → uyarı → veto → yürütme reddi. **Devnet'te canlı** (2 Ekim): program `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`; gerçek Squads multisig ile ele geçirme zamanlandı, Presign CRITICAL dedi, bağımsız guardian veto etti, program yürütmeyi reddetti.
 - **Kural koymak:** ekip politikası motoru (11 kural; `/verify`, API, Watchtower, MCP) ve 72 kurallık herkese açık katalog (`/rules`).
 - Watchtower Telegram botu (`/watch`, `/check`), MCP sunucusu, API'de deterministik `gate`, program upgrade'lerinde verified-build kontrolü.
 - Mainnet doğrulamaları: Drift saldırısı (CRITICAL), census (157.117 multisig), gerçek batch ve buffer teklifleri, 20 aktif multisig ve 15 gerçek işlemle duman testi (hatasız).
@@ -19,7 +19,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 |---|---|---|---|---|
 | 1 | İki ekip üyesi de colosseum.com'da kayıtlı, takım kurulmuş | Hemen |  | Kayıt olmayan üye diskalifiye olabilir |
 | 2 | GitHub'da **public** repo | Hemen | ✅ 2 Eki | https://github.com/MERTFARUKDARENDELI/solana-ai-defender — tüm commit geçmişi push edildi, CI GitHub Actions'ta çalışıyor |
-| 3 | **Devnet SOL** | VPN açılınca |  | Ağınız Solana devnet uç noktalarını engelliyor. Cloudflare WARP (1.1.1.1) açın → https://devnetfaucet.org veya faucet.solana.com (GitHub ile) → adres `5XSWEAJ42LZMqcrKMF66Cj3s39174gMucNP9UtLMQbGq`, ~3 SOL. Gelince deploy + devnet demosu tek adım |
+| 3 | **Devnet SOL** | — | ✅ 2 Eki | 15 SOL geldi; Guard devnet'e deploy edildi ve demo uçtan uca çalıştı (aşağıya bakın) |
 | 4 | Deploy (Vercel önerilir) | 3–4 Ekim |  | Env: `HELIUS_API_KEY`, `SOLANA_CLUSTER=mainnet-beta`, `NEXT_PUBLIC_SOLANA_CLUSTER=mainnet-beta`; `NEXT_PUBLIC_GUARD_PROGRAM_ID` mainnet'te boş kalsın |
 | 5 | **Yeni OpenAI anahtarı** (isteğe bağlı) | Uygun olduğunda |  | Mevcut anahtar geçersiz (`INVALID_KEY`). AI açıklamaları kapalı; kesin analiz etkilenmiyor. Yeni anahtarı `.env.local`'e ve Vercel'e siz ekleyin |
 | 6 | Telegram botu: @BotFather → `/newbot` → token | 4 Ekim |  | Token'ı bana yazmayın; `.env.local`'e siz ekleyin. Sonra `npm run watchtower -- --once` ile canlı test ederiz |

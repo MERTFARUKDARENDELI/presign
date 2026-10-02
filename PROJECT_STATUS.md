@@ -40,15 +40,14 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
 | Rule catalog `/rules` | VERIFIED | 72 rules; a test keeps it in sync with the rule sources |
 | Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | IMPLEMENTED | unit-tested against the program's account layouts; not exercised against a deployed program |
-| Presign Guard — Anchor program (`guard/`) | VERIFIED (local validator) | builds with Anchor 1.x / Agave 3.1.10; 11 LiteSVM tests; IDL cross-checked against the TS codec; end-to-end on a local validator with the real Squads v4 program cloned from devnet: multisig → authority to guard → scheduled takeover (Presign: CRITICAL, gate block) → veto prepared and submitted through the API → execution refused; a non-vetoed action executed after the delay (SPL Token CPI). Devnet deploy waits on devnet SOL. Unaudited |
+| Presign Guard — Anchor program (`guard/`) | VERIFIED (devnet) | deployed on devnet 2026-10-02 (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, slot 506577649, IDL via Program Metadata); 11 LiteSVM tests; IDL cross-checked against the TS codec; end-to-end on devnet with a real Squads v4 multisig: authority to guard → scheduled takeover (Presign: CRITICAL, gate block) → veto prepared by /api/guard/prepare, signed by an independent guardian, submitted through /api/transaction/submit → execution refused (NotPending). Also rehearsed on a local validator, including a non-vetoed execution. Unaudited |
 
 ### Open items
 
-1. **BLOCKED — devnet SOL.** Presign Guard devnet deploy and the devnet demo wait on ~3 devnet SOL for the deployer (`5XSWEAJ42LZMqcrKMF66Cj3s39174gMucNP9UtLMQbGq`). Faucets fail from the team's network (TLS resets to Solana endpoints); retry over a VPN. Everything else is done and rehearsed on a local validator.
-2. **BLOCKED — OpenAI key.** `/api/ai/diagnose` returns `INVALID_KEY` (2026-10-02). AI explanations are off; the app says so and the deterministic analysis is unaffected. Needs a new key in `.env.local` / the deployment.
-3. Deployment (needs the team's hosting account) and a public repository.
-4. Telegram / webhook delivery test with a real bot (needs a bot token).
-5. Items carried over from the original engine: wallet-extension signing, mobile wallets.
+1. **BLOCKED — OpenAI key.** `/api/ai/diagnose` returns `INVALID_KEY` (2026-10-02). AI explanations are off; the app says so and the deterministic analysis is unaffected. Needs a new key in `.env.local` / the deployment.
+2. Deployment (needs the team's hosting account) and a public repository.
+3. Telegram / webhook delivery test with a real bot (needs a bot token).
+4. Items carried over from the original engine: wallet-extension signing, mobile wallets.
 
 Verified on mainnet 2026-10-02: batch proposals (lookup tables included) and a proposal created from a real pending transaction buffer.
 

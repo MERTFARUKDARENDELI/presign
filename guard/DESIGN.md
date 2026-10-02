@@ -2,7 +2,7 @@
 
 Presign tells signers what a proposal does. **Presign Guard makes the dangerous ones wait, and lets any one honest signer stop them.**
 
-Status: builds with Anchor 1.x (Agave 3.1.10); 11 LiteSVM tests cover the plan below; the IDL (`idl/presign_guard.json`) is checked against Presign's TypeScript codec in `tests/unit/guard-idl.test.ts`. Program id `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`. Unaudited.
+Status: builds with Anchor 1.x (Agave 3.1.10); 11 LiteSVM tests cover the plan below; the IDL (`idl/presign_guard.json`) is checked against Presign's TypeScript codec in `tests/unit/guard-idl.test.ts`. Deployed on devnet: `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS` (IDL published through the Program Metadata program). Unaudited.
 
 ```bash
 anchor build && cargo test -p presign-guard   # in guard/, on Linux or WSL

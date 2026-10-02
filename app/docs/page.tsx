@@ -203,7 +203,7 @@ Verify before signing: https://<your-presign-host>/verify?q=…`}</Code>
           <li>Presign decodes scheduled actions inside proposals, shows the countdown in <a href="/verify" className="text-fuchsia-300 underline-offset-4 hover:underline">/verify</a> (paste a guard or action address), offers veto / execute, and Watchtower announces every scheduled action.</li>
         </ul>
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
-          Status: the program (<span className="font-mono">guard/</span>) builds and passes its tests, and the full scenario ran end-to-end against the real Squads program on a local validator. Devnet deployment is pending. Unaudited — do not hand it mainnet authorities.
+          Status: deployed on devnet (program <span className="font-mono">A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS</span>) and exercised end-to-end with a real Squads multisig — schedule, CRITICAL alert, veto, execution refused. Unaudited — do not hand it mainnet authorities.
           This deployment {process.env.NEXT_PUBLIC_GUARD_PROGRAM_ID ? <>uses program <span className="font-mono">{process.env.NEXT_PUBLIC_GUARD_PROGRAM_ID}</span>.</> : "has no Guard program configured."}
         </p>
       </Section>

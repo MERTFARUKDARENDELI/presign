@@ -109,14 +109,14 @@ export default function Home() {
           <Hourglass className="size-6 shrink-0 text-fuchsia-300" aria-hidden />
           <div className="space-y-2">
             <h3 id="guard" className="font-semibold">
-              Presign Guard <span className="ml-1 rounded border border-amber-500/40 px-1.5 text-xs font-normal text-amber-200">in development</span>
+              Presign Guard <span className="ml-1 rounded border border-sky-500/40 px-1.5 text-xs font-normal text-sky-200">on devnet</span>
             </h3>
             <p className="text-sm text-zinc-400">
               A warning helps only if someone can act on it. Presign Guard is an on-chain program that holds a protocol&apos;s critical authorities: anything done with them is
               scheduled, waits a fixed delay, and any single guardian can veto it — even a compromised multisig cannot remove the guardians. Routine operations stay fast.
             </p>
             <p className="text-xs text-zinc-500">
-              Built and tested, and run end-to-end against the real Squads program on a local validator (schedule → alert → veto). Not yet on devnet; unaudited.{" "}
+              Live on devnet with a real Squads multisig: a Drift-style takeover was scheduled, flagged CRITICAL, and vetoed by one guardian. Unaudited — devnet only.{" "}
               <Link href="/docs#presign-guard" className="text-fuchsia-300 underline-offset-4 hover:underline">How it works</Link>
             </p>
           </div>

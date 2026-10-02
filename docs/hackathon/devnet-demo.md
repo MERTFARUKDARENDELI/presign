@@ -6,6 +6,19 @@ Runbook for the pitch scene "a guardian vetoes the takeover" and the technical d
 
 Rust, Agave (Solana CLI) 3.1.10, Anchor 1.1.x, Node 24 — inside WSL/Linux. Program id: `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS` (its keypair stays outside the repository, in `~/.config/solana/presign_guard-program-keypair.json` on the build machine).
 
+## Deployed (2026-10-02)
+
+| What | Devnet address |
+|---|---|
+| Presign Guard program (IDL published) | `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS` |
+| Squads v4 multisig (2 of 3, no time lock) | `4o3HbAWnHJXQQhvd5uzsAv4uGwCMKKMWu532m9WFJUyo` |
+| Token whose mint authority the guard holds | `9fXtKYAQ3CQpjrWxgPpZmMYnT3qFHPDxKgtaGsTnQdsJ` |
+| Guard (proposer = vault, 3 guardians, 10-minute delay) | `6f39E3LLfii5twDt9QAyHYu3jpiUBfbJUEGyh2bay3Gs` |
+| First takeover action (vetoed) | `QHSLxBH68QBQWtY9G3EV3hYmXetWMS8ePf6hLv8ndsj` |
+| Veto, prepared by Presign and signed by the independent guardian | `4j4s2dmfJudXeXmM76UBDy42hAbfY6VRKsK6d2eij3Esydd6hWt5HDbPJPnKGtm4UuBsesbzgTxoeiJgmWxu7N6T` |
+
+Proposal #1 handed the mint authority to the guard (Presign: LOW, "moves to Presign Guard"); proposal #2 scheduled "mint authority → attacker" (Presign: HIGH, gate block, before the second approval); the pending action was CRITICAL; after the veto the program refused to execute it (`NotPending`). The setup state is reused: for a new take run `attack-propose` and `attack-execute` again (a new proposal and action index), and **always veto or let a guardian veto** — an action left alone executes after 10 minutes and the attacker key gets the mint authority.
+
 ## Rehearsal on a local validator (no SOL needed)
 
 The whole scenario also runs against a local validator with the real Squads v4 program cloned from devnet — the way it was first verified (2026-09-28: setup, takeover proposal, pending action CRITICAL in Presign, veto prepared by `/api/guard/prepare` and submitted through `/api/transaction/submit`, a vetoed action refused with `NotPending`, and a non-vetoed one executed after the delay, moving the mint authority by CPI).
