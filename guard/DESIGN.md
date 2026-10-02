@@ -80,6 +80,7 @@ Implemented in `programs/presign-guard/tests/guard.rs` (LiteSVM); each is a prop
 ## Known limits
 
 - Scheduled instructions cannot require additional keypair signers (e.g. a fresh account keypair). Use PDAs or pre-created accounts.
+- `execute` passes every referenced account in one transaction (about 30 distinct accounts fit). The program accepts larger actions (4 instructions × 24 accounts); Presign refuses to prepare an execute that does not fit and says so. Split large actions.
 - Execution happens with chain state at execution time; the delay is the review window, not a snapshot.
 - A guardian set of one is allowed but only one veto key then protects the protocol; the UI warns about it.
 - Unaudited hackathon code. Devnet only until audited.

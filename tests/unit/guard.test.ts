@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearIdlCache } from "@/lib/anchor/source";
 import { decodeActionAccount, decodeGuardAccount, decodeGuardInstruction, executeInstruction, scheduleInstruction, vetoInstruction, type GuardInstructionData } from "@/lib/guard/codec";
 import { clearGuardHolderCache } from "@/lib/guard/holders";
+import { removesOnlyGuardian } from "@/lib/guard/prepare";
 import { actionPda, GUARD_ACCOUNT_DISCRIMINATOR, GUARD_IX_DISCRIMINATOR, guardPda, guardSignerPda } from "@/lib/guard/constants";
 import { inspect } from "@/lib/multisig/inspect";
 import { rpcCall } from "@/lib/solana/client";
@@ -348,5 +349,27 @@ describe("Scheduled guard configuration changes", () => {
     const [shorter] = await inspectPendingConfig(updateConfig(VAULT, [M1, M2, M3], 3_600));
     expect(shorter.description).toContain("the delay shrinks from 1 day(s) to 1 hour(s)");
     expect(await inspectPendingConfig(updateConfig(VAULT, [M1, M2, M3, OUTSIDER], 172_800))).toEqual([expect.objectContaining({ code: "GUARD_CONFIG_CHANGE:action:0", severity: "LOW" })]);
+  });
+});
+
+describe("Veto preparation mirrors the program's own-removal rule", () => {
+  const config = (proposer: string, guardians: string[], delay: number): GuardInstructionData => {
+    const w = new W().hex(GUARD_IX_DISCRIMINATOR.updateConfig).key(proposer).u32(guardians.length);
+    guardians.forEach((g) => w.key(g));
+    return { programId: PROGRAM, accounts: [{ pubkey: GUARD, isSigner: false, isWritable: true }, { pubkey: SIGNER, isSigner: true, isWritable: false }], data: w.u32(delay).done() };
+  };
+  const action = (instructions: GuardInstructionData[]) => decodeActionAccount(actionBytes({ eta: 0n, instructions }));
+  const guard = decodeGuardAccount(guardBytes());
+
+  it("only a removal of that one guardian, weakening nothing else, is not vetoable by it", () => {
+    expect(removesOnlyGuardian(action([config(VAULT, [M2, M3], 86_400)]), guard, M1, PROGRAM)).toBe(true);
+    // Other guardians can veto it.
+    expect(removesOnlyGuardian(action([config(VAULT, [M2, M3], 86_400)]), guard, M2, PROGRAM)).toBe(false);
+    // Removing two, shortening the delay, changing the proposer or bundling anything stays vetoable.
+    expect(removesOnlyGuardian(action([config(VAULT, [M3], 86_400)]), guard, M1, PROGRAM)).toBe(false);
+    expect(removesOnlyGuardian(action([config(VAULT, [M2, M3], 3_600)]), guard, M1, PROGRAM)).toBe(false);
+    expect(removesOnlyGuardian(action([config(OUTSIDER, [M2, M3], 86_400)]), guard, M1, PROGRAM)).toBe(false);
+    expect(removesOnlyGuardian(action([config(VAULT, [M2, M3], 86_400), setMintAuthority(OUTSIDER)]), guard, M1, PROGRAM)).toBe(false);
+    expect(removesOnlyGuardian(action([setMintAuthority(OUTSIDER)]), guard, M1, PROGRAM)).toBe(false);
   });
 });

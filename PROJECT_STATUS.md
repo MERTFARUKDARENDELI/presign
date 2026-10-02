@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **415 tests / 33 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **416 tests / 33 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
