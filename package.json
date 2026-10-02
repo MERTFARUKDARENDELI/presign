@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components lib tests watchtower mcp scripts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "watchtower": "node --env-file-if-exists=.env.local watchtower/main.ts",
     "mcp": "node mcp/server.ts",
