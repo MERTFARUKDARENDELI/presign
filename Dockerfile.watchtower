@@ -1,4 +1,5 @@
-# Watchtower as an always-on service (e.g. Railway: RAILWAY_DOCKERFILE_PATH=Dockerfile.watchtower).
+# Watchtower as an always-on service. Live on Railway: the service builds this file from GitHub
+# (main) whenever watchtower/, lib/policy/file.ts, this file or package.json change.
 # Node built-ins only (fetch, node:sqlite): no npm install. Keep WATCH_DB on a persistent volume,
 # e.g. WATCH_DB=/data/watchtower.db with a volume mounted at /data, so subscriptions survive redeploys.
 # Run exactly one instance per bot token: Telegram allows a single getUpdates consumer.

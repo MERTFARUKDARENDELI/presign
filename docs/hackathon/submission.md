@@ -62,7 +62,7 @@ Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vit
 
 ## Links
 
-- Repository: https://github.com/MERTFARUKDARENDELI/solana-ai-defender
+- Repository: https://github.com/MERTFARUKDARENDELI/presign
 - Live app: https://presign-app.vercel.app (mainnet-beta) · Presign Guard demo: https://presign-devnet.vercel.app (devnet)
 - Pitch video: [URL] · Technical demo: [URL]
 - Try it: `/case/drift` (replay) · `/verify?q=2LW6PSEjp81xSEttWwXDB6Etb1eKdhYPbFEojYbyhx88%20%237` · devnet demo addresses in `docs/hackathon/devnet-demo.md`

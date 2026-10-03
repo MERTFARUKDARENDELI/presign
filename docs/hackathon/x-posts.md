@@ -27,7 +27,7 @@ We read every Squads v4 multisig on Solana mainnet. 157,117 of them.
 • 98.2% have no time lock — 99% of the 18,939 active ones
 • 13 of 36 major programs are upgradeable through a Squads multisig — 8 of those have no time lock
 
-No time lock = an approved proposal executes instantly. That's what made Drift a one-second takeover. Method + script: https://github.com/MERTFARUKDARENDELI/solana-ai-defender
+No time lock = an approved proposal executes instantly. That's what made Drift a one-second takeover. Method + script: https://github.com/MERTFARUKDARENDELI/presign
 
 ## Day 3 — for signers
 

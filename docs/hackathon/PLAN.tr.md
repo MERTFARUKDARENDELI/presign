@@ -18,7 +18,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 | # | İş | Ne zaman | Durum | Not |
 |---|---|---|---|---|
 | 1 | İki ekip üyesi de colosseum.com'da kayıtlı, takım kurulmuş | Hemen |  | Kayıt olmayan üye diskalifiye olabilir |
-| 2 | GitHub'da **public** repo | Hemen | ✅ 2 Eki | https://github.com/MERTFARUKDARENDELI/solana-ai-defender — tüm commit geçmişi push edildi, CI GitHub Actions'ta çalışıyor |
+| 2 | GitHub'da **public** repo | Hemen | ✅ 2 Eki | https://github.com/MERTFARUKDARENDELI/presign — tüm commit geçmişi push edildi, CI GitHub Actions'ta çalışıyor |
 | 3 | **Devnet SOL** | — | ✅ 2 Eki | 15 SOL geldi; Guard devnet'e deploy edildi ve demo uçtan uca çalıştı (aşağıya bakın) |
 | 4 | Deploy (Vercel önerilir) | 3–4 Ekim |  | Env: `HELIUS_API_KEY`, `SOLANA_CLUSTER=mainnet-beta`, `NEXT_PUBLIC_SOLANA_CLUSTER=mainnet-beta`; `NEXT_PUBLIC_GUARD_PROGRAM_ID` mainnet'te boş kalsın |
 | 5 | **Anthropic API anahtarı** (isteğe bağlı) | Uygun olduğunda |  | AI katmanı Claude Sonnet 5.5'e geçti. Anahtar yok; AI açıklamaları kapalı, kesin analiz etkilenmiyor. `ANTHROPIC_API_KEY`'i `.env.local`'e ve Vercel'e siz ekleyin |
