@@ -9,4 +9,6 @@ COPY package.json ./
 COPY watchtower ./watchtower
 COPY lib/policy/file.ts ./lib/policy/file.ts
 ENV NODE_ENV=production
+# Watchtower stops gracefully on SIGINT (finishes the cycle, closes the database).
+STOPSIGNAL SIGINT
 CMD ["node", "watchtower/main.ts"]
