@@ -1,5 +1,6 @@
 import { ArrowRight, Bot, BellRing, Clock, FileSearch, Hourglass, KeyRound, Landmark, ListChecks, Scale, ShieldAlert, SlidersHorizontal, Users } from "lucide-react";
 import { RULE_CATALOG } from "@/lib/security/catalog";
+import Image from "next/image";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import census from "@/docs/research/multisig-census.json";
@@ -36,6 +37,7 @@ export default function Home() {
   return (
     <div className="flex flex-1 flex-col gap-16 pb-8">
       <section className="flex flex-col items-center pt-10 text-center sm:pt-16">
+        <Image src="/brand/presign-icon.png" alt={`${BRAND.name} logo`} width={88} height={88} priority className="mb-6 h-20 w-20 sm:h-22 sm:w-22" />
         <div className="mb-6 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-1.5 text-sm text-zinc-400">Pre-sign verification for Solana multisigs</div>
         <h2 className="max-w-4xl text-4xl font-bold tracking-tight sm:text-6xl">{BRAND.tagline}</h2>
         <p className="mt-6 max-w-2xl text-base leading-7 text-zinc-400 sm:text-lg">

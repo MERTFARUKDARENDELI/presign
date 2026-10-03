@@ -1,4 +1,4 @@
-import { ScanEye } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import SystemStatus from "@/components/SystemStatus";
 import ConnectWallet from "@/components/wallet/ConnectWallet";
@@ -16,9 +16,7 @@ export default function SecurityHeader() {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 pb-5">
       <Link href="/" className="flex items-center gap-3" aria-label={`${BRAND.name} home`}>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black">
-          <ScanEye size={22} aria-hidden />
-        </div>
+        <Image src="/brand/presign-icon.png" alt="" width={40} height={40} priority className="h-10 w-10" />
         <div>
           <h1 className="text-lg font-bold leading-tight">{BRAND.name}</h1>
           <p className="text-xs text-zinc-500">{BRAND.tagline}</p>

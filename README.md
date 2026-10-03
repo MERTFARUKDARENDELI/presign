@@ -1,6 +1,10 @@
+<p align="center"><img src="public/brand/presign-logo.png" alt="Presign — Know exactly what you sign." width="640"></p>
+
 # Presign — know exactly what you sign
 
 Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or the transaction you are about to sign), decodes every instruction the vault would run, simulates it, and tells each signer — in one sentence, with evidence — **what it does and who controls what afterwards**.
+
+**Live:** [presign-app.vercel.app](https://presign-app.vercel.app) (mainnet-beta) · [presign-devnet.vercel.app](https://presign-devnet.vercel.app) (devnet, Presign Guard demo) · Telegram: [@presign_watchtower_bot](https://t.me/presign_watchtower_bot)
 
 > On April 1, 2026, about $285M was drained from Drift Protocol's users (Drift later put the loss at $295M). There was no contract bug and no private key was stolen: after a months-long social-engineering operation, two of five Security Council members had pre-signed durable-nonce transactions they did not fully understand, on a 2-of-5 multisig whose time lock had been removed days earlier. The proposal that handed over Drift's admin appeared on chain and executed one second apart. Run Presign on the exact bytes they signed and it answers **CRITICAL — "Admin moves outside the multisig" · "This signature never expires"** before anything is executed. See [`/case/drift`](app/case/drift/page.tsx).
 
@@ -84,7 +88,7 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 - **Tests:** 434, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Presign Guard program:** deployed on devnet (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, IDL published); 11 LiteSVM tests of its invariants pass; its IDL is checked against the TypeScript codec; the full scenario ran end-to-end on devnet with a real Squads v4 multisig — takeover scheduled, CRITICAL in Presign, vetoed through Presign by an independent guardian, execution refused by the program. Unaudited.
 - **Batches and buffers on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows; a proposal created from a real pending transaction buffer decodes from the buffer.
-- **Live deployments:** https://solana-ai-defender.vercel.app (mainnet-beta: Drift replay, `/verify` on real multisigs) and https://solana-ai-defender-devnet.vercel.app (devnet: Presign Guard demo). Watchtower's Telegram bot answered `/check` and `/watch` (devnet multisig and guard) in a real group, asking the devnet instance.
+- **Live deployments:** https://presign-app.vercel.app (mainnet-beta: Drift replay, `/verify` on real multisigs) and https://presign-devnet.vercel.app (devnet: Presign Guard demo). Watchtower's Telegram bot answered `/check` and `/watch` (devnet multisig and guard) in a real group, asking the devnet instance.
 - **Not yet verified:** an alert delivered to Telegram and Slack / Discord webhook delivery (formatting and escaping are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live Claude explanations (needs an `ANTHROPIC_API_KEY`).
 
 ## Limitations

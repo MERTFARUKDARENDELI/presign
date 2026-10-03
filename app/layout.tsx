@@ -15,9 +15,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const TITLE = `${BRAND.name} — ${BRAND.tagline}`;
+
+// Icons and share images come from the file conventions in app/ (icon.png, apple-icon.png,
+// favicon.ico, opengraph-image.png, twitter-image.png); on Vercel their absolute URLs use the
+// project's production domain.
 export const metadata: Metadata = {
-  title: `${BRAND.name} — ${BRAND.tagline}`,
+  title: TITLE,
   description: BRAND.description,
+  applicationName: BRAND.name,
+  openGraph: { title: TITLE, description: BRAND.description, siteName: BRAND.name, type: "website" },
+  twitter: { card: "summary_large_image", title: TITLE, description: BRAND.description },
 };
 
 export const viewport: Viewport = {

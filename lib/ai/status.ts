@@ -29,7 +29,7 @@ interface AiStatusState {
 }
 
 // Kept on globalThis so every route bundle in this process shares one verdict.
-const STATE_KEY = Symbol.for("solana-ai-defender.ai-status");
+const STATE_KEY = Symbol.for("presign.ai-status");
 function state(): AiStatusState {
   const g = globalThis as unknown as Record<symbol, AiStatusState | undefined>;
   return (g[STATE_KEY] ??= { lastOutcome: null, diagnostic: null, inFlight: null });
