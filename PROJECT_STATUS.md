@@ -1,6 +1,6 @@
 # Project Status — Presign
 
-Last updated: 2026-10-02. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
+Last updated: 2026-10-03. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
 
 "VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready".
 
@@ -33,7 +33,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Proposal inspector API + `/verify` UI | VERIFIED (live) | headless browser on the Drift multisig overview and proposal #7 |
 | `/case/drift` replay | VERIFIED (live) | both pre-signed transactions analyzed from unsigned bytes in the browser: CRITICAL |
 | Brief + deterministic gate in API responses | VERIFIED | unit + live |
-| Watchtower (self-service Telegram bot: /watch, /unwatch, /list, /check; SQLite state; guard watching; alert when a vote lands through a durable nonce) | PARTIAL | live on devnet 2026-10-02 (console delivery): baseline, then a new proposal (HIGH) and a scheduled guard action (CRITICAL, countdown, untrusted memo, veto link) announced; earlier live cycle on the Drift multisig. Telegram / webhook delivery not exercised against real endpoints (needs a bot token) |
+| Watchtower (self-service Telegram bot: /watch, /unwatch, /list, /check; SQLite state; guard watching; alert when a vote lands through a durable nonce) | PARTIAL | live on devnet 2026-10-02 (console delivery): baseline, then a new proposal (HIGH) and a scheduled guard action (CRITICAL, countdown, untrusted memo, veto link) announced; earlier live cycle on the Drift multisig. Telegram live 2026-10-03 with a real bot in a test group, against the Vercel deployment: /help, /check (devnet multisig brief), /watch on the devnet multisig and guard (baseline recorded, polling), replies delivered as Telegram HTML. A new-proposal / guard alert has not been delivered to Telegram yet (none created since); Slack / Discord webhooks not exercised |
 | MCP server | VERIFIED (live) | stdio session: initialize → tools/call on Drift #7 returned `gate: block` |
 | Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
 | Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |
@@ -45,8 +45,8 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 ### Open items
 
 1. **BLOCKED — Anthropic key.** The AI layer moved from OpenAI to Claude Sonnet 5.5 (`claude-sonnet-5-5`, official Anthropic SDK) on 2026-10-02 and now also explains `/verify` proposals. No key is configured yet: AI explanations are off, the app says so, and the deterministic analysis is unaffected. Set `ANTHROPIC_API_KEY` in `.env.local` / the deployment, then use "Verify AI".
-2. Deployment (needs the team's hosting account). The repository is public: https://github.com/MERTFARUKDARENDELI/solana-ai-defender
-3. Telegram / webhook delivery test with a real bot (needs a bot token).
+2. Deployment keys. Live on Vercel since 2026-10-03 (team `presign`): https://solana-ai-defender.vercel.app (mainnet-beta; Drift #7 inspected and both Drift exploit transactions analyzed CRITICAL through the deployed API) and https://solana-ai-defender-devnet.vercel.app (devnet, Guard program id set; demo multisig and guard inspected). `HELIUS_API_KEY` and `ANTHROPIC_API_KEY` are not set there yet, so both read through public RPC and AI is off. Deployed from the CLI; Git integration waits for the Vercel GitHub app to get access to the repository, so a push does not redeploy yet. The repository is public: https://github.com/MERTFARUKDARENDELI/solana-ai-defender
+3. Telegram: an alert (new proposal / scheduled guard action) delivered to the test group; bot commands verified 2026-10-03. Watchtower runs as a local process pointed at the devnet deployment (`PRESIGN_API_URL`); always-on hosting prepared (`Dockerfile.watchtower`, Railway), not live yet. Slack / Discord webhook delivery untested.
 4. Items carried over from the original engine: wallet-extension signing, mobile wallets.
 
 Verified on mainnet 2026-10-02: batch proposals (lookup tables included) and a proposal created from a real pending transaction buffer.
@@ -321,7 +321,7 @@ New tests (+57):
 | 33 UI/UX | PARTIAL | dark, responsive layout, loading/empty/error/partial states; font variable fixed | headless desktop + 390 px mobile-viewport screenshots (2026-09-25: no horizontal overflow on /dashboard, /transaction) | no real device / wallet in-app browser testing |
 | 34 Landing | IMPLEMENTED | message + routes to scan / tx / demo | build | — |
 | 35 Demo flow | IMPLEMENTED | 5-step flow incl. simulation and cleanup demo | API-level + headless render (step 1) | steps not click-tested |
-| 40 Deployment | PARTIAL | production build, env docs, security headers | build | no deployment credentials → not deployed |
+| 40 Deployment | PARTIAL | production build, env docs, security headers; Vercel deployments 2026-10-03 (https://solana-ai-defender.vercel.app mainnet-beta, https://solana-ai-defender-devnet.vercel.app devnet) | live: pages, `/api/multisig/inspect`, `/api/transaction/analyze` | server keys (Helius, Anthropic) not set on the deployments; no Git integration yet |
 | 41 Tx safety UI | IMPLEMENTED | confirmation screen (token, action, account, amount, reclaim, fee incl. revoke, net, network, program, destination), acknowledgement required, dialog locked while signing/submitting | integrity unit tests + code review | not clicked through with a wallet |
 | 42 Final audit | PARTIAL | audit done 2026-09-23 (see README “Security model”) | — | code changed after the audit (signing/submit/explanation/agent/AI status); those changes now have direct tests but were not re-audited |
 | 43 Submission docs | IMPLEMENTED | README, this file | — | screenshots not produced |
@@ -352,4 +352,4 @@ New tests (+57):
 1. **OpenAI key not verified** → live AI (FAZ 8/14/29) is unverified. The key exists only in `.env.local`; the last live attempt was rejected and it has not been re-checked. After replacing the key, use the header's "Verify AI" button (one `GET /v1/models` call).
 2. **No real wallet signature** → sign → send → confirm (FAZ 10/32) is unverified on every cluster, and devnet E2E (FAZ 31) has not started. No transaction has ever been signed, sent or confirmed.
 3. **No interactive browser / wallet-extension / mobile testing** (FAZ 9, 11, 12, 13, 33, 35, 41). Headless render only.
-4. **No deployment credentials** (FAZ 40).
+4. **Deployment keys** (FAZ 40): deployed to Vercel on 2026-10-03, but `HELIUS_API_KEY` / `ANTHROPIC_API_KEY` are not set there yet.

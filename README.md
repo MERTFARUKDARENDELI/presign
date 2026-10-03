@@ -70,6 +70,7 @@ npm run dev                       # http://localhost:3000
 ```bash
 npm run typecheck && npm run lint && npm test && npm run build
 npm run watchtower                # TELEGRAM_BOT_TOKEN and/or WATCH_MULTISIGS (reads .env.local); -- --once for one cycle
+                                  # always-on: Dockerfile.watchtower (e.g. Railway, WATCH_DB on a volume)
 npm run mcp                       # MCP server on stdio; PRESIGN_API_URL points at your instance
 node scripts/research/multisig-census.ts   # re-run the mainnet census (read-only)
 ```
@@ -83,7 +84,8 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 - **Tests:** 434, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Presign Guard program:** deployed on devnet (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, IDL published); 11 LiteSVM tests of its invariants pass; its IDL is checked against the TypeScript codec; the full scenario ran end-to-end on devnet with a real Squads v4 multisig — takeover scheduled, CRITICAL in Presign, vetoed through Presign by an independent guardian, execution refused by the program. Unaudited.
 - **Batches and buffers on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows; a proposal created from a real pending transaction buffer decodes from the buffer.
-- **Not yet verified:** Telegram / webhook delivery against real endpoints (formatting, escaping and bot commands are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live Claude explanations (needs an `ANTHROPIC_API_KEY`).
+- **Live deployments:** https://solana-ai-defender.vercel.app (mainnet-beta: Drift replay, `/verify` on real multisigs) and https://solana-ai-defender-devnet.vercel.app (devnet: Presign Guard demo). Watchtower's Telegram bot answered `/check` and `/watch` (devnet multisig and guard) in a real group, asking the devnet instance.
+- **Not yet verified:** an alert delivered to Telegram and Slack / Discord webhook delivery (formatting and escaping are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live Claude explanations (needs an `ANTHROPIC_API_KEY`).
 
 ## Limitations
 
