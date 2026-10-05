@@ -14,7 +14,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **434 tests / 35 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **442 tests / 36 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
@@ -39,7 +39,8 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | Mainnet census | VERIFIED (live) | 157,117 multisigs; 36 program ids verified on-chain; aggregates in `docs/research/multisig-census.json` |
 | Program upgrade verification (solana-verify hash + OtterSec registry) | VERIFIED (live) | hash method matches OtterSec's `on_chain_hash` for the Squads v4 program |
 | Team policy engine (11 rules; API, `/verify` editor, Watchtower and MCP via `PRESIGN_POLICY_FILE`) | VERIFIED (live) | Drift #7 against a council policy: 4 rules broken (holder, guard, time lock, threshold), outflow rule unverifiable (simulation fails today); unit tests per rule |
-| Rule catalog `/rules` | VERIFIED | 73 rules; a test keeps it in sync with the rule sources |
+| Rule catalog `/rules` | VERIFIED | 75 rules; a test keeps it in sync with the rule sources |
+| Simulation pre-state at the simulation slot | IMPLEMENTED | 2026-10-05, after a 0.001 SOL transfer from a busy devnet faucet was rated HIGH ("Unexpected SOL outflow"): the pre-state was read at slot N, the simulation ran at N+k after other transactions had moved the faucet's SOL. Now the simulation may not run on state older than the snapshot (`minContextSlot`), the pre-state is read again no earlier than the simulation slot (exact when the slots match), accounts that differ between the two snapshots are reported as changed concurrently (one more simulation, then `TX_SOL_CHANGE_UNCERTAIN` / `TX_TOKEN_CHANGE_UNCERTAIN`, PARTIAL; only outflow that activity cannot explain stays HIGH); if the second snapshot fails the signal is kept and the result is PARTIAL. `tests/unit/simulation-drift.test.ts` (8); not yet re-run live |
 | Presign Guard — Presign side (decode schedules, guard / action views, veto / execute preparation, own-guard recognition) | VERIFIED (devnet) | unit-tested against the program's account layouts; exercised against the deployed devnet program (schedule decoded, CRITICAL, veto prepared and submitted through the API) |
 | Presign Guard — Anchor program (`guard/`) | VERIFIED (devnet) | deployed on devnet 2026-10-02 (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, slot 506577649, IDL via Program Metadata); 11 LiteSVM tests; IDL cross-checked against the TS codec; end-to-end on devnet with a real Squads v4 multisig: authority to guard → scheduled takeover (Presign: CRITICAL, gate block) → veto prepared by /api/guard/prepare, signed by an independent guardian, submitted through /api/transaction/submit → execution refused (NotPending). Also rehearsed on a local validator, including a non-vetoed execution. Unaudited |
 
