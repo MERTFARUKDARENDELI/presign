@@ -63,6 +63,11 @@ export function toBytes(value: unknown): Uint8Array | null {
   return null;
 }
 
+/** True when `bytes` ends with `suffix` (an off-chain message: wallet-built preamble, then the reviewed text). */
+export function endsWithBytes(bytes: Uint8Array, suffix: Uint8Array): boolean {
+  return bytes.length >= suffix.length && sameBytes(bytes.subarray(bytes.length - suffix.length), suffix);
+}
+
 export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;

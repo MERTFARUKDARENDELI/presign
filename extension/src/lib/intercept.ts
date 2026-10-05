@@ -1,4 +1,4 @@
-import { asTransactionBytes, base58ToBytes, bytesToBase64, copyBytes, onlySignaturesChanged, requestKey, sameBytes, toBytes, transactionMessage } from "./bytes";
+import { asTransactionBytes, base58ToBytes, bytesToBase64, copyBytes, endsWithBytes, onlySignaturesChanged, requestKey, sameBytes, toBytes, transactionMessage } from "./bytes";
 import type { Decision, ReviewMethod, ReviewRequest } from "./protocol";
 import { createSignInMessageText, type SignInInput } from "./siws";
 
@@ -92,6 +92,17 @@ interface MsgInput {
   message?: unknown;
   account?: { address?: string };
 }
+interface OffchainInput {
+  message?: unknown;
+  account?: { address?: string };
+  requiredSigners?: readonly unknown[];
+}
+
+/** Wallet Standard features this hook reviews; any other `solana:` signing feature is refused. */
+const REVIEWED_FEATURES = new Set(["solana:signTransaction", "solana:signAndSendTransaction", "solana:signAndSendAllTransactions", "solana:signMessage", "solana:signOffchainMessage", "solana:signIn"]);
+/** Injected-provider methods this hook reviews; any other `sign…` method is refused. */
+const REVIEWED_METHODS = new Set(["signTransaction", "signAllTransactions", "signAndSendTransaction", "signAndSendAllTransactions", "signMessage", "signIn"]);
+const refusal = (what: string) => new PresignRejection(`Presign cannot review requests made through ${what} yet, so it refused this one. Nothing was sent to your wallet.`);
 
 export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
   const wrappedWallets = new WeakMap<object, object>();
@@ -232,6 +243,53 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       };
     }
 
+    // (inputs[], options?) — one array, not a rest list. Broadcast by the wallet, so only the input can be held to the review.
+    const signSendAll = features["solana:signAndSendAllTransactions"];
+    if (signSendAll && typeof signSendAll.signAndSendAllTransactions === "function") {
+      const orig = (signSendAll.signAndSendAllTransactions as Fn).bind(signSendAll);
+      out["solana:signAndSendAllTransactions"] = {
+        ...signSendAll,
+        signAndSendAllTransactions: (inputs: unknown, ...rest: unknown[]) => {
+          const list = (Array.isArray(inputs) ? inputs : []) as TxInput[];
+          const txs = list.map((i) => copyBytes(i?.transaction));
+          const forWallet = list.map((i, k) => walletInput(i, "transaction", txs[k]));
+          const options = rest.map((o) => (o && typeof o === "object" ? { ...o } : o));
+          return reviewed(
+            list.length
+              ? list.map((i, k) => req("TRANSACTION", txs[k], "signAndSendAllTransactions", i?.account?.address ?? null, i?.chain ?? null, name, k + 1, list.length))
+              : [req("UNREADABLE", null, "signAndSendAllTransactions", null, null, name, 1, 1)],
+            txs.map((t) => keyOf("TRANSACTION", t)),
+            () => orig(forWallet, ...options) as Promise<unknown>,
+          );
+        },
+      };
+    }
+
+    // The message is text; the wallet builds the off-chain preamble and signs preamble + text.
+    const signOff = features["solana:signOffchainMessage"];
+    if (signOff && typeof signOff.signOffchainMessage === "function") {
+      const orig = (signOff.signOffchainMessage as Fn).bind(signOff);
+      out["solana:signOffchainMessage"] = {
+        ...signOff,
+        signOffchainMessage: (...inputs: OffchainInput[]) => {
+          const list = inputs.map((i) => (i && typeof i === "object" ? { ...i, ...(Array.isArray(i.requiredSigners) ? { requiredSigners: [...i.requiredSigners] } : {}) } : i));
+          const texts = list.map((i) => (typeof i?.message === "string" ? new TextEncoder().encode(i.message) : null));
+          return reviewed(
+            list.map((i, k) => req("MESSAGE", texts[k], "signOffchainMessage", i?.account?.address ?? null, null, name, k + 1, list.length)),
+            texts.map((t) => keyOf("MESSAGE", t)),
+            () => orig(...list) as Promise<Array<{ signedOffchainMessage?: unknown }>>,
+            (res) =>
+              Array.isArray(res) && res.length === texts.length && res.every((r, k) => {
+                const signed = toBytes(r?.signedOffchainMessage);
+                return signed !== null && texts[k] !== null && endsWithBytes(signed, texts[k]!);
+              })
+                ? null
+                : MSG_CHANGED,
+          );
+        },
+      };
+    }
+
     const signMsg = features["solana:signMessage"];
     if (signMsg && typeof signMsg.signMessage === "function") {
       const orig = (signMsg.signMessage as Fn).bind(signMsg);
@@ -290,6 +348,15 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           );
         },
       };
+    }
+
+    // Default deny: a Solana signing feature this hook does not review (a newer one, a typo'd one) is refused,
+    // never handed through — otherwise it would be a way around every review.
+    for (const key of Object.keys(features)) {
+      if (!key.startsWith("solana:") || !/sign/i.test(key) || REVIEWED_FEATURES.has(key)) continue;
+      const refused: Feature = {};
+      for (const [k, v] of Object.entries(features[key] ?? {})) refused[k] = typeof v === "function" ? () => Promise.reject(refusal(`"${key}"`)) : v;
+      out[key] = refused;
     }
     return out;
   }
@@ -519,6 +586,19 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       if (allInFlight([key])) return orig.call(this, s.forWallet, ...rest);
       return reviewed([req("TRANSACTION", s.bytes, "signAndSendTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, s.forWallet, ...rest) as Promise<unknown>);
     });
+    hook(p, "signAndSendAllTransactions", (orig) => function (this: unknown, txs: unknown, ...rest: unknown[]) {
+      const sealed = (Array.isArray(txs) ? txs : []).map(sealTx);
+      const keys = sealed.map((s) => keyOf("TRANSACTION", s.bytes));
+      const forWallet = sealed.map((s) => s.forWallet);
+      if (allInFlight(keys)) return orig.call(this, forWallet, ...rest);
+      return reviewed(
+        sealed.length
+          ? sealed.map((s, k) => req("TRANSACTION", s.bytes, "signAndSendAllTransactions", providerAddress(p), null, label, k + 1, sealed.length))
+          : [req("UNREADABLE", null, "signAndSendAllTransactions", providerAddress(p), null, label, 1, 1)],
+        keys,
+        () => orig.call(this, forWallet, ...rest) as Promise<unknown>,
+      );
+    });
     hook(p, "signMessage", (orig) => function (this: unknown, message: unknown, ...rest: unknown[]) {
       const bytes = copyBytes(message);
       const forWallet = bytes ? Uint8Array.from(bytes) : message;
@@ -526,13 +606,39 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       if (allInFlight([key])) return orig.call(this, forWallet, ...rest);
       return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
     });
+    // Sign-In With Solana on the injected provider: same rules as the Wallet Standard feature.
+    hook(p, "signIn", (orig) => function (this: unknown, input?: unknown, ...rest: unknown[]) {
+      const given = input && typeof input === "object" ? (input as SignInInput) : null;
+      const i: SignInInput = given ? { ...given, ...(Array.isArray(given.resources) ? { resources: [...given.resources] } : {}) } : {};
+      const address = i.address ?? providerAddress(p) ?? undefined;
+      if (!address) {
+        deps.report?.(undefined, { status: "PASSED", detail: "Sign-in passed to the wallet unreviewed: the account is chosen in the wallet, so the exact text is not known in advance." });
+        return orig.call(this, input, ...rest);
+      }
+      const bytes = new TextEncoder().encode(createSignInMessageText({ ...i, domain: i.domain ?? deps.host(), address }));
+      const key = keyOf("MESSAGE", bytes);
+      const forWallet = input === undefined ? undefined : i;
+      if (allInFlight([key])) return orig.call(this, forWallet, ...rest);
+      return reviewed(
+        [req("MESSAGE", bytes, "signIn", address, null, label, 1, 1, { reconstructed: true })],
+        [key],
+        () => orig.call(this, forWallet, ...rest) as Promise<unknown>,
+        (out) => {
+          const signed = toBytes((out as { signedMessage?: unknown } | null)?.signedMessage);
+          return signed !== null && sameBytes(bytes, signed) ? null : MSG_CHANGED;
+        },
+      );
+    });
     // Generic RPC-style entry point some sites (and wallets internally) use: { method, params: { message: base58 } }.
     hook(p, "request", (orig) => function (this: unknown, args: unknown, ...rest: unknown[]) {
       const a = args as { method?: unknown; params?: { message?: unknown; messages?: unknown } } | null;
       const method = typeof a?.method === "string" ? a.method : "";
-      if (!["signTransaction", "signAllTransactions", "signAndSendTransaction", "signMessage"].includes(method)) return orig.call(this, args, ...rest);
       const params = a?.params && typeof a.params === "object" ? a.params : {};
       const decode = (m: unknown) => (typeof m === "string" ? base58ToBytes(m) : toBytes(m));
+      if (!["signTransaction", "signAllTransactions", "signAndSendTransaction", "signMessage"].includes(method)) {
+        if (!/^sign/i.test(method)) return orig.call(this, args, ...rest);
+        return otherSignRequest(this, orig, a!, method, params as Record<string, unknown>, rest);
+      }
       if (method === "signMessage") {
         const m = forWalletBytes(params.message);
         const bytes = decode(m);
@@ -551,7 +657,59 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       if (allInFlight(keys)) return orig.call(this, forWallet, ...rest);
       return reviewed(bytes.map((b, k) => req("TRANSACTION", b, method as ReviewMethod, providerAddress(p), null, label, k + 1, bytes.length)), keys, () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
     });
+
+    /**
+     * request({ method: "sign…" }) for a method Presign cannot read. A wallet's own approved
+     * call may re-enter this way with the approved payload (passed on as a copy); anything
+     * else is reviewed as unreadable, where Cancel is the only choice.
+     */
+    function otherSignRequest(self: unknown, orig: Fn, a: object, method: string, params: Record<string, unknown>, rest: unknown[]): Promise<unknown> {
+      const decode = (m: unknown) => (typeof m === "string" ? base58ToBytes(m) : toBytes(m));
+      const snap: Record<string, unknown> = { ...params };
+      const payloads: unknown[] = [];
+      for (const k of ["message", "messages", "transaction", "transactions"]) {
+        const v = params[k];
+        if (v === undefined) continue;
+        snap[k] = Array.isArray(v) ? v.map(forWalletBytes) : forWalletBytes(v);
+        payloads.push(...(Array.isArray(snap[k]) ? (snap[k] as unknown[]) : [snap[k]]));
+      }
+      const approvedPayload = (m: unknown) => {
+        const b = decode(m);
+        if (!b) return false;
+        const t = asTransactionBytes(Uint8Array.from(b));
+        return inFlight.has(requestKey("MESSAGE", b)) || (t !== null && inFlight.has(requestKey("TRANSACTION", t)));
+      };
+      let approved = payloads.length > 0 && payloads.every(approvedPayload);
+      if (!approved && method === "signIn" && payloads.length === 0) {
+        const si = params as SignInInput;
+        const address = (typeof si.address === "string" ? si.address : null) ?? providerAddress(p);
+        approved = !!address && inFlight.has(requestKey("MESSAGE", new TextEncoder().encode(createSignInMessageText({ ...si, domain: si.domain ?? deps.host(), address }))));
+      }
+      if (approved) return orig.call(self, { ...a, params: snap }, ...rest) as Promise<unknown>;
+      const kind: ReviewMethod = /message|sign-?in/i.test(method) ? "signMessage" : "signTransaction";
+      return reviewed([req("UNREADABLE", null, kind, providerAddress(p), null, label, 1, 1, { reason: `The site called "${method.slice(0, 40)}" through the wallet's request() API, which Presign cannot read.` })], [], () => orig.call(self, a, ...rest) as Promise<unknown>);
+    }
+
+    // Default deny: any other signing method on the provider (own or inherited) is refused, never handed through.
+    for (const m of methodNames(p)) {
+      if (/^sign/i.test(m) && !REVIEWED_METHODS.has(m)) hook(p, m, () => () => Promise.reject(refusal(`${label}.${m}()`)));
+    }
     return true;
+  }
+
+  /** Function-valued properties of an object and its prototypes (not Object.prototype). */
+  function methodNames(o: object): string[] {
+    const names = new Set<string>();
+    for (let x: object | null = o; x && x !== Object.prototype; x = Object.getPrototypeOf(x)) {
+      for (const n of Object.getOwnPropertyNames(x)) {
+        try {
+          if (typeof Object.getOwnPropertyDescriptor(x, n)?.value === "function") names.add(n);
+        } catch {
+          // a hostile descriptor: skip it
+        }
+      }
+    }
+    return [...names];
   }
 
   const PROVIDER_PATHS: Array<[string, string]> = [

@@ -509,3 +509,120 @@ describe("a site cannot change a request after Presign reviewed it", () => {
     expect(provider.saw.map((m) => new TextDecoder().decode(m))).toEqual(["Sign in to dapp.example nonce 1234", "Sign in to dapp.example nonce 5678"]);
   });
 });
+
+describe("every signing entry point is reviewed or refused", () => {
+  type Fns = Record<string, (...i: unknown[]) => Promise<unknown>>;
+  /** A wallet with the newer Solana features and one the hook has never heard of. */
+  const newerWallet = (calls: unknown[][], tamper = false) => ({
+    version: "1.0.0", name: "Newer", icon: "", chains: ["solana:mainnet"], accounts: [{ address: W }],
+    features: {
+      "solana:signAndSendAllTransactions": {
+        version: "1.0.0", supportedTransactionVersions: ["legacy", 0],
+        signAndSendAllTransactions: async (inputs: TxIn[], options?: unknown) => (calls.push(["signAndSendAll", inputs, options]), inputs.map(() => ({ status: "fulfilled", value: { signature: new Uint8Array(64) } }))),
+      },
+      "solana:signOffchainMessage": {
+        version: "1.0.0", supportedMessageVersions: [1],
+        signOffchainMessage: async (...inputs: Array<{ message: string }>) => (calls.push(["signOffchain", ...inputs]), inputs.map((i) => ({ signedOffchainMessage: new TextEncoder().encode(`\u00ffsolana offchain|preamble|${tamper ? "something else" : i.message}`), signature: new Uint8Array(64) }))),
+      },
+      "solana:signFutureThing": { version: "1.0.0", signFutureThing: async () => (calls.push(["future"]), []) },
+    },
+  });
+  const features = (w: unknown) => (w as { features: Record<string, Fns> }).features;
+
+  it("Wallet Standard signAndSendAllTransactions: reviewed first, cancel never reaches the wallet, approval sends the reviewed copies", async () => {
+    const calls: unknown[][] = [];
+    const w = connectedWallet(newerWallet(calls));
+    cancelAll();
+    await expect(features(w)["solana:signAndSendAllTransactions"].signAndSendAllTransactions([{ transaction: txBytes(1), account: { address: W }, chain: "solana:mainnet" }])).rejects.toBeInstanceOf(PresignRejection);
+    expect(calls).toEqual([]);
+    expect(reviewed()[0]).toMatchObject({ type: "TRANSACTION", method: "signAndSendAllTransactions" });
+
+    approveAll();
+    const buf = txBytes(1);
+    const p = features(w)["solana:signAndSendAllTransactions"].signAndSendAllTransactions([{ transaction: buf, account: { address: W }, chain: "solana:mainnet" }], { mode: "serial" });
+    buf.set(txBytes(999_000_000));
+    await p;
+    expect((calls[0][1] as TxIn[])[0].transaction).toEqual(txBytes(1));
+    expect(calls[0][2]).toEqual({ mode: "serial" });
+  });
+
+  it("Wallet Standard signOffchainMessage: the text is reviewed, and a wallet that signs other text is blocked", async () => {
+    const calls: unknown[][] = [];
+    const w = connectedWallet(newerWallet(calls));
+    approveAll();
+    const input = { messageVersion: 1, account: { address: W }, message: "Approve the 2026 budget", requiredSigners: [] };
+    await features(w)["solana:signOffchainMessage"].signOffchainMessage(input);
+    expect(reviewed()[0]).toMatchObject({ type: "MESSAGE", method: "signOffchainMessage", payload: bytesToBase64(new TextEncoder().encode("Approve the 2026 budget")) });
+
+    win = new EventTarget() as HookWindow;
+    hook = installInterceptor(win, deps);
+    const w2 = connectedWallet(newerWallet([], true));
+    await expect(features(w2)["solana:signOffchainMessage"].signOffchainMessage(input)).rejects.toBeInstanceOf(PresignRejection);
+  });
+
+  it("a signing feature the hook does not know is refused, never passed through", async () => {
+    const calls: unknown[][] = [];
+    const w = connectedWallet(newerWallet(calls));
+    approveAll();
+    await expect(features(w)["solana:signFutureThing"].signFutureThing()).rejects.toBeInstanceOf(PresignRejection);
+    expect(calls).toEqual([]);
+  });
+
+  const injected = () =>
+    new (class NewerProvider {
+      publicKey = { toBase58: () => W };
+      calls: string[] = [];
+      async signTransaction(tx: unknown) {
+        return tx;
+      }
+      async signAndSendAllTransactions(txs: Array<{ serialize: (o?: unknown) => Uint8Array }>) {
+        this.calls.push(`signAndSendAll:${txs.map((t) => bytesToBase64(t.serialize({ requireAllSignatures: false, verifySignatures: false }))).join(",")}`);
+        return { signatures: txs.map(() => "sig") };
+      }
+      async signIn(input: Record<string, string>) {
+        this.calls.push("signIn");
+        const text = createSignInMessageText({ ...input, domain: input.domain ?? "dapp.example", address: W });
+        return { address: W, signedMessage: new TextEncoder().encode(input.statement === "tamper" ? `${text}!` : text), signature: new Uint8Array(64) };
+      }
+      async signOffchainThing() {
+        this.calls.push("offchain");
+        return {};
+      }
+      async request(args: { method: string }) {
+        this.calls.push(`request:${args.method}`);
+        return {};
+      }
+    })();
+
+  it("injected signAndSendAllTransactions: reviewed one by one, and the wallet gets the reviewed bytes", async () => {
+    const provider = injected();
+    hook.patchProvider(provider, "Newer");
+    cancelAll();
+    const { tx } = buildTx([SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 5 })]);
+    await expect(provider.signAndSendAllTransactions([tx as never])).rejects.toBeInstanceOf(PresignRejection);
+    expect(provider.calls).toEqual([]);
+    expect(reviewed()[0]).toMatchObject({ method: "signAndSendAllTransactions", type: "TRANSACTION" });
+    approveAll();
+    await provider.signAndSendAllTransactions([tx as never]);
+    expect(provider.calls).toEqual([`signAndSendAll:${reviewed()[1].payload}`]);
+  });
+
+  it("injected signIn is reviewed like the Wallet Standard one; a wallet that signs other text is blocked", async () => {
+    const provider = injected();
+    hook.patchProvider(provider, "Newer");
+    approveAll();
+    await provider.signIn({ statement: "Welcome", nonce: "abc12345" });
+    expect(reviewed()[0]).toMatchObject({ type: "MESSAGE", method: "signIn", reconstructed: true, walletAddress: W });
+    await expect(provider.signIn({ statement: "tamper", nonce: "abc12345" })).rejects.toBeInstanceOf(PresignRejection);
+  });
+
+  it("an unknown injected signing method, and an unknown signing method through request(), are refused", async () => {
+    const provider = injected();
+    hook.patchProvider(provider, "Newer");
+    approveAll();
+    await expect(provider.signOffchainThing()).rejects.toBeInstanceOf(PresignRejection);
+    await expect(provider.request({ method: "signAndSendAllTransactions" })).rejects.toBeInstanceOf(PresignRejection);
+    expect(provider.calls).toEqual([]);
+    await expect(provider.request({ method: "connect" })).resolves.toEqual({});
+  });
+});

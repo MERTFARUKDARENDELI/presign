@@ -11,13 +11,15 @@
  * bytes it captured itself, never bytes handed back to it.
  */
 
-export type ReviewMethod = "signTransaction" | "signAndSendTransaction" | "signAllTransactions" | "signMessage" | "signIn";
+export type ReviewMethod = "signTransaction" | "signAndSendTransaction" | "signAllTransactions" | "signAndSendAllTransactions" | "signMessage" | "signOffchainMessage" | "signIn";
 
 export const REVIEW_METHOD_LABEL: Record<ReviewMethod, string> = {
   signTransaction: "Sign a transaction",
   signAllTransactions: "Sign several transactions",
   signAndSendTransaction: "Sign and send a transaction",
+  signAndSendAllTransactions: "Sign and send several transactions",
   signMessage: "Sign a message",
+  signOffchainMessage: "Sign an off-chain message",
   signIn: "Sign in with Solana",
 };
 
@@ -80,7 +82,7 @@ export function presignBaseFor(chain: string | null, instance: Instance): string
   return chain === "solana:devnet" ? PRESIGN_ORIGINS.devnet : PRESIGN_ORIGINS.mainnet;
 }
 
-const METHODS = new Set<ReviewMethod>(["signTransaction", "signAndSendTransaction", "signAllTransactions", "signMessage", "signIn"]);
+const METHODS = new Set<ReviewMethod>(Object.keys(REVIEW_METHOD_LABEL) as ReviewMethod[]);
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 /** Same bound as the analysis API (MAX_PAYLOAD_CHARS). */
