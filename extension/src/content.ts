@@ -1,3 +1,5 @@
+import { answerFor } from "./lib/protocol";
+
 /**
  * Isolated-world bridge between the page hook and the extension.
  *
@@ -39,20 +41,18 @@
     if (!m || typeof m !== "object") return;
     if (m.kind === "review" && typeof m.id === "string") {
       const id = m.id;
+      // Protection on never fails open: if Presign cannot review, the request is refused (answerFor).
+      const apply = (a: ReturnType<typeof answerFor>) => {
+        if (a.kind === "approve") decide(id, true);
+        else if (a.kind === "deny") decide(id, false, a.reason);
+        // "wait": the decision arrives later from the background.
+      };
       try {
         chrome.runtime.sendMessage({ kind: "presign:review", id, request: m.request }, (res?: { ok?: boolean; mode?: string; error?: string }) => {
-          if (chrome.runtime.lastError || !res?.ok) {
-            // The extension cannot run the review (reloaded, invalid request): the user decides, warned.
-            const ok = window.confirm(`Presign could not review this signing request${res?.error ? ` (${res.error})` : ""}.\n\nIt has NOT been checked. Press OK to continue to your wallet anyway, or Cancel to stop.`);
-            decide(id, ok, ok ? undefined : "cancelled (no Presign review available).");
-          } else if (res.mode === "pass") {
-            decide(id, true);
-          }
-          // mode "review": the decision arrives later from the background.
+          apply(answerFor(res, Boolean(chrome.runtime.lastError)));
         });
       } catch {
-        const ok = window.confirm("Presign is unavailable on this page (the extension was reloaded). Continue to your wallet without a review?");
-        decide(id, ok, ok ? undefined : "cancelled (Presign unavailable).");
+        apply(answerFor(undefined, true));
       }
     } else if (m.kind === "outcome") {
       try {

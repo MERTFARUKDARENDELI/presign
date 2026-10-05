@@ -19,7 +19,6 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
   Object.defineProperty(w, "__presignHook", { value: true });
 
   // Captured before any site script can replace them.
-  const nativeConfirm = window.confirm.bind(window);
   const dispatch = EventTarget.prototype.dispatchEvent;
   const listen = EventTarget.prototype.addEventListener;
   const unlisten = EventTarget.prototype.removeEventListener;
@@ -67,9 +66,9 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
   setTimeout(() => unlisten.call(doc, "presign:content-ready", onContentReady), 0);
 
   function review(request: ReviewRequest): Promise<Decision & { id?: string }> {
+    // Protection on never fails open: without the channel to Presign, the request is refused.
     if (!ready) {
-      const ok = nativeConfirm("Presign could not review this signing request: the extension is not connected on this page.\n\nIt has NOT been checked. Press OK to continue to your wallet without a Presign review, or Cancel to stop.");
-      return Promise.resolve(ok ? { approved: true } : { approved: false, reason: "cancelled (no Presign review available)." });
+      return Promise.resolve({ approved: false, reason: "the Presign extension is not connected on this page, so the request was not sent to your wallet. Reload the page, or turn Presign off for this site in the extension's menu." });
     }
     const id = `${Date.now().toString(36)}-${++seq}-${Math.random().toString(36).slice(2, 10)}`;
     return new Promise((resolve) => {

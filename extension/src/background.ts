@@ -1,4 +1,4 @@
-import { presignBaseFor, validateReviewRequest, type ExternalMessage } from "./lib/protocol";
+import { presignBaseFor, reviewableRequest, type ExternalMessage } from "./lib/protocol";
 import { applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryOf, modeFor, newPending, type LogEntry, type PendingReview, type Settings } from "./lib/store";
 
 /**
@@ -60,7 +60,8 @@ chrome.runtime.onMessage.addListener((msg: { kind?: string; id?: string; request
     const origin = sender.origin ?? (sender.url ? new URL(sender.url).origin : undefined);
     const tabId = sender.tab?.id;
     if (msg?.kind === "presign:review") {
-      const request = validateReviewRequest(msg.request);
+      // A request that cannot be reviewed as sent is still reviewed, as UNREADABLE (Cancel only).
+      const request = reviewableRequest(msg.request);
       if (!origin || tabId === undefined || typeof msg.id !== "string" || !request) return sendResponse({ ok: false, error: "invalid request" });
       const s = await settings();
       const m = modeFor(origin, s);

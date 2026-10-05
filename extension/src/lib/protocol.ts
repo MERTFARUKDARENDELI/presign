@@ -114,6 +114,64 @@ export function validateReviewRequest(raw: unknown): ReviewRequest | null {
   };
 }
 
+const MAX_REVIEW_BYTES = (MAX_PAYLOAD_CHARS / 4) * 3;
+const MAX_BATCH = 50;
+
+/** Why a page's request cannot be reviewed as sent, in words for the review page. */
+function unreviewableReason(r: Record<string, unknown>): string {
+  const total = Number(r.total);
+  if (Number.isInteger(total) && total > MAX_BATCH) return `The site asked for ${total} signatures at once; Presign reviews at most ${MAX_BATCH} in one request.`;
+  if (typeof r.payload === "string" && r.payload.length > MAX_PAYLOAD_CHARS) return `This request is larger than Presign can review (${MAX_REVIEW_BYTES.toLocaleString("en-US")} bytes at most).`;
+  return "The request is malformed, so Presign cannot read it.";
+}
+
+/**
+ * What the extension reviews for a request from a page. A readable request is
+ * reviewed as sent. One that cannot be reviewed as sent (too large, too many
+ * signatures, malformed) is still reviewed — as UNREADABLE, where Cancel is
+ * the only choice — so a site cannot turn "cannot review" into "continue
+ * without a review". Null only when not even the method is known.
+ */
+export function reviewableRequest(raw: unknown): ReviewRequest | null {
+  const valid = validateReviewRequest(raw);
+  if (valid) return valid;
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.method !== "string" || !METHODS.has(r.method as ReviewMethod)) return null;
+  const total = Number.isInteger(Number(r.total)) ? Math.min(Math.max(Number(r.total), 1), 10_000) : 1;
+  const index = Number.isInteger(Number(r.index)) ? Math.min(Math.max(Number(r.index), 1), total) : 1;
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max) : null);
+  return {
+    type: "UNREADABLE",
+    payload: null,
+    walletAddress: typeof r.walletAddress === "string" && ADDRESS.test(r.walletAddress) ? r.walletAddress : null,
+    chain: typeof r.chain === "string" && /^solana:[a-z]{1,20}$/.test(r.chain) ? r.chain : null,
+    method: r.method as ReviewMethod,
+    walletName: text(r.walletName, 40),
+    index,
+    total,
+    reason: unreviewableReason(r),
+  };
+}
+
+/** What the page hook is told after the extension received a request: wallet now, wait for the review, or refuse. */
+export type ReviewAnswer = { kind: "approve" } | { kind: "wait" } | { kind: "deny"; reason: string };
+
+const TURN_OFF_HINT = "To use this site without Presign, turn Presign off for it in the extension's menu.";
+
+/**
+ * The content script's reading of the extension's reply. Only an explicit pass
+ * (protection off, or off for this site — the user's own setting) goes
+ * straight to the wallet. Anything that keeps Presign from reviewing is a
+ * refusal: protection on never fails open.
+ */
+export function answerFor(res: { ok?: boolean; mode?: string; error?: string } | undefined, failed: boolean): ReviewAnswer {
+  if (failed) return { kind: "deny", reason: `the Presign extension was updated or reloaded; reload this page to use your wallet with Presign. ${TURN_OFF_HINT}` };
+  if (res?.ok && res.mode === "pass") return { kind: "approve" };
+  if (res?.ok && res.mode === "review") return { kind: "wait" };
+  return { kind: "deny", reason: `Presign could not review this request${res?.error ? ` (${res.error.slice(0, 80)})` : ""}, so it was not sent to your wallet. ${TURN_OFF_HINT}` };
+}
+
 export function isAllowedPresignOrigin(origin: string | undefined | null): boolean {
   return typeof origin === "string" && ALLOWED_PRESIGN_ORIGINS.includes(origin);
 }
