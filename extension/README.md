@@ -1,6 +1,6 @@
 # Presign browser extension
 
-Reviews every Solana signing request on any website **before your wallet opens**. No link to share: when a site asks your wallet to sign, Presign opens its review, and the wallet is asked only after your decision. Presign advises; you decide.
+Reviews Solana signing requests on any website **before your wallet opens** — every request made through the wallet APIs it wraps (Wallet Standard and injected providers); while protection is on, anything it cannot review is refused. No link to share: when a site asks your wallet to sign, Presign opens its review, and the wallet is asked only after your decision. Presign advises; you decide.
 
 ## Install (developer mode)
 
@@ -43,4 +43,5 @@ page hook ── the site's ORIGINAL request ──▶ wallet ── signature �
 - Injected providers: a wallet that rebuilds a transaction from the object's fields instead of serializing it would not be held to the reviewed bytes by the sealed view. Wallet Standard wallets receive bytes and are not affected.
 - A Sign-In With Solana request whose account is chosen inside the wallet cannot be reconstructed in advance; it goes to the wallet unreviewed and is logged as "not reviewed".
 - Each transaction of a batch is reviewed separately; there is no combined view.
-- Not yet published to the Chrome Web Store; not yet exercised with a real wallet extension (Phantom, Solflare, Backpack) — the end-to-end test uses a fake wallet.
+- Not yet published to the Chrome Web Store; not yet exercised with a real wallet extension (Phantom, Solflare, Backpack) — the end-to-end test uses a fake wallet. Wallets that add instructions to a transaction (priority fees, guard instructions) will have their signature withheld, by design; this needs checking against real wallets.
+- The page hook is tested against hostile sites in unit tests (bytes swapped after the call, objects that serialize differently, oversized requests, unwrapped features); the Chrome end-to-end test covers an honest site.

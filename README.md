@@ -24,7 +24,7 @@ Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or 
 | **Presign Guard** (on-chain, live on devnet, unaudited) | Protocols with critical authorities | A Solana program that holds admin / upgrade / mint authorities: actions using them are scheduled, wait a fixed delay, and any single guardian can veto them. Presign shows the countdown and offers veto / execute. See [`guard/DESIGN.md`](guard/DESIGN.md). |
 | **Team policy** | Teams with rules | One JSON file: approved authority holders, actions that must go through Presign Guard, minimum time lock / threshold, approved programs and recipients, outflow caps, verified upgrades, no durable nonces. Checked on every proposal in `/verify`, the API, Watchtower and MCP; a rule that cannot be checked is flagged, never assumed. See [`/docs#policy`](app/docs/page.tsx). |
 | **HTTP API & MCP server** | Wallets, custodians, bots, AI agents | The same engine as JSON, and as MCP tools for agents. Every result carries a deterministic `gate`: `block` / `require_human_review` / `no_known_risk`. |
-| **Browser extension** | Anyone signing on any site | Load [`extension/`](extension/README.md) in Chrome: when any website asks your wallet to sign, Presign's review opens first and the wallet only after your decision — no link to share. Wraps Wallet Standard wallets (Phantom, Solflare, Backpack, …) and injected providers; the wallet receives the site's own request untouched, and a signature for anything other than the reviewed bytes is withheld from the site. |
+| **Browser extension** | Anyone signing on any site | Load [`extension/`](extension/README.md) in Chrome: when any website asks your wallet to sign, Presign's review opens first and the wallet only after your decision — no link to share. Wraps Wallet Standard wallets (Phantom, Solflare, Backpack, …) and injected providers; the wallet receives a copy of the bytes taken when the site asked, a signature for anything other than the reviewed bytes is withheld from the site, and while protection is on a request it cannot review is refused. A page written to evade a page-level hook can still reach the wallet directly. |
 | **Wallet & token tools** | Holders | The original scanner: token authorities, Token-2022 extensions, concentration, age, metadata phishing, cleanup (burn / close / revoke). |
 
 ### Detections (deterministic, evidence-linked)
@@ -73,7 +73,7 @@ Requirements: Node.js 24 (22.18+ for the Watchtower / MCP scripts), npm, a Heliu
 
 ```bash
 npm install
-cp .env.example .env.local        # set HELIUS_API_KEY; SOLANA_CLUSTER=mainnet-beta for real multisigs
+cp .env.example .env.local        # set HELIUS_API_KEY; SOLANA_CLUSTER=mainnet-beta for real multisigs; PRESIGN_SESSION_SECRET is required in production
 npm run dev                       # http://localhost:3000
 ```
 
@@ -91,7 +91,7 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 
 - **Mainnet, read-only:** both Drift exploit transactions analyzed by signature and from their unsigned bytes (CRITICAL); both votes on proposal #7 flagged as signed in advance, and the nonce accounts traced to their creation by an address outside the council ([notes](docs/research/drift-nonce-trail.md)); the Drift Security Council multisig inspected live (proposal #7 admin takeover; #8 / #9 require the attacker's key as signer); census of all 157,117 Squads v4 multisigs; MCP and Watchtower exercised against a running instance.
 - **Program hashes:** the `solana-verify` convention was checked against OtterSec's `on_chain_hash` for the live Squads v4 program (`scripts/research/hash-check.ts`).
-- **Tests:** 609, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
+- **Tests:** 677, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Presign Guard program:** deployed on devnet (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, IDL published); 11 LiteSVM tests of its invariants pass; its IDL is checked against the TypeScript codec; the full scenario ran end-to-end on devnet with a real Squads v4 multisig — takeover scheduled, CRITICAL in Presign, vetoed through Presign by an independent guardian, execution refused by the program. Unaudited.
 - **Batches and buffers on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows; a proposal created from a real pending transaction buffer decodes from the buffer.
 - **Live deployments:** https://presign-app.vercel.app (mainnet-beta: Drift replay, `/verify` on real multisigs) and https://presign-devnet.vercel.app (devnet: Presign Guard demo). Watchtower's Telegram bot answered `/check` and `/watch` (devnet multisig and guard) in a real group, asking the devnet instance.

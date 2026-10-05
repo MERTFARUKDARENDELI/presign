@@ -6,10 +6,10 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 
 - **Görmek:** Squads v4 çözücü (36 talimat, 7 hesap türü, batch ve buffer dahil), Anchor IDL çözücü, BPF loader; kasa simülasyonu (lookup table kullanan teklifler dahil); `/verify`, `/transaction`, `/case/drift`. Teklif geçmişinden "önceden imzalanmış oy" tespiti: Drift #7'de iki oy da durable nonce ile gelmiş, nonce hesapları 8 ve 1 gün boşta beklemiş; iki hesabı da konsey dışı tek bir adres açmış (`docs/research/drift-nonce-trail.md`).
 - **Durdurmak:** Presign Guard on-chain programı (Anchor 1.x). 11 program testi geçiyor. Gerçek Squads programıyla yerel validator'da uçtan uca çalıştı: zamanlama → uyarı → veto → yürütme reddi. **Devnet'te canlı** (2 Ekim): program `A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`; gerçek Squads multisig ile ele geçirme zamanlandı, Presign CRITICAL dedi, bağımsız guardian veto etti, program yürütmeyi reddetti.
-- **Kural koymak:** ekip politikası motoru (11 kural; `/verify`, API, Watchtower, MCP) ve 73 kurallık herkese açık katalog (`/rules`).
+- **Kural koymak:** ekip politikası motoru (11 kural; `/verify`, API, Watchtower, MCP) ve 111 kurallık herkese açık katalog (`/rules`).
 - Watchtower Telegram botu (`/watch`, `/check`), MCP sunucusu, API'de deterministik `gate`, program upgrade'lerinde verified-build kontrolü.
 - Mainnet doğrulamaları: Drift saldırısı (CRITICAL), census (157.117 multisig), gerçek batch ve buffer teklifleri, 20 aktif multisig ve 15 gerçek işlemle duman testi (hatasız).
-- 609 uygulama testi + 11 program testi, CI, Apache-2.0, README, başvuru metni, video senaryoları, pitch deck.
+- 677 uygulama testi + 11 program testi, CI, Apache-2.0, README, başvuru metni, video senaryoları, pitch deck.
 
 ## Sadece sizin yapabileceğiniz işler (öncelik sırasıyla)
 

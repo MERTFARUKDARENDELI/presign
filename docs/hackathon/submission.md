@@ -32,7 +32,7 @@ Two things were missing: a screen that says what a signature does, and a hand th
 - On devnet, the same attack against a guarded protocol: a real Squads multisig schedules "mint authority → attacker" through Presign Guard; Presign marks it CRITICAL before the second approval, Watchtower announces the countdown, an independent guardian vetoes through Presign, and the program refuses to execute it.
 - Mainnet checks: real batch proposals (lookup tables included) and a proposal created from a real transaction buffer decode and simulate; a smoke test over 20 active multisigs and 15 recent Squads transactions ran without errors.
 
-**Principles.** Deterministic rules (73, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; the web app is read-only — no keys, no signing.
+**Principles.** Deterministic rules (111, listed in a public catalog at `/rules`); every signal cites the byte, account or IDL field behind it; missing data is never read as safe; the AI layer explains but cannot change a verdict; the web app is read-only — no keys, no signing.
 
 ## Landscape
 
@@ -58,7 +58,7 @@ Drift made this problem visible, and several teams now work on it. We list them 
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (609 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (677 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
 
 ## Links
 
