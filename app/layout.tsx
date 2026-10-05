@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { connection } from "next/server";
 import SecurityHeader from "@/components/SecurityHeader";
 import WalletProviders from "@/components/providers/WalletProviders";
 import { BRAND } from "@/lib/brand";
@@ -34,7 +35,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Render per request: the CSP nonce from proxy.ts exists only at request time (a static page has no nonce).
+  await connection();
   return (
     <html
       lang="en"
