@@ -2,7 +2,7 @@ import type { MultisigAnalysis } from "@/lib/multisig/types";
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@/lib/solana/constants";
 import { formatLamports, formatRawAmount } from "@/lib/token/amount";
 import { estimatePriorityFeeLamports, formatTxVersion } from "@/lib/transaction/decoder";
-import { walletNetChanges } from "@/lib/transaction/effects";
+import { boundedOutflow, walletNetChanges } from "@/lib/transaction/effects";
 import type { DecodedTransaction, TransactionEffects } from "@/lib/transaction/types";
 import { buildAssessment } from "../engine";
 import type { RiskAssessment, RiskSignal } from "../risk";
@@ -222,18 +222,6 @@ function rentDeposits(decoded: DecodedTransaction, wallet: string): bigint {
   return total;
 }
 
-/**
- * The transaction's own outflow from an account other transactions also changed around the
- * simulation. Assuming that activity did not reverse direction in between, it lies between the
- * readings against the earlier and the later snapshot: take the amount the visible instructions
- * explain when it fits that range, else the nearest bound — so only outflow that no reading of the
- * concurrent activity explains is treated as unexplained.
- */
-function boundedOutflow(earlier: bigint, later: bigint, explained: bigint) {
-  const [lo, hi] = earlier < later ? [earlier, later] : [later, earlier];
-  return { lo, hi, value: explained < lo ? lo : explained > hi ? hi : explained };
-}
-
 function evaluateEffects(
   effects: TransactionEffects,
   input: TxRuleInput,
@@ -293,18 +281,22 @@ function evaluateEffects(
     }
   }
 
-  // Tokens. For wallet token accounts other transactions changed, `post - later` = delta + (pre - later).
-  const laterShift = new Map<string, { shift: bigint; decimals: number; accounts: string[] }>();
+  // Tokens. A wallet token account other transactions changed has its own outflow between `pre - post` and
+  // `later - post` = `pre - post - (pre - later)`. Bounded per account, the mint's net outflow lies between
+  // -delta minus what others took from its accounts and -delta plus what they added.
+  const othersByMint = new Map<string, { took: bigint; added: bigint; decimals: number; accounts: string[] }>();
   for (const c of concurrent) {
     if (!c.token || c.token.owner !== wallet || c.token.pre === c.token.later) continue;
-    const cur = laterShift.get(c.token.mint) ?? { shift: 0n, decimals: c.token.decimals, accounts: [] };
-    cur.shift += BigInt(c.token.pre) - BigInt(c.token.later);
+    const cur = othersByMint.get(c.token.mint) ?? { took: 0n, added: 0n, decimals: c.token.decimals, accounts: [] };
+    const shift = BigInt(c.token.pre) - BigInt(c.token.later);
+    if (shift > 0n) cur.took += shift;
+    else cur.added -= shift;
     cur.accounts.push(`${c.address}: ${formatRawAmount(c.token.pre, c.token.decimals)} → ${formatRawAmount(c.token.later, c.token.decimals)}`);
-    laterShift.set(c.token.mint, cur);
+    othersByMint.set(c.token.mint, cur);
   }
   const outMints: string[] = [];
-  for (const mint of new Set([...tokenDeltas.keys(), ...laterShift.keys()])) {
-    const conc = laterShift.get(mint);
+  for (const mint of new Set([...tokenDeltas.keys(), ...othersByMint.keys()])) {
+    const conc = othersByMint.get(mint);
     let delta = tokenDeltas.get(mint)?.delta ?? 0n;
     const decimals = tokenDeltas.get(mint)?.decimals ?? conc?.decimals ?? 0;
     const transfers = decoded.tokenTransfers.filter((t) => t.authority === wallet && !t.cpi && (t.mint === mint || t.mint === null));
@@ -314,7 +306,7 @@ function evaluateEffects(
     if (conc) {
       statuses.push("PARTIAL");
       const visible = [...transfers.map((t) => t.amountRaw), ...burns.map((i) => i.info.amount ?? "0")].reduce((s, a) => s + BigInt(a), 0n);
-      delta = -boundedOutflow(-delta, -(delta + conc.shift), visible).value;
+      delta = -boundedOutflow(-delta - conc.took, -delta + conc.added, visible).value;
       const id = ev({ source: effSource, label: `Token balance changed by other transactions (mint ${mint})`, observed: `${conc.accounts.join("; ")} (${slots})`, condition: "balance changed between the snapshots around the simulation" });
       evidenceIds.push(id);
       signals.push({ code: `TX_TOKEN_CHANGE_UNCERTAIN:${mint}`, title: "Token change uncertain", description: "Other transactions changed this token balance in your wallet while this one was simulated, so the exact amount moved cannot be isolated. Only outflow that this activity cannot explain is reported as unexpected.", severity: "LOW", evidenceIds: [id] });

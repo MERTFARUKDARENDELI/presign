@@ -158,6 +158,19 @@ export function concurrentChanges(addresses: string[], pre: unknown[], later: un
   return out;
 }
 
+/**
+ * The transaction's own outflow from an account other transactions also changed around the
+ * simulation. Assuming that activity did not reverse direction in between, it lies between the
+ * readings against the earlier and the later snapshot: take the amount the visible instructions
+ * explain when it fits that range, else the nearest bound — so only outflow that no reading of the
+ * concurrent activity explains is treated as unexplained. Over several accounts, pass the sums of each
+ * account's lower and upper reading: summing per snapshot first lets opposite changes cancel out.
+ */
+export function boundedOutflow(earlier: bigint, later: bigint, explained: bigint) {
+  const [lo, hi] = earlier < later ? [earlier, later] : [later, earlier];
+  return { lo, hi, value: explained < lo ? lo : explained > hi ? hi : explained };
+}
+
 /** Wallet-perspective net SOL change (lamports) and per-mint token change. */
 export function walletNetChanges(
   wallet: string,
