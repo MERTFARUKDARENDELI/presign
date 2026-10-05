@@ -48,13 +48,14 @@ describe("server never signs on the user's behalf", () => {
     }
   });
 
-  it("the browser extension never creates a signature, loads a key or talks to the network", () => {
+  it("the browser extension never creates a signature, loads a private key or talks to the network", () => {
     const ext = sourceFiles(path.join(ROOT, "extension", "src"));
     expect(ext.length).toBeGreaterThan(5);
     for (const f of ext) {
       const src = readFileSync(f, "utf8");
-      // It only forwards the site's own request to the wallet's own method after the user's decision.
-      expect(src, rel(f)).not.toMatch(/fromSecretKey|Keypair|secretKey|ed25519|nacl|bip39|mnemonic|\.(partialSign|sign)\(/);
+      // It only forwards the site's own request to the wallet's own method after the user's decision. It may CHECK a
+      // wallet's signature with the account's public key (Web Crypto "verify"), never make one or hold a private key.
+      expect(src, rel(f)).not.toMatch(/fromSecretKey|Keypair|secretKey|nacl|bip39|mnemonic|\.(partialSign|sign)\(|generateKey|pkcs8|"jwk"|\["sign"\]/);
       // No requests anywhere: data leaves the page only to the Presign review page the user sees.
       expect(src, rel(f)).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/);
     }

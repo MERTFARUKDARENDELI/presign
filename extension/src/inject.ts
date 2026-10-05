@@ -1,3 +1,4 @@
+import { ed25519Verifier } from "./lib/ed25519";
 import { installInterceptor, type HookWindow } from "./lib/intercept";
 import type { Decision, ReviewRequest } from "./lib/protocol";
 
@@ -27,6 +28,9 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
   const stringify = JSON.stringify;
   const parse = JSON.parse;
   const doc = document;
+  // Web Crypto exists only on secure pages; elsewhere message signatures cannot be checked.
+  const subtle = globalThis.crypto?.subtle;
+  const verifySignature = subtle ? ed25519Verifier(subtle) : undefined;
   const REVIEW_TIMEOUT_MS = 16 * 60_000;
 
   const secret = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -89,6 +93,7 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
       if (ready) send({ kind: "outcome", rid: rid ?? null, outcome });
     },
     host: () => window.location.host,
+    verifySignature,
   });
 
   // Injected providers can appear after this script: wrap them as they show up.

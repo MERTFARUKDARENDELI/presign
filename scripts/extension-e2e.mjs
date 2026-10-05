@@ -31,6 +31,8 @@ const INSTANCE = process.env.E2E_INSTANCE === "production" ? "production" : "loc
 // ---------------------------------------------------------------- requests
 const TEST_SEED = new Uint8Array(32).fill(77); // throwaway test key, devnet only
 const wallet = Keypair.fromSeed(TEST_SEED).publicKey;
+// The same key as PKCS#8, so the fake wallet in the page signs messages for real (Web Crypto Ed25519).
+const TEST_PKCS8 = [...Buffer.from("302e020100300506032b657004220420", "hex"), ...TEST_SEED].join(",");
 const feePayer = new PublicKey(process.env.E2E_FEE_PAYER ?? "6a1wxRdkWZKPHqSJvEEwcd9KywCEtrSnmswHDhNsBNqd");
 const RPC = process.env.E2E_RPC ?? "https://solana-devnet.api.onfinality.io/public";
 // Built when the dApp asks, with a current blockhash, like a real dApp (an expired one is — correctly — unverifiable).
@@ -74,7 +76,9 @@ class FakeWallet {
   // Fills the wallet's signature slot (index 1: the fee payer is index 0).
   #signTx = async (...inputs) => { window.__walletCalls.push({ method: "signTransaction", b64: btoa(String.fromCharCode(...inputs[0].transaction)) });
     return inputs.map((i) => { const s = Uint8Array.from(i.transaction); s.fill(7, 65, 129); return { signedTransaction: s }; }); };
-  #signMsg = async (...inputs) => { window.__walletCalls.push({ method: "signMessage" }); return inputs.map((i) => ({ signedMessage: i.message, signature: new Uint8Array(64) })); };
+  #signMsg = async (...inputs) => { window.__walletCalls.push({ method: "signMessage" });
+    const key = await crypto.subtle.importKey("pkcs8", new Uint8Array([${TEST_PKCS8}]), { name: "Ed25519" }, false, ["sign"]);
+    return Promise.all(inputs.map(async (i) => ({ signedMessage: i.message, signature: new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, i.message)) }))); };
 }
 // The site (like @wallet-standard/app) — then the wallet registers (like @wallet-standard/wallet).
 const wallets = [];

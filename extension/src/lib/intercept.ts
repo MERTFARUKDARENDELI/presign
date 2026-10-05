@@ -1,4 +1,5 @@
 import { asTransactionBytes, base58ToBytes, bytesToBase64, copyBytes, endsWithBytes, onlySignaturesChanged, requestKey, sameBytes, toBytes, transactionMessage } from "./bytes";
+import type { SignatureVerifier } from "./ed25519";
 import type { Decision, ReviewMethod, ReviewRequest } from "./protocol";
 import { createSignInMessageText, type SignInInput } from "./siws";
 
@@ -38,6 +39,8 @@ export interface InterceptorDeps {
   report?(id: string | undefined, outcome: ReviewOutcome): void;
   /** Host of the page (for the sign-in text when the site does not set a domain). */
   host(): string;
+  /** Ed25519 check of a message signature the wallet returned (null: this browser cannot check). */
+  verifySignature?: SignatureVerifier;
 }
 
 export interface HookWindow extends EventTarget {
@@ -72,6 +75,7 @@ const stopAll = (e: Event) => {
 
 const CHANGED = "Your wallet returned a transaction that differs from the one Presign reviewed. The signature was not given to the site.";
 const MSG_CHANGED = "Your wallet signed different bytes than the ones Presign reviewed. The signature was not given to the site.";
+const BAD_SIGNATURE = "Your wallet's signature does not match the message Presign reviewed and the account it was reviewed for. The signature was not given to the site.";
 const UNREADABLE_TX = "The site passed a transaction Presign cannot read.";
 const UNREADABLE_MSG = "The site passed a message Presign cannot read.";
 
@@ -151,7 +155,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
    * returned, then hand the site its result (`restore` maps a view back to the
    * site's own object).
    */
-  async function reviewed<T>(requests: ReviewRequest[], keys: Array<string | null>, call: () => Promise<T>, verify?: (out: T) => string | null, restore: (out: T) => T = (out) => out): Promise<T> {
+  async function reviewed<T>(requests: ReviewRequest[], keys: Array<string | null>, call: () => Promise<T>, verify?: (out: T) => string | null | Promise<string | null>, restore: (out: T) => T = (out) => out): Promise<T> {
     const ids = await reviewAll(requests);
     // Presign offers no sign path for a request it could not read; an approval for one is not trusted.
     if (requests.some((r) => r.type === "UNREADABLE")) throw new PresignRejection("Presign could not read this request, so it cannot be sent to your wallet.");
@@ -163,7 +167,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         report(ids, { status: "REJECTED", detail: error instanceof Error ? error.message.slice(0, 160) : "The wallet did not sign." });
         throw error;
       }
-      const problem = verify?.(out) ?? null;
+      const problem = (await verify?.(out)) ?? null;
       if (problem) {
         report(ids, { status: "BLOCKED", detail: problem });
         throw new PresignRejection(problem);
@@ -182,6 +186,38 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     const copy: Record<string, unknown> = { ...(input as Record<string, unknown>) };
     if (bytes) copy[field] = Uint8Array.from(bytes);
     return copy as T;
+  }
+
+  /** The signature must be valid for `signed` and the account the request was reviewed for. */
+  async function signatureProblem(signed: Uint8Array, signature: unknown, address: string | null): Promise<string | null> {
+    if (!deps.verifySignature || !address) return null;
+    const sig = typeof signature === "string" ? base58ToBytes(signature) : toBytes(signature);
+    const publicKey = base58ToBytes(address);
+    if (!sig || !publicKey) return BAD_SIGNATURE;
+    try {
+      // null: this browser cannot check Ed25519; the wallet still signed the reviewed copy.
+      return (await deps.verifySignature(signed, sig, publicKey)) === false ? BAD_SIGNATURE : null;
+    } catch {
+      return BAD_SIGNATURE;
+    }
+  }
+
+  /**
+   * A wallet's message results: one per input, the signed bytes present and equal to the
+   * reviewed ones (an off-chain message: ending with the reviewed text, after the
+   * wallet's preamble), and each signature valid for them and the reviewing account.
+   */
+  async function messageResultsProblem(res: unknown, reviewedBytes: Array<Uint8Array | null>, addresses: Array<string | null>, field: "signedMessage" | "signedOffchainMessage"): Promise<string | null> {
+    if (!Array.isArray(res) || res.length !== reviewedBytes.length) return MSG_CHANGED;
+    for (let k = 0; k < res.length; k++) {
+      const r = res[k] as Record<string, unknown> | null;
+      const signed = toBytes(r?.[field]);
+      const want = reviewedBytes[k];
+      if (!signed || !want || !(field === "signedOffchainMessage" ? endsWithBytes(signed, want) : sameBytes(want, signed))) return MSG_CHANGED;
+      const bad = await signatureProblem(signed, r?.signature, addresses[k]);
+      if (bad) return bad;
+    }
+    return null;
   }
 
   const req = (type: ReviewRequest["type"], payload: Uint8Array | null, method: ReviewMethod, wallet: string | null, chain: string | null, walletName: string | null, index: number, total: number, extra: Partial<ReviewRequest> = {}): ReviewRequest => ({
@@ -278,13 +314,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
             list.map((i, k) => req("MESSAGE", texts[k], "signOffchainMessage", i?.account?.address ?? null, null, name, k + 1, list.length)),
             texts.map((t) => keyOf("MESSAGE", t)),
             () => orig(...list) as Promise<Array<{ signedOffchainMessage?: unknown }>>,
-            (res) =>
-              Array.isArray(res) && res.length === texts.length && res.every((r, k) => {
-                const signed = toBytes(r?.signedOffchainMessage);
-                return signed !== null && texts[k] !== null && endsWithBytes(signed, texts[k]!);
-              })
-                ? null
-                : MSG_CHANGED,
+            (res) => messageResultsProblem(res, texts, list.map((i) => i?.account?.address ?? null), "signedOffchainMessage"),
           );
         },
       };
@@ -297,18 +327,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         ...signMsg,
         signMessage: (...inputs: MsgInput[]) => {
           const msgs = inputs.map((i) => copyBytes(i?.message));
+          const addresses = inputs.map((i) => i?.account?.address ?? null);
           const forWallet = inputs.map((i, k) => walletInput(i, "message", msgs[k]));
           return reviewed(
-            inputs.map((i, k) => req("MESSAGE", msgs[k], "signMessage", i?.account?.address ?? null, null, name, k + 1, inputs.length)),
+            inputs.map((i, k) => req("MESSAGE", msgs[k], "signMessage", addresses[k], null, name, k + 1, inputs.length)),
             msgs.map((m) => keyOf("MESSAGE", m)),
             () => orig(...forWallet) as Promise<Array<{ signedMessage?: unknown }>>,
-            (res) =>
-              Array.isArray(res) && res.every((r, k) => {
-                const signed = toBytes(r?.signedMessage);
-                return signed === null || (msgs[k] !== null && sameBytes(msgs[k]!, signed));
-              })
-                ? null
-                : MSG_CHANGED,
+            (res) => messageResultsProblem(res, msgs, addresses, "signedMessage"),
           );
         },
       };
@@ -339,12 +364,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
             list.map((i, k) => req("MESSAGE", bytes[k], "signIn", addressFor(i) ?? null, null, name, k + 1, list.length, { reconstructed: true })),
             bytes.map((b) => keyOf("MESSAGE", b)),
             () => orig(...(inputs.length ? list : inputs)) as Promise<Array<{ signedMessage?: unknown }>>,
-            (res) => (Array.isArray(res) && res.every((r, k) => {
-              const signed = toBytes(r?.signedMessage);
-              return signed !== null && sameBytes(bytes[k], signed);
-            })
-              ? null
-              : MSG_CHANGED),
+            (res) => messageResultsProblem(res, bytes, list.map((i) => addressFor(i) ?? null), "signedMessage"),
           );
         },
       };
@@ -601,10 +621,11 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     });
     hook(p, "signMessage", (orig) => function (this: unknown, message: unknown, ...rest: unknown[]) {
       const bytes = copyBytes(message);
+      const address = providerAddress(p);
       const forWallet = bytes ? Uint8Array.from(bytes) : message;
       const key = keyOf("MESSAGE", bytes);
       if (allInFlight([key])) return orig.call(this, forWallet, ...rest);
-      return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
+      return reviewed([req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>, (out) => signatureProblem(bytes!, (out as { signature?: unknown } | null)?.signature, address));
     });
     // Sign-In With Solana on the injected provider: same rules as the Wallet Standard feature.
     hook(p, "signIn", (orig) => function (this: unknown, input?: unknown, ...rest: unknown[]) {
@@ -623,10 +644,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         [req("MESSAGE", bytes, "signIn", address, null, label, 1, 1, { reconstructed: true })],
         [key],
         () => orig.call(this, forWallet, ...rest) as Promise<unknown>,
-        (out) => {
-          const signed = toBytes((out as { signedMessage?: unknown } | null)?.signedMessage);
-          return signed !== null && sameBytes(bytes, signed) ? null : MSG_CHANGED;
-        },
+        (out) => messageResultsProblem([out], [bytes], [address], "signedMessage"),
       );
     });
     // Generic RPC-style entry point some sites (and wallets internally) use: { method, params: { message: base58 } }.
@@ -644,8 +662,9 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const bytes = decode(m);
         const forWallet = { ...a, params: { ...params, message: forWalletBytes(m) } };
         const key = keyOf("MESSAGE", bytes);
+        const address = providerAddress(p);
         if (allInFlight([key])) return orig.call(this, forWallet, ...rest);
-        return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
+        return reviewed([req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>, (out) => signatureProblem(bytes!, (out as { signature?: unknown } | null)?.signature, address));
       }
       const raw = (method === "signAllTransactions" ? (Array.isArray(params.messages) ? (params.messages as unknown[]) : []) : [params.message]).map(forWalletBytes);
       const bytes = raw.map((m) => {
