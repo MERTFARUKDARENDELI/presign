@@ -25,7 +25,7 @@ page hook ── the site's ORIGINAL request ──▶ wallet ── signature �
 
 - **What is wrapped:** Wallet Standard wallets (the `register-wallet` / `app-ready` handshake is intercepted, so the site only gets wrapped wallets) and injected providers (`window.phantom.solana`, `window.solana`, `window.solflare`, `window.backpack`, …) — sign transaction(s), sign and send, sign message, Sign-In With Solana.
 - **Same review as everywhere:** `/extension/review` uses the same analysis, decision rules and server approval as the rest of Presign. The requesting site is the origin the browser reports to the extension, not what the site claims.
-- **Exact bytes, both ways:** after approval the wallet receives the site's own request object; the hook never accepts bytes from outside. When the wallet returns, a signed transaction may differ from the reviewed one only in its signature slots, and a signed message must be byte-identical — otherwise the signature is withheld from the site.
+- **Exact bytes, both ways:** the bytes are copied the moment the site calls, and after approval the wallet gets that copy — never the site's own array, which the site could change while you read the review. Injected providers take a transaction object: the wallet gets a view of it whose serialization is fixed to the reviewed bytes, and the site gets its own object back. When the wallet returns, a signed transaction may differ from the reviewed one only in its signature slots, and a Wallet Standard signed message must be byte-identical — otherwise the signature is withheld from the site.
 - **Ownership once per session:** Presign approves only for a wallet you proved is yours (a message that authorizes nothing). Your wallet extension works on the review page too.
 - **Channel to the extension:** a random secret is exchanged with the content script synchronously at start-up, before any site script runs; messages then travel as DOM events named with that secret, using DOM / JSON functions captured before the site could replace them.
 - **No keys, no network:** the extension never signs, never holds keys and makes no requests of its own (`tests/security/no-server-signing.test.ts` fails if it ever does).
@@ -38,7 +38,8 @@ page hook ── the site's ORIGINAL request ──▶ wallet ── signature �
 ## Limits
 
 - A page written specifically to evade a page-level hook can bypass it; only wallet-level integration closes that.
-- `signAndSendTransaction` is broadcast by the wallet itself, so only what goes to the wallet can be checked.
+- `signAndSendTransaction` is broadcast by the wallet itself, so only what goes to the wallet can be checked (it is the reviewed copy).
+- Injected providers: a wallet that rebuilds a transaction from the object's fields instead of serializing it would not be held to the reviewed bytes by the sealed view. Wallet Standard wallets receive bytes and are not affected.
 - A Sign-In With Solana request whose account is chosen inside the wallet cannot be reconstructed in advance; it goes to the wallet unreviewed and is logged as "not reviewed".
 - Each transaction of a batch is reviewed separately; there is no combined view.
 - Not yet published to the Chrome Web Store; not yet exercised with a real wallet extension (Phantom, Solflare, Backpack) — the end-to-end test uses a fake wallet.

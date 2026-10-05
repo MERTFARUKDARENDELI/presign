@@ -46,6 +46,15 @@ export function base58ToBytes(value: string): Uint8Array | null {
   return Uint8Array.from(bytes.reverse());
 }
 
+/**
+ * A private copy of the bytes in `value`. The site keeps its own array and can
+ * change it at any time after the call, so a review must never rely on it.
+ */
+export function copyBytes(value: unknown): Uint8Array | null {
+  const b = toBytes(value);
+  return b ? Uint8Array.from(b) : null;
+}
+
 export function toBytes(value: unknown): Uint8Array | null {
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -96,6 +105,12 @@ function signatureSection(tx: Uint8Array): { count: number; messageStart: number
   const first = tx[messageStart];
   const required = first === 0x80 ? tx[messageStart + 1] : first;
   return required === n.value ? { count: n.value, messageStart } : null;
+}
+
+/** The message part of a serialized legacy / v0 transaction (what the signatures cover), or null. */
+export function transactionMessage(tx: Uint8Array): Uint8Array | null {
+  const sec = signatureSection(tx);
+  return sec ? tx.slice(sec.messageStart) : null;
 }
 
 /** True when `bytes` is a whole serialized legacy / v0 transaction (signature slots included). */

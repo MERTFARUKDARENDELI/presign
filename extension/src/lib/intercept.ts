@@ -1,4 +1,4 @@
-import { asTransactionBytes, base58ToBytes, bytesToBase64, onlySignaturesChanged, requestKey, sameBytes, toBytes } from "./bytes";
+import { asTransactionBytes, base58ToBytes, bytesToBase64, copyBytes, onlySignaturesChanged, requestKey, sameBytes, toBytes, transactionMessage } from "./bytes";
 import type { Decision, ReviewMethod, ReviewRequest } from "./protocol";
 import { createSignInMessageText, type SignInInput } from "./siws";
 
@@ -12,10 +12,14 @@ import { createSignInMessageText, type SignInInput } from "./siws";
  *  - Injected providers (`window.phantom.solana`, `window.solana`, …): their
  *    signing methods are wrapped where the wallet allows it.
  *
- * After approval the ORIGINAL request object is passed to the wallet — the
- * hook never accepts bytes from outside. When the wallet returns, the signed
- * transaction / message is compared with what was reviewed; if the wallet
- * changed anything, the signature is withheld from the site.
+ * The bytes are copied the moment the site calls, and after approval the
+ * wallet gets that copy — never the site's own array or object, which the site
+ * could change while the user reads the review. Injected providers take a
+ * transaction object, so the wallet gets a view of it whose serialization is
+ * fixed to the reviewed bytes, and the site gets its own object back. When the
+ * wallet returns, the signed transaction / message is compared with the
+ * reviewed copy; if the wallet changed anything, the signature is withheld
+ * from the site.
  *
  * Limits (documented): a page written specifically to evade a page-level hook
  * can bypass it; `signAndSendTransaction` is broadcast by the wallet, so only
@@ -131,9 +135,15 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     for (const id of ids) deps.report?.(id, outcome);
   }
 
-  /** Review every request, call the wallet with the original arguments, then check what it returned. */
-  async function reviewed<T>(requests: ReviewRequest[], keys: Array<string | null>, call: () => Promise<T>, verify?: (out: T) => string | null): Promise<T> {
+  /**
+   * Review every request, call the wallet with the reviewed copies, check what it
+   * returned, then hand the site its result (`restore` maps a view back to the
+   * site's own object).
+   */
+  async function reviewed<T>(requests: ReviewRequest[], keys: Array<string | null>, call: () => Promise<T>, verify?: (out: T) => string | null, restore: (out: T) => T = (out) => out): Promise<T> {
     const ids = await reviewAll(requests);
+    // Presign offers no sign path for a request it could not read; an approval for one is not trusted.
+    if (requests.some((r) => r.type === "UNREADABLE")) throw new PresignRejection("Presign could not read this request, so it cannot be sent to your wallet.");
     return withInFlight(keys.filter((k): k is string => k !== null), async () => {
       let out: T;
       try {
@@ -148,8 +158,19 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         throw new PresignRejection(problem);
       }
       report(ids, { status: "SIGNED", detail: "Signed in the wallet and returned to the site." });
-      return out;
+      return restore(out);
     });
+  }
+
+  /**
+   * What the wallet receives for one Wallet Standard input: the site's fields as
+   * they were at call time, with the reviewed bytes as a copy of their own.
+   */
+  function walletInput<T>(input: T, field: string, bytes: Uint8Array | null): T {
+    if (!input || typeof input !== "object") return input;
+    const copy: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+    if (bytes) copy[field] = Uint8Array.from(bytes);
+    return copy as T;
   }
 
   const req = (type: ReviewRequest["type"], payload: Uint8Array | null, method: ReviewMethod, wallet: string | null, chain: string | null, walletName: string | null, index: number, total: number, extra: Partial<ReviewRequest> = {}): ReviewRequest => ({
@@ -182,11 +203,12 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       out["solana:signTransaction"] = {
         ...signTx,
         signTransaction: (...inputs: TxInput[]) => {
-          const txs = inputs.map((i) => toBytes(i?.transaction));
+          const txs = inputs.map((i) => copyBytes(i?.transaction));
+          const forWallet = inputs.map((i, k) => walletInput(i, "transaction", txs[k]));
           return reviewed(
             inputs.map((i, k) => req("TRANSACTION", txs[k], "signTransaction", i?.account?.address ?? null, i?.chain ?? null, name, k + 1, inputs.length)),
             txs.map((t) => keyOf("TRANSACTION", t)),
-            () => orig(...inputs) as Promise<Array<{ signedTransaction?: unknown }>>,
+            () => orig(...forWallet) as Promise<Array<{ signedTransaction?: unknown }>>,
             (res) => (Array.isArray(res) && res.length === txs.length && res.every((r, k) => signedTxMatches(txs[k], r?.signedTransaction)) ? null : CHANGED),
           );
         },
@@ -199,11 +221,12 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       out["solana:signAndSendTransaction"] = {
         ...signSend,
         signAndSendTransaction: (...inputs: TxInput[]) => {
-          const txs = inputs.map((i) => toBytes(i?.transaction));
+          const txs = inputs.map((i) => copyBytes(i?.transaction));
+          const forWallet = inputs.map((i, k) => walletInput(i, "transaction", txs[k]));
           return reviewed(
             inputs.map((i, k) => req("TRANSACTION", txs[k], "signAndSendTransaction", i?.account?.address ?? null, i?.chain ?? null, name, k + 1, inputs.length)),
             txs.map((t) => keyOf("TRANSACTION", t)),
-            () => orig(...inputs) as Promise<unknown>,
+            () => orig(...forWallet) as Promise<unknown>,
           );
         },
       };
@@ -215,11 +238,12 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       out["solana:signMessage"] = {
         ...signMsg,
         signMessage: (...inputs: MsgInput[]) => {
-          const msgs = inputs.map((i) => toBytes(i?.message));
+          const msgs = inputs.map((i) => copyBytes(i?.message));
+          const forWallet = inputs.map((i, k) => walletInput(i, "message", msgs[k]));
           return reviewed(
             inputs.map((i, k) => req("MESSAGE", msgs[k], "signMessage", i?.account?.address ?? null, null, name, k + 1, inputs.length)),
             msgs.map((m) => keyOf("MESSAGE", m)),
-            () => orig(...inputs) as Promise<Array<{ signedMessage?: unknown }>>,
+            () => orig(...forWallet) as Promise<Array<{ signedMessage?: unknown }>>,
             (res) =>
               Array.isArray(res) && res.every((r, k) => {
                 const signed = toBytes(r?.signedMessage);
@@ -238,7 +262,8 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       out["solana:signIn"] = {
         ...signIn,
         signIn: (...inputs: SignInInput[]) => {
-          const list = inputs.length ? inputs : [{}];
+          // The fields as they are now: the site may change its own objects while the user reads the review.
+          const list: SignInInput[] = (inputs.length ? inputs : [{}]).map((i) => (i && typeof i === "object" ? { ...i, ...(Array.isArray(i.resources) ? { resources: [...i.resources] } : {}) } : i));
           const accounts = Array.isArray(wallet.accounts) ? wallet.accounts : [];
           const addressFor = (i: SignInInput) => i?.address ?? (accounts.length === 1 ? accounts[0]?.address : undefined);
           const texts = list.map((i) => {
@@ -255,7 +280,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           return reviewed(
             list.map((i, k) => req("MESSAGE", bytes[k], "signIn", addressFor(i) ?? null, null, name, k + 1, list.length, { reconstructed: true })),
             bytes.map((b) => keyOf("MESSAGE", b)),
-            () => orig(...inputs) as Promise<Array<{ signedMessage?: unknown }>>,
+            () => orig(...(inputs.length ? list : inputs)) as Promise<Array<{ signedMessage?: unknown }>>,
             (res) => (Array.isArray(res) && res.every((r, k) => {
               const signed = toBytes(r?.signedMessage);
               return signed !== null && sameBytes(bytes[k], signed);
@@ -359,18 +384,76 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
 
   // ------------------------------------------------------------------ Injected providers
 
+  /** The serialized transaction behind `tx` (raw bytes or a transaction object), as a private copy. */
   function serializeTx(tx: unknown): Uint8Array | null {
-    const raw = toBytes(tx);
+    const raw = copyBytes(tx);
     if (raw) return asTransactionBytes(raw);
     const t = tx as { serialize?: (o?: unknown) => unknown; version?: unknown } | null;
     if (!t || typeof t.serialize !== "function") return null;
     try {
       const out = "version" in t ? t.serialize() : t.serialize({ requireAllSignatures: false, verifySignatures: false });
-      return toBytes(out);
+      return copyBytes(out);
     } catch {
       return null;
     }
   }
+
+  /** Views handed to wallets → the site's own objects they stand for. */
+  const views = new WeakMap<object, object>();
+  const siteObject = (out: unknown) => (out && typeof out === "object" ? (views.get(out) ?? out) : out);
+  const isView = (out: unknown) => !!out && typeof out === "object" && views.has(out);
+
+  /**
+   * A view of the site's transaction object for the wallet: everything reads
+   * through to the object (so the wallet can add its signature to it), except
+   * serialization, which always yields the reviewed bytes. A site that changes
+   * its object — or an object that serializes differently the second time —
+   * cannot change what the wallet signs.
+   */
+  function sealedView(target: object, bytes: Uint8Array): object {
+    const message = transactionMessage(bytes);
+    const fixed = (prop: PropertyKey): (() => Uint8Array) | undefined =>
+      prop === "serialize" ? () => Uint8Array.from(bytes) : prop === "serializeMessage" && message ? () => Uint8Array.from(message) : undefined;
+    // A Proxy may not change a non-configurable, read-only property: those read through unchanged.
+    const locked = (o: object, prop: PropertyKey) => {
+      const d = Object.getOwnPropertyDescriptor(o, prop);
+      return !!d && !d.configurable && "value" in d && !d.writable;
+    };
+    let messageView: object | undefined;
+    const view = new Proxy(target, {
+      get(t, prop) {
+        const isLocked = locked(t, prop);
+        const own = fixed(prop);
+        if (own && !isLocked) return own;
+        const v = Reflect.get(t, prop, t);
+        // Versioned transactions: `message.serialize()` is the signed message.
+        if (prop === "message" && message && !isLocked && v && typeof v === "object" && typeof (v as { serialize?: unknown }).serialize === "function") {
+          messageView ??= new Proxy(v, {
+            get(m, mp) {
+              if (mp === "serialize" && !locked(m, mp)) return () => Uint8Array.from(message);
+              const mv = Reflect.get(m, mp, m);
+              return typeof mv === "function" && !locked(m, mp) ? (mv as Fn).bind(m) : mv;
+            },
+          });
+          return messageView;
+        }
+        return typeof v === "function" && !isLocked ? (v as Fn).bind(t) : v;
+      },
+    });
+    views.set(view, target);
+    return view;
+  }
+
+  /** One transaction argument, captured at call time: the reviewed bytes, and what the wallet gets for them. */
+  function sealTx(tx: unknown): { bytes: Uint8Array | null; forWallet: unknown } {
+    const raw = copyBytes(tx);
+    if (raw) return { bytes: asTransactionBytes(Uint8Array.from(raw)), forWallet: raw };
+    const bytes = serializeTx(tx);
+    return { bytes, forWallet: bytes && tx && typeof tx === "object" ? sealedView(tx, bytes) : tx };
+  }
+
+  /** A byte argument for the wallet: a string as is (immutable), bytes as a copy of their own. */
+  const forWalletBytes = (m: unknown) => (typeof m === "string" ? m : (copyBytes(m) ?? m));
 
   function providerAddress(p: Record<string, unknown>): string | null {
     try {
@@ -407,55 +490,66 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     if (typeof p.signTransaction !== "function" && typeof p.signMessage !== "function") return false;
     patched.add(provider);
 
+    // Every wallet call below gets the captured copy (or a sealed view), also when a wallet's
+    // own approved call re-enters the hook: the caller's object is never handed on.
     hook(p, "signTransaction", (orig) => function (this: unknown, tx: unknown, ...rest: unknown[]) {
-      const bytes = serializeTx(tx);
-      const key = keyOf("TRANSACTION", bytes);
-      if (allInFlight([key])) return orig.call(this, tx, ...rest);
-      return reviewed([req("TRANSACTION", bytes, "signTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, tx, ...rest) as Promise<unknown>, (out) => (signedTxMatches(bytes, serializeTx(out)) ? null : CHANGED));
+      const s = sealTx(tx);
+      const key = keyOf("TRANSACTION", s.bytes);
+      const call = async () => siteObject(await (orig.call(this, s.forWallet, ...rest) as Promise<unknown>));
+      if (allInFlight([key])) return call();
+      return reviewed([req("TRANSACTION", s.bytes, "signTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, s.forWallet, ...rest) as Promise<unknown>, (out) => (isView(out) || signedTxMatches(s.bytes, serializeTx(out)) ? null : CHANGED), siteObject);
     });
     hook(p, "signAllTransactions", (orig) => function (this: unknown, txs: unknown, ...rest: unknown[]) {
-      const bytes = (Array.isArray(txs) ? txs : []).map(serializeTx);
-      const keys = bytes.map((b) => keyOf("TRANSACTION", b));
-      if (allInFlight(keys)) return orig.call(this, txs, ...rest);
+      const sealed = (Array.isArray(txs) ? txs : []).map(sealTx);
+      const keys = sealed.map((s) => keyOf("TRANSACTION", s.bytes));
+      const forWallet = sealed.map((s) => s.forWallet);
+      const back = (out: unknown[]) => (Array.isArray(out) ? out.map(siteObject) : out);
+      if (allInFlight(keys)) return (orig.call(this, forWallet, ...rest) as Promise<unknown[]>).then(back);
       return reviewed(
-        bytes.map((b, k) => req("TRANSACTION", b, "signAllTransactions", providerAddress(p), null, label, k + 1, bytes.length)),
+        sealed.map((s, k) => req("TRANSACTION", s.bytes, "signAllTransactions", providerAddress(p), null, label, k + 1, sealed.length)),
         keys,
-        () => orig.call(this, txs, ...rest) as Promise<unknown[]>,
-        (out) => (Array.isArray(out) && out.length === bytes.length && out.every((o, k) => signedTxMatches(bytes[k], serializeTx(o))) ? null : CHANGED),
+        () => orig.call(this, forWallet, ...rest) as Promise<unknown[]>,
+        (out) => (Array.isArray(out) && out.length === sealed.length && out.every((o, k) => isView(o) || signedTxMatches(sealed[k].bytes, serializeTx(o))) ? null : CHANGED),
+        back,
       );
     });
     hook(p, "signAndSendTransaction", (orig) => function (this: unknown, tx: unknown, ...rest: unknown[]) {
-      const bytes = serializeTx(tx);
-      const key = keyOf("TRANSACTION", bytes);
-      if (allInFlight([key])) return orig.call(this, tx, ...rest);
-      return reviewed([req("TRANSACTION", bytes, "signAndSendTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, tx, ...rest) as Promise<unknown>);
+      const s = sealTx(tx);
+      const key = keyOf("TRANSACTION", s.bytes);
+      if (allInFlight([key])) return orig.call(this, s.forWallet, ...rest);
+      return reviewed([req("TRANSACTION", s.bytes, "signAndSendTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, s.forWallet, ...rest) as Promise<unknown>);
     });
     hook(p, "signMessage", (orig) => function (this: unknown, message: unknown, ...rest: unknown[]) {
-      const bytes = toBytes(message);
+      const bytes = copyBytes(message);
+      const forWallet = bytes ? Uint8Array.from(bytes) : message;
       const key = keyOf("MESSAGE", bytes);
-      if (allInFlight([key])) return orig.call(this, message, ...rest);
-      return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, message, ...rest) as Promise<unknown>);
+      if (allInFlight([key])) return orig.call(this, forWallet, ...rest);
+      return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
     });
     // Generic RPC-style entry point some sites (and wallets internally) use: { method, params: { message: base58 } }.
     hook(p, "request", (orig) => function (this: unknown, args: unknown, ...rest: unknown[]) {
       const a = args as { method?: unknown; params?: { message?: unknown; messages?: unknown } } | null;
       const method = typeof a?.method === "string" ? a.method : "";
       if (!["signTransaction", "signAllTransactions", "signAndSendTransaction", "signMessage"].includes(method)) return orig.call(this, args, ...rest);
+      const params = a?.params && typeof a.params === "object" ? a.params : {};
       const decode = (m: unknown) => (typeof m === "string" ? base58ToBytes(m) : toBytes(m));
       if (method === "signMessage") {
-        const bytes = decode(a?.params?.message);
+        const m = forWalletBytes(params.message);
+        const bytes = decode(m);
+        const forWallet = { ...a, params: { ...params, message: forWalletBytes(m) } };
         const key = keyOf("MESSAGE", bytes);
-        if (allInFlight([key])) return orig.call(this, args, ...rest);
-        return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, args, ...rest) as Promise<unknown>);
+        if (allInFlight([key])) return orig.call(this, forWallet, ...rest);
+        return reviewed([req("MESSAGE", bytes, "signMessage", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
       }
-      const raw = method === "signAllTransactions" ? (Array.isArray(a?.params?.messages) ? (a!.params!.messages as unknown[]) : []) : [a?.params?.message];
+      const raw = (method === "signAllTransactions" ? (Array.isArray(params.messages) ? (params.messages as unknown[]) : []) : [params.message]).map(forWalletBytes);
       const bytes = raw.map((m) => {
         const b = decode(m);
-        return b ? asTransactionBytes(b) : null;
+        return b ? asTransactionBytes(Uint8Array.from(b)) : null;
       });
+      const forWallet = { ...a, params: method === "signAllTransactions" ? { ...params, messages: raw.map(forWalletBytes) } : { ...params, message: forWalletBytes(raw[0]) } };
       const keys = bytes.map((b) => keyOf("TRANSACTION", b));
-      if (allInFlight(keys)) return orig.call(this, args, ...rest);
-      return reviewed(bytes.map((b, k) => req("TRANSACTION", b, method as ReviewMethod, providerAddress(p), null, label, k + 1, bytes.length)), keys, () => orig.call(this, args, ...rest) as Promise<unknown>);
+      if (allInFlight(keys)) return orig.call(this, forWallet, ...rest);
+      return reviewed(bytes.map((b, k) => req("TRANSACTION", b, method as ReviewMethod, providerAddress(p), null, label, k + 1, bytes.length)), keys, () => orig.call(this, forWallet, ...rest) as Promise<unknown>);
     });
     return true;
   }

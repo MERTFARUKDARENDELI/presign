@@ -1,7 +1,7 @@
 import { SystemProgram, type Transaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { bytesToBase64 } from "@/extension/src/lib/bytes";
+import { bytesToBase64, transactionMessage } from "@/extension/src/lib/bytes";
 import { installInterceptor, PresignRejection, type HookWindow, type InterceptorDeps } from "@/extension/src/lib/intercept";
 import type { ReviewRequest } from "@/extension/src/lib/protocol";
 import { createSignInMessageText } from "@/extension/src/lib/siws";
@@ -195,13 +195,18 @@ describe("signTransaction: review first, the wallet only after the user's decisi
     expect(raw.calls).toEqual([]);
   });
 
-  it("Sign anyway: the wallet receives the very same input object the site passed", async () => {
+  it("Sign anyway: the wallet receives the reviewed bytes as its own copy, with the site's other fields", async () => {
     const raw = new FakeWallet();
     const w = connectedWallet(raw) as unknown as { features: Record<string, { signTransaction: (...i: TxIn[]) => Promise<unknown> }> };
     approveAll();
-    const input = { transaction: txBytes(), account: { address: W } };
+    const account = { address: W };
+    const input = { transaction: txBytes(), account, chain: "solana:devnet" };
     await w.features["solana:signTransaction"].signTransaction(input);
-    expect(raw.calls[0][1]).toBe(input);
+    const given = raw.calls[0][1] as TxIn;
+    expect(given.transaction).toEqual(input.transaction);
+    expect(given.transaction).not.toBe(input.transaction);
+    expect(given.account).toBe(account);
+    expect(given.chain).toBe("solana:devnet");
   });
 
   it("a wallet that changes the transaction does not get its signature to the site", async () => {
@@ -312,13 +317,14 @@ describe("injected providers (window.phantom.solana style)", () => {
     expect(reviewed()[0]).toMatchObject({ type: "TRANSACTION", walletAddress: W, walletName: "Phantom", method: "signTransaction" });
   });
 
-  it("approval passes the site's own transaction object to the wallet", async () => {
+  it("after approval the site gets its own transaction object back", async () => {
     const provider = makeProvider();
     hook.patchProvider(provider, "Test");
     approveAll();
     const { tx } = buildTx([SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 5 })]);
     await expect(provider.signTransaction(tx)).resolves.toBe(tx);
-    await provider.signAllTransactions([tx, tx]);
+    const both = await provider.signAllTransactions([tx, tx]);
+    expect(both[0]).toBe(tx);
     expect(reviewed().map((r) => r.method)).toEqual(["signTransaction", "signAllTransactions", "signAllTransactions"]);
   });
 
@@ -354,5 +360,152 @@ describe("injected providers (window.phantom.solana style)", () => {
     await w.features["solana:signTransaction"].signTransaction({ transaction: bytes, account: { address: W } });
     expect(deps.review).toHaveBeenCalledTimes(1);
     expect(provider.calls).toEqual(["signTransaction"]);
+  });
+});
+
+describe("a site cannot change a request after Presign reviewed it", () => {
+  // Same length, different amount: the site swaps one for the other after the call returns.
+  const benign = () => txBytes(1);
+  const drainer = () => txBytes(999_000_000);
+  const text = (s: string) => new TextEncoder().encode(s);
+  type Std = { features: Record<string, Record<string, (...i: unknown[]) => Promise<unknown>>> };
+
+  it("Wallet Standard signTransaction: the wallet signs the reviewed bytes, not the swapped array", async () => {
+    const raw = new FakeWallet();
+    const w = connectedWallet(raw) as unknown as Std;
+    approveAll();
+    const buf = benign();
+    const p = w.features["solana:signTransaction"].signTransaction({ transaction: buf, account: { address: W } }) as Promise<Array<{ signedTransaction: Uint8Array }>>;
+    buf.set(drainer());
+    const out = await p;
+    expect(reviewed()[0].payload).toBe(bytesToBase64(benign()));
+    expect((raw.calls[0][1] as TxIn).transaction).toEqual(benign());
+    expect(transactionMessage(out[0].signedTransaction)).toEqual(transactionMessage(benign()));
+  });
+
+  it("Wallet Standard signAndSendTransaction: the wallet broadcasts the reviewed bytes", async () => {
+    const raw = new FakeWallet();
+    const w = connectedWallet(raw) as unknown as Std;
+    approveAll();
+    const buf = benign();
+    const p = w.features["solana:signAndSendTransaction"].signAndSendTransaction({ transaction: buf, account: { address: W }, chain: "solana:mainnet" });
+    buf.set(drainer());
+    await p;
+    expect((raw.calls[0][1] as TxIn).transaction).toEqual(benign());
+  });
+
+  it("Wallet Standard signMessage: the wallet signs the reviewed text", async () => {
+    const raw = new FakeWallet();
+    const w = connectedWallet(raw) as unknown as Std;
+    approveAll();
+    const msg = text("Sign in to dapp.example nonce 1234");
+    const p = w.features["solana:signMessage"].signMessage({ message: msg, account: { address: W } });
+    msg.set(text("ATTACK: approve all my assets 99"));
+    await p;
+    expect(new TextDecoder().decode((raw.calls[0][1] as { message: Uint8Array }).message)).toBe("Sign in to dapp.example nonce 1234");
+  });
+
+  it("Sign-In With Solana: changing the input object after the call does not change what the wallet signs", async () => {
+    const raw = new FakeWallet();
+    const w = connectedWallet(raw) as unknown as Std;
+    approveAll();
+    const input = { statement: "Welcome", nonce: "abc12345", resources: ["https://dapp.example/terms"] };
+    const p = w.features["solana:signIn"].signIn(input);
+    input.statement = "Transfer all assets to the attacker";
+    input.resources.push("https://evil.example");
+    await p;
+    expect(raw.calls[0][1]).toMatchObject({ statement: "Welcome", resources: ["https://dapp.example/terms"] });
+  });
+
+  it("an approval for a request Presign could not read never reaches the wallet", async () => {
+    const raw = new FakeWallet();
+    const w = connectedWallet(raw) as unknown as Std;
+    approveAll();
+    await expect(w.features["solana:signTransaction"].signTransaction({ transaction: "not bytes", account: { address: W } })).rejects.toBeInstanceOf(PresignRejection);
+    expect(raw.calls).toEqual([]);
+  });
+
+  /** An injected provider that records the bytes it would sign, the way real ones serialize their input. */
+  const recordingProvider = () =>
+    new (class RecordingProvider {
+      publicKey = { toBase58: () => W };
+      saw: Uint8Array[] = [];
+      async signTransaction(tx: { serialize: (o?: unknown) => Uint8Array }) {
+        this.saw.push(Uint8Array.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false })));
+        return tx;
+      }
+      async signAndSendTransaction(tx: { serialize: (o?: unknown) => Uint8Array }) {
+        this.saw.push(Uint8Array.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false })));
+        return { signature: "sig" };
+      }
+      async signMessage(message: Uint8Array) {
+        this.saw.push(Uint8Array.from(message));
+        return { signature: new Uint8Array(64) };
+      }
+      async request(args: { method: string; params?: { message?: Uint8Array } }) {
+        if (args.params?.message instanceof Uint8Array) this.saw.push(Uint8Array.from(args.params.message));
+        return { ok: true };
+      }
+    })();
+
+  it("injected signTransaction: an instruction added after the call is not what the wallet signs", async () => {
+    const provider = recordingProvider();
+    hook.patchProvider(provider, "Test");
+    approveAll();
+    const { tx } = buildTx([SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 1 })]);
+    const p = provider.signTransaction(tx as never);
+    tx.add(SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 999_000_000 }));
+    await expect(p).resolves.toBe(tx);
+    expect(bytesToBase64(provider.saw[0])).toBe(reviewed()[0].payload);
+  });
+
+  it("injected signAndSendTransaction: an object that serializes differently the second time cannot switch the bytes", async () => {
+    const provider = recordingProvider();
+    hook.patchProvider(provider, "Test");
+    approveAll();
+    let calls = 0;
+    const liar = { serialize: () => (++calls === 1 ? benign() : drainer()) };
+    await provider.signAndSendTransaction(liar);
+    expect(provider.saw[0]).toEqual(benign());
+  });
+
+  it("a call that reuses an approved request's bytes while the wallet is open still signs exactly those bytes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const provider = new (class SlowProvider {
+      publicKey = { toBase58: () => W };
+      saw: Uint8Array[] = [];
+      async signTransaction(tx: { serialize: (o?: unknown) => Uint8Array }) {
+        this.saw.push(Uint8Array.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false })));
+        await gate;
+        return tx;
+      }
+    })();
+    hook.patchProvider(provider, "Test");
+    approveAll();
+    const first = provider.signTransaction({ serialize: () => benign() });
+    await vi.waitFor(() => expect(provider.saw).toHaveLength(1));
+    // Same bytes as the approved request on the first read, the drainer on every later one.
+    let calls = 0;
+    const second = provider.signTransaction({ serialize: () => (++calls === 1 ? benign() : drainer()) });
+    release();
+    await Promise.all([first, second]);
+    expect(deps.review).toHaveBeenCalledTimes(1);
+    expect(provider.saw[1]).toEqual(benign());
+  });
+
+  it("injected signMessage and request({ method: 'signMessage' }): the wallet signs the reviewed bytes", async () => {
+    const provider = recordingProvider();
+    hook.patchProvider(provider, "Test");
+    approveAll();
+    const a = text("Sign in to dapp.example nonce 1234");
+    const p1 = provider.signMessage(a);
+    a.set(text("ATTACK: approve all my assets 99"));
+    await p1;
+    const b = text("Sign in to dapp.example nonce 5678");
+    const p2 = provider.request({ method: "signMessage", params: { message: b } });
+    b.set(text("ATTACK: approve all my assets 99"));
+    await p2;
+    expect(provider.saw.map((m) => new TextDecoder().decode(m))).toEqual(["Sign in to dapp.example nonce 1234", "Sign in to dapp.example nonce 5678"]);
   });
 });
