@@ -626,3 +626,76 @@ describe("every signing entry point is reviewed or refused", () => {
     await expect(provider.request({ method: "connect" })).resolves.toEqual({});
   });
 });
+
+describe("legacy registration through window.navigator.wallets", () => {
+  // Faithful copies of @wallet-standard/app DEPRECATED_getWallets() and @wallet-standard/wallet DEPRECATED_registerWallet().
+  function deprecatedApp(w: HookWindow & { navigator: Record<string, unknown> }) {
+    const wallets: unknown[] = [];
+    const api = Object.freeze({ register: (...ws: unknown[]) => (wallets.push(...ws), () => undefined) });
+    w.addEventListener("wallet-standard:register-wallet", (e) => (e as unknown as { detail: (a: typeof api) => void }).detail(api));
+    w.dispatchEvent(new AppReadyEvent(api));
+    const callbacks = (w.navigator.wallets as unknown[] | undefined) || [];
+    if (!Array.isArray(callbacks)) return wallets;
+    const push = (...cbs: Array<(a: typeof api) => void>) => cbs.forEach((cb) => cb({ register: api.register }));
+    try {
+      Object.defineProperty(w.navigator, "wallets", { value: Object.freeze({ push }) });
+    } catch {
+      return wallets;
+    }
+    push(...(callbacks as Array<(a: typeof api) => void>));
+    return wallets;
+  }
+  const legacyOnly = (w: HookWindow & { navigator: Record<string, unknown> }, wallet: unknown) =>
+    ((w.navigator.wallets ||= []) as Array<(a: { register: (...x: unknown[]) => unknown }) => void>).push(({ register }) => register(wallet));
+  const fresh = () => Object.assign(new EventTarget(), { navigator: {} as Record<string, unknown> }) as HookWindow & { navigator: Record<string, unknown> };
+
+  it("a wallet that registers only through navigator.wallets before the app reaches the app wrapped", () => {
+    const w = fresh();
+    installInterceptor(w, deps);
+    const raw = new FakeWallet();
+    legacyOnly(w, raw);
+    const wallets = deprecatedApp(w);
+    expect(wallets.length).toBeGreaterThan(0);
+    expect(wallets).not.toContain(raw);
+  });
+
+  it("…and after the app", () => {
+    const w = fresh();
+    installInterceptor(w, deps);
+    const wallets = deprecatedApp(w);
+    const raw = new FakeWallet();
+    legacyOnly(w, raw);
+    expect(wallets.length).toBeGreaterThan(0);
+    expect(wallets).not.toContain(raw);
+  });
+
+  it("…and when it was already queued before the hook started", () => {
+    const w = fresh();
+    const raw = new FakeWallet();
+    legacyOnly(w, raw);
+    installInterceptor(w, deps);
+    const wallets = deprecatedApp(w);
+    expect(wallets.length).toBeGreaterThan(0);
+    expect(wallets).not.toContain(raw);
+  });
+
+  it("a site that replaces CustomEvent later cannot catch the raw registration callback", () => {
+    const w = fresh();
+    installInterceptor(w, deps);
+    const leaked: unknown[] = [];
+    const Original = globalThis.CustomEvent;
+    globalThis.CustomEvent = class extends Original<unknown> {
+      constructor(type: string, init?: CustomEventInit) {
+        super(type, init);
+        if (typeof init?.detail === "function") (init.detail as (a: { register: (...x: unknown[]) => void }) => void)({ register: (...x) => leaked.push(...x) });
+      }
+    } as typeof CustomEvent;
+    try {
+      const raw = new FakeWallet();
+      legacyOnly(w, raw);
+      expect(leaked).not.toContain(raw);
+    } finally {
+      globalThis.CustomEvent = Original;
+    }
+  });
+});

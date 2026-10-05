@@ -109,6 +109,10 @@ const REVIEWED_METHODS = new Set(["signTransaction", "signAllTransactions", "sig
 const refusal = (what: string) => new PresignRejection(`Presign cannot review requests made through ${what} yet, so it refused this one. Nothing was sent to your wallet.`);
 
 export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
+  // Captured now (document_start), before a site could replace them.
+  const NativeCustomEvent = CustomEvent;
+  const dispatch = EventTarget.prototype.dispatchEvent;
+  const listen = EventTarget.prototype.addEventListener;
   const wrappedWallets = new WeakMap<object, object>();
   const ownEvents = new WeakSet<Event>();
   const patched = new WeakSet<object>();
@@ -468,6 +472,50 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     },
     true,
   );
+
+  // Legacy registration: wallets that push a callback to window.navigator.wallets, which
+  // @solana/wallet-adapter still reads (DEPRECATED_getWallets) and calls with the app's own
+  // register. Each callback is turned into the event handshake above (wrapping register),
+  // and navigator.wallets becomes an empty list whose push does the same — so a wallet can
+  // reach the app only wrapped. The property cannot be redefined afterwards; an app that
+  // tries logs an error and keeps the wallets it got through the events.
+  const nav = (win as { navigator?: unknown }).navigator;
+  if (nav && typeof nav === "object") {
+    const announce = (cb: unknown) => {
+      if (typeof cb !== "function") return;
+      const callback = cb as (api: unknown) => unknown;
+      const wrapping = (api: { register: (...w: unknown[]) => unknown }) => callback({ ...api, register: (...wallets: unknown[]) => api.register(...wallets.map(wrapWallet)) });
+      const event = new NativeCustomEvent(REGISTER, { detail: wrapping });
+      ownEvents.add(event);
+      dispatch.call(win, event);
+      // Apps that start later: they get our replacement app-ready event, whose register wraps.
+      listen.call(win, READY, (e: Event) => {
+        if (ownEvents.has(e)) callback((e as CustomEvent).detail);
+      });
+    };
+    let queued: unknown[] = [];
+    try {
+      const existing = (nav as { wallets?: unknown }).wallets;
+      if (Array.isArray(existing)) queued = [...existing];
+    } catch {
+      // a hostile getter: nothing queued
+    }
+    const list: unknown[] = [];
+    Object.defineProperty(list, "push", { value: (...cbs: unknown[]) => (cbs.forEach(announce), 0) });
+    try {
+      Object.defineProperty(nav, "wallets", {
+        configurable: false,
+        enumerable: true,
+        get: () => list,
+        set: (v: unknown) => {
+          if (Array.isArray(v)) v.forEach(announce);
+        },
+      });
+      queued.forEach(announce);
+    } catch {
+      // not definable here: the event handshake still wraps every wallet that uses it
+    }
+  }
 
   // ------------------------------------------------------------------ Injected providers
 
