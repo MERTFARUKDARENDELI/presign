@@ -221,6 +221,21 @@ function finish(base: Pick<UrlAssessment, "valid" | "host" | "registrableDomain"
   return { ...base, signals, level, verdict, reputation: URL_REPUTATION_CAPABILITY };
 }
 
+/**
+ * The well-known brand a display name claims (whole-word match), with its known
+ * domains — identity only. Ecosystem-wide words ("solana") are not brands here.
+ */
+export function brandClaimedBy(name: string): { token: string; domains: string[] } | null {
+  const words = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  for (const b of BRANDS) if (b.token !== "solana" && words.includes(b.token)) return { token: b.token, domains: b.domains };
+  return null;
+}
+
+/** Registrable domain (e.g. "app.jup.ag" → "jup.ag") of a lower-case host. */
+export function registrableDomainOf(host: string): string {
+  return registrableOf(host.toLowerCase().replace(/\.$/, "").split("."));
+}
+
 /** Assess every link (URL or bare domain) found in a piece of untrusted text; at most 5. */
 export function assessLinksInText(links: string[]): UrlAssessment[] {
   const seen = new Set<string>();

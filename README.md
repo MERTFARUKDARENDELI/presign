@@ -19,10 +19,12 @@ Pre-sign verification for Solana multisigs. Presign loads a Squads proposal (or 
 |---|---|---|
 | **`/verify`** | Multisig signers | Paste a Squads link, a proposal / transaction / multisig address, or `<multisig> #<n>` → the proposal brief, votes, decoded vault instructions, simulated vault balance changes, and every authority change classified as *outside the multisig / single member / removed / internal*. A multisig address gives its setup risks and recent proposals with verdicts. |
 | **`/transaction`** | Anyone about to sign | Paste the serialized transaction (or a signature) → decode, simulate, rules. Squads approvals include the proposal they approve; durable nonces are flagged; the message hash is shown to compare on a hardware wallet. |
+| **Secure connect & pre-sign review** | Anyone signing in a wallet | "Connect wallet" first checks the connection context (Presign origin, HTTPS, session, the target dApp's domain — unknown is never "safe"), then verifies wallet ownership with a message that authorizes nothing. Before any signature, the exact transaction or message is decoded, simulated and rated; Presign recommends, **you decide**: HIGH / CRITICAL can still be signed after one explicit confirmation, while a request Presign cannot verify offers Cancel only. The approval is bound to the payload hash, wallet, session and expiry. Try it on [`/demo/sign`](app/demo/sign/page.tsx). |
 | **Watchtower** | Protocol & treasury teams | Add the bot to the signers' Telegram group and send `/watch <multisig>`: every new proposal's brief reaches every signer — an independent second channel — and so does any vote that lands on a pending proposal through a durable nonce. Also Slack / Discord webhooks. |
 | **Presign Guard** (on-chain, live on devnet, unaudited) | Protocols with critical authorities | A Solana program that holds admin / upgrade / mint authorities: actions using them are scheduled, wait a fixed delay, and any single guardian can veto them. Presign shows the countdown and offers veto / execute. See [`guard/DESIGN.md`](guard/DESIGN.md). |
 | **Team policy** | Teams with rules | One JSON file: approved authority holders, actions that must go through Presign Guard, minimum time lock / threshold, approved programs and recipients, outflow caps, verified upgrades, no durable nonces. Checked on every proposal in `/verify`, the API, Watchtower and MCP; a rule that cannot be checked is flagged, never assumed. See [`/docs#policy`](app/docs/page.tsx). |
 | **HTTP API & MCP server** | Wallets, custodians, bots, AI agents | The same engine as JSON, and as MCP tools for agents. Every result carries a deterministic `gate`: `block` / `require_human_review` / `no_known_risk`. |
+| **Browser extension** | Anyone signing on any site | Load [`extension/`](extension/README.md) in Chrome: when any website asks your wallet to sign, Presign's review opens first and the wallet only after your decision — no link to share. Wraps Wallet Standard wallets (Phantom, Solflare, Backpack, …) and injected providers; the wallet receives the site's own request untouched, and a signature for anything other than the reviewed bytes is withheld from the site. |
 | **Wallet & token tools** | Holders | The original scanner: token authorities, Token-2022 extensions, concentration, age, metadata phishing, cleanup (burn / close / revoke). |
 
 ### Detections (deterministic, evidence-linked)
@@ -38,7 +40,10 @@ The full list — code, severity and trigger of every rule — is the [rule cata
 - **Setup posture** — no time lock, minority threshold, single signature, controlled config.
 - **Program upgrades** — the new code's hash (computed like `solana-verify`) checked against the OtterSec verified-builds registry; an unreadable buffer is HIGH.
 - **Actions scheduled through Presign Guard** — decoded and classified like immediate ones; one level lower when the guard's delay and veto are verified on-chain, unchanged otherwise.
-- Plus everything from the transaction engine: unlimited approvals, owner reassignment, CPI guard, unexpected outflows, phishing links in memos.
+- Plus everything from the transaction engine: drains and unexpected outflows, unlimited approvals, owner reassignment, CPI guard, staked SOL handed over (withdraw authority, withdrawals to others), compressed NFTs moved or delegated (invisible to balance simulation), drains disguised as priority fees, program upgrades / closes, the wallet account reassigned or allocated, never-expiring signatures for unverified programs, programs that get access to your tokens but do nothing in simulation, phishing links in memos.
+- **Signing requests:** what the dApp said versus what the simulation shows, honeypot or fake tokens you would receive (e.g. "USDC" on another mint), recipients matching the address-poisoning pattern (their only contact with you was dust), lookalike / phishing domains, and messages that hide a transaction, invisible characters, unreadable encoded data, seed-phrase requests or another site's name.
+
+Drift is the showcase, not the scope: [`docs/security/threat-coverage.md`](docs/security/threat-coverage.md) maps every threat class Presign checks — transactions, signing requests, messages, tokens, wallets, multisigs and Presign's own integrity — to its rules, and lists what it does not cover.
 
 ## How it works
 
@@ -46,7 +51,8 @@ The full list — code, severity and trigger of every rule — is the [rule cata
 input (Squads link · address · serialized tx · signature)
   → load from chain       multisig config, proposal, vault / config transaction, transaction buffer
   → decode                Squads v4 (36 instructions, 7 accounts incl. batches), SPL Token, Token-2022,
-                          System, BPF upgradeable loader, Presign Guard, and any Anchor program via its
+                          System, Stake, Metaplex Bubblegum (cNFT), BPF upgradeable loader, Presign Guard,
+                          and any Anchor program via its
                           on-chain IDL (legacy IDL account or Anchor 1.x Program Metadata)
   → simulate              the vault message as-is, with an executing member prepended as fee payer
   → rules                 deterministic; every signal cites the instruction, account or IDL field
@@ -85,15 +91,16 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 
 - **Mainnet, read-only:** both Drift exploit transactions analyzed by signature and from their unsigned bytes (CRITICAL); both votes on proposal #7 flagged as signed in advance, and the nonce accounts traced to their creation by an address outside the council ([notes](docs/research/drift-nonce-trail.md)); the Drift Security Council multisig inspected live (proposal #7 admin takeover; #8 / #9 require the attacker's key as signer); census of all 157,117 Squads v4 multisigs; MCP and Watchtower exercised against a running instance.
 - **Program hashes:** the `solana-verify` convention was checked against OtterSec's `on_chain_hash` for the live Squads v4 program (`scripts/research/hash-check.ts`).
-- **Tests:** 434, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
+- **Tests:** 609, deterministic, no network (RPC mocked at the edge). Squads and Guard discriminators are recomputed from names in tests; the Drift fixtures are real mainnet bytes. CI runs typecheck, lint, tests and build on every push.
 - **Presign Guard program:** deployed on devnet (`A8cpj1d7zxF3T9kZzVn2wkEueGxqGVgd9VaqBA54EDRS`, IDL published); 11 LiteSVM tests of its invariants pass; its IDL is checked against the TypeScript codec; the full scenario ran end-to-end on devnet with a real Squads v4 multisig — takeover scheduled, CRITICAL in Presign, vetoed through Presign by an independent guardian, execution refused by the program. Unaudited.
 - **Batches and buffers on mainnet:** real batch proposals (up to 7 transactions, lookup tables included) decode and simulate, showing each transaction's vault outflows; a proposal created from a real pending transaction buffer decodes from the buffer.
 - **Live deployments:** https://presign-app.vercel.app (mainnet-beta: Drift replay, `/verify` on real multisigs) and https://presign-devnet.vercel.app (devnet: Presign Guard demo). Watchtower's Telegram bot answered `/check` and `/watch` (devnet multisig and guard) in a real group, asking the devnet instance.
-- **Not yet verified:** an alert delivered to Telegram and Slack / Discord webhook delivery (formatting and escaping are unit-tested); wallet-extension signing and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live Claude explanations (needs an `ANTHROPIC_API_KEY`).
+- **Browser extension:** end to end in a real Chrome (`scripts/extension-e2e.mjs`, fake Wallet Standard wallet, local Presign on devnet): no wallet call before the review, approve signs exactly the reviewed bytes, cancel / closing never reach the wallet, CRITICAL only after the explicit confirmation, ownership once per session.
+- **Not yet verified:** an alert delivered to Telegram and Slack / Discord webhook delivery (formatting and escaping are unit-tested); the extension with a real wallet extension, wallet-extension signing in the web app and mobile wallets (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); live Claude explanations (needs an `ANTHROPIC_API_KEY`).
 
 ## Limitations
 
-- Squads v4 only (v3 and other multisig programs are not decoded). Batches are inspected up to their first 10 transactions; larger batches are reported as partially inspected.
+- Squads v4 only (v3, SPL Governance and other multisig programs are not decoded). Bubblegum v2 and Metaplex Core NFT instructions are flagged but not decoded. No blocklist / threat-intelligence feed: unknown programs and domains are shown as unknown. Full list in [threat coverage](docs/security/threat-coverage.md#known-limitations). Batches are inspected up to their first 10 transactions; larger batches are reported as partially inspected.
 - Name-based classification of Anchor instructions (e.g. `update_admin`) depends on the program publishing an IDL; without one, the payload is reported `PARTIAL`, not safe.
 - Vault simulation reflects current state; it can differ at execution (an executed or underfunded proposal simulates as failing, and says so). Program ids that a proposal loads from a lookup table are listed directly for the simulation, since only the multisig program can invoke them that way; a message that becomes too large is reported as not simulated.
 - Rate limiting and caching are in-memory (per instance). Watchtower is a single process with a local SQLite file; Telegram is the only self-service channel so far.

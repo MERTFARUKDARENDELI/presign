@@ -10,6 +10,7 @@ import { hasLink, scanText } from "../text-signals";
 import type { AnalysisStatus, DataSourceStatus, Evidence } from "../types";
 import { assessLinksInText, urlEvidenceText, worstUrlLevel } from "../url-reputation";
 import { multisigSignals } from "./multisig";
+import { extraTransactionSignals } from "./transaction-extra";
 
 type EvFn = (e: Omit<Evidence, "id">) => string;
 
@@ -164,6 +165,7 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
   }
 
   token2022Signals(decoded, wallet, ev, signals, unknownProgramEvidence);
+  extraTransactionSignals({ decoded, effects, wallet, ownedByWallet, ev, signals });
   memoLinkSignals(decoded, ev, signals);
   if (input.multisig) {
     const nonce = decoded.usesDurableNonce ? { nonce: decoded.instructions[0]?.info.nonce ?? null, authority: decoded.instructions[0]?.info.authority ?? null } : null;

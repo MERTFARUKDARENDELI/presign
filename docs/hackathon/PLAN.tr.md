@@ -9,7 +9,7 @@ Son teslim: **12 Ekim 2026, 23:59 PT = 13 Ekim 09:59 Türkiye saati.** Son güne
 - **Kural koymak:** ekip politikası motoru (11 kural; `/verify`, API, Watchtower, MCP) ve 73 kurallık herkese açık katalog (`/rules`).
 - Watchtower Telegram botu (`/watch`, `/check`), MCP sunucusu, API'de deterministik `gate`, program upgrade'lerinde verified-build kontrolü.
 - Mainnet doğrulamaları: Drift saldırısı (CRITICAL), census (157.117 multisig), gerçek batch ve buffer teklifleri, 20 aktif multisig ve 15 gerçek işlemle duman testi (hatasız).
-- 434 uygulama testi + 11 program testi, CI, Apache-2.0, README, başvuru metni, video senaryoları, pitch deck.
+- 609 uygulama testi + 11 program testi, CI, Apache-2.0, README, başvuru metni, video senaryoları, pitch deck.
 
 ## Sadece sizin yapabileceğiniz işler (öncelik sırasıyla)
 

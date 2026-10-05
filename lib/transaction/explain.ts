@@ -95,6 +95,37 @@ export function describeInstruction(i: DecodedInstruction, symbols: Record<strin
       return "Create an associated token account if needed.";
     case "memo":
       return "Attach a memo (untrusted text).";
+    case "system:allocate":
+    case "system:allocateWithSeed":
+      return `Give account ${short(f.account)} ${f.space} bytes of data space.`;
+    case "stake:authorize":
+    case "stake:authorizeWithSeed":
+    case "stake:authorizeChecked":
+    case "stake:authorizeCheckedWithSeed":
+      return `Hand the ${f.authorityType === "Withdrawer" ? "withdraw" : "stake"} authority of stake account ${short(f.stakeAccount)} to ${short(f.newAuthority)}.`;
+    case "stake:withdraw":
+      return `Withdraw ${formatLamports(f.lamports ?? "0")} SOL from stake account ${short(f.stakeAccount)} to ${short(f.to)}.`;
+    case "stake:setLockup":
+    case "stake:setLockupChecked":
+      return `Change the lockup of stake account ${short(f.stakeAccount)}.`;
+    case "stake:split":
+      return `Split ${formatLamports(f.lamports ?? "0")} SOL of stake into ${short(f.splitStakeAccount)}.`;
+    case "stake:delegate":
+      return `Delegate stake account ${short(f.stakeAccount)} to validator vote account ${short(f.vote)}.`;
+    case "stake:deactivate":
+      return `Deactivate stake account ${short(f.stakeAccount)}.`;
+    case "stake:merge":
+      return `Merge stake account ${short(f.source)} into ${short(f.destination)}.`;
+    case "bubblegum:transfer":
+      return `Transfer a compressed NFT from ${short(f.leafOwner)} to ${short(f.newLeafOwner)} (not visible in token balances).`;
+    case "bubblegum:delegate":
+      return `Make ${short(f.newLeafDelegate)} the delegate of a compressed NFT owned by ${short(f.leafOwner)} — it could then transfer it.`;
+    case "bubblegum:burn":
+      return `Burn a compressed NFT owned by ${short(f.leafOwner)}.`;
+    case "bubblegum:transferV2":
+    case "bubblegum:delegateV2":
+    case "bubblegum:burnV2":
+      return `Compressed NFT ${i.type.slice("bubblegum:".length).replace("V2", "")} (Bubblegum v2) — accounts not decoded.`;
   }
   const [, op] = i.type.split(":");
   if (i.type.startsWith("token")) {

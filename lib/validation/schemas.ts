@@ -109,6 +109,8 @@ export const submitSignedSchema = z.object({
 export const signedTransactionSchema = z.object({
   signedTransaction: z.string().trim().min(1).max(MAX_TX_INPUT_LENGTH).refine(isBase64, "Must be base64."),
   expectedMessageHash: z.string().regex(/^[0-9a-f]{64}$/),
+  /** Present when the transaction was signed through Presign's pre-sign review: binds it to that approval. */
+  approvalToken: z.string().min(20).max(8_000).optional(),
 });
 
 export const urlSchema = z

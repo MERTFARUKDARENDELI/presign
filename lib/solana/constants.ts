@@ -11,6 +11,7 @@ export const MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 export const MEMO_V1_PROGRAM_ID = "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo";
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111";
 export const BUBBLEGUM_PROGRAM_ID = "BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY";
+export const METAPLEX_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const ADDRESS_LOOKUP_TABLE_PROGRAM_ID = "AddressLookupTab1e1111111111111111111111111";
 export const STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111";
 export const VOTE_PROGRAM_ID = "Vote111111111111111111111111111111111111111";
@@ -49,6 +50,7 @@ export const KNOWN_PROGRAMS: Record<string, KnownProgram> = {
   [VOTE_PROGRAM_ID]: { name: "Vote Program", trust: "core" },
   [BPF_LOADER_UPGRADEABLE_ID]: { name: "BPF Upgradeable Loader", trust: "core" },
   [BUBBLEGUM_PROGRAM_ID]: { name: "Metaplex Bubblegum (cNFT)", trust: "known" },
+  [METAPLEX_CORE_PROGRAM_ID]: { name: "Metaplex Core (NFT)", trust: "known" },
   SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf: { name: "Squads Multisig v4", trust: "known" },
   dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH: { name: "Drift Protocol v2", trust: "known" },
   metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s: { name: "Metaplex Token Metadata", trust: "known" },

@@ -5,7 +5,7 @@
  * this list in sync with the rule sources.
  */
 
-export type RuleFamily = "proposal" | "setup" | "upgrade" | "guard" | "policy" | "transaction";
+export type RuleFamily = "proposal" | "setup" | "upgrade" | "guard" | "policy" | "transaction" | "signing";
 
 export interface RuleEntry {
   code: string;
@@ -22,6 +22,7 @@ export const FAMILY_INFO: Record<RuleFamily, { title: string; about: string }> =
   guard: { title: "Presign Guard", about: "Actions scheduled through the on-chain guard (delay + single-guardian veto) and the guard's own setup." },
   policy: { title: "Team policy", about: "Your own rules, when a policy is supplied. A policy only adds signals." },
   transaction: { title: "Transactions", about: "Any transaction before it is signed: decoded instructions and simulated balance changes of the signer." },
+  signing: { title: "Messages & connections", about: "Off-chain message signing requests and the application (domain) a wallet connects to, in Presign's pre-sign review." },
 };
 
 export const RULE_CATALOG: RuleEntry[] = [
@@ -109,6 +110,43 @@ export const RULE_CATALOG: RuleEntry[] = [
   { code: "TX_SIMULATION_FAILED", family: "transaction", severity: "LOW", when: "The simulation fails; balance changes cannot be observed." },
   { code: "TX_RENT_DEPOSIT", family: "transaction", severity: "LOW", when: "SOL goes into new accounts as their rent-exempt deposit." },
   { code: "TX_TOKEN2022_CONFIDENTIAL", family: "transaction", severity: "LOW", when: "A confidential transfer hides amounts." },
+  { code: "TX_EXCESSIVE_PRIORITY_FEE", family: "transaction", severity: "MEDIUM ≥ 0.01 SOL · HIGH ≥ 0.1 SOL · CRITICAL ≥ half the wallet's SOL", when: "The priority fee (compute unit price × limit) the wallet pays is inflated — a drain that looks like a fee." },
+  { code: "TX_STAKE_WITHDRAW_AUTHORITY_CHANGE", family: "transaction", severity: "CRITICAL", when: "The withdraw authority of a stake account held by the wallet moves to another address (staked SOL is not in the wallet balance)." },
+  { code: "TX_STAKE_AUTHORITY_CHANGE", family: "transaction", severity: "HIGH", when: "The stake authority of a stake account held by the wallet moves to another address." },
+  { code: "TX_STAKE_WITHDRAW_TO_OTHER", family: "transaction", severity: "HIGH", when: "SOL is withdrawn from a stake account the wallet controls to another address." },
+  { code: "TX_STAKE_LOCKUP_CHANGE", family: "transaction", severity: "MEDIUM", when: "The lockup of a stake account the wallet controls changes." },
+  { code: "TX_CNFT_TRANSFER", family: "transaction", severity: "HIGH", when: "A compressed NFT (Bubblegum) owned or delegated to the wallet is transferred to another address — invisible to token-balance simulation." },
+  { code: "TX_CNFT_DRAIN", family: "transaction", severity: "CRITICAL", when: "Two or more compressed NFTs leave the wallet in one transaction." },
+  { code: "TX_CNFT_DELEGATE", family: "transaction", severity: "HIGH", when: "Another address becomes the delegate of a compressed NFT the wallet owns." },
+  { code: "TX_CNFT_BURN", family: "transaction", severity: "MEDIUM", when: "A compressed NFT the wallet owns is burned." },
+  { code: "TX_CNFT_UNDECODED", family: "transaction", severity: "HIGH", when: "A Bubblegum v2 transfer / delegate / burn involves the wallet; identified, but its recipient is not decoded." },
+  { code: "TX_NFT_PROGRAM_UNDECODED", family: "transaction", severity: "MEDIUM", when: "A Metaplex Core instruction involves the wallet: NFT ownership changes are not token balances and are not decoded." },
+  { code: "TX_PROGRAM_UPGRADE", family: "transaction", severity: "HIGH", when: "The wallet, as upgrade authority, replaces a program's code." },
+  { code: "TX_PROGRAM_CLOSE", family: "transaction", severity: "HIGH", when: "The wallet, as authority, closes a program or buffer permanently." },
+  { code: "TX_WALLET_ALLOCATE", family: "transaction", severity: "HIGH", when: "The wallet account itself would get data space and may become unusable." },
+  { code: "TX_MINT_TO_OTHER", family: "transaction", severity: "MEDIUM", when: "Tokens are minted with the wallet's mint authority to an account it does not own." },
+  { code: "TX_UNKNOWN_PROGRAM_DURABLE_NONCE", family: "transaction", severity: "HIGH", when: "A never-expiring (durable nonce) signature calls an unverified program: it can run later, when behavior may differ from today's simulation." },
+  { code: "TX_SIMULATION_EVASION_RISK", family: "transaction", severity: "MEDIUM", when: "An unverified program gets the wallet's signature and write access to its token accounts but does nothing visible in the simulation — the pattern of drainers that detect simulations." },
   { code: "TX_SOL_CHANGE_UNCERTAIN", family: "transaction", severity: "LOW", when: "Other transactions changed your SOL balance during the simulation; only outflow they cannot explain is treated as unexpected." },
   { code: "TX_TOKEN_CHANGE_UNCERTAIN", family: "transaction", severity: "LOW", when: "Other transactions changed your token balance during the simulation; only outflow they cannot explain is treated as unexpected." },
+  // Messages & connections (pre-sign review)
+  { code: "MSG_IS_TRANSACTION", family: "signing", severity: "CRITICAL", when: "The bytes presented as a message are a valid Solana transaction message; signing them can authorize that transaction." },
+  { code: "MSG_HIDDEN_CHARACTERS", family: "signing", severity: "HIGH", when: "The message contains zero-width or direction-changing characters that hide or reorder text." },
+  { code: "MSG_SECRET_REQUEST", family: "signing", severity: "HIGH", when: "The message mentions a seed phrase, recovery phrase or private key." },
+  { code: "MSG_DOMAIN_MISMATCH", family: "signing", severity: "HIGH", when: "The message names a different website than the origin Presign verified for the request." },
+  { code: "MSG_SUSPICIOUS_LINK", family: "signing", severity: "LOW–HIGH (link pattern level)", when: "A link in the message matches phishing patterns." },
+  { code: "MSG_AUTHORIZATION_LANGUAGE", family: "signing", severity: "MEDIUM", when: "The message uses transfer, approval or permission language the requesting service may treat as your authorization." },
+  { code: "MSG_PROMPT_INJECTION", family: "signing", severity: "MEDIUM", when: "The message contains wording aimed at manipulating automated reviewers." },
+  { code: "MSG_OPAQUE_DATA", family: "signing", severity: "MEDIUM", when: "The message contains a long encoded block (100+ characters of hex / base58 / base64) — a key, signature or payload the signer cannot read; the evidence notes when it decodes as a Solana transaction." },
+  { code: "MSG_REPLAYABLE_LOGIN", family: "signing", severity: "LOW", when: "A sign-in message has no one-time nonce or no timestamp, so the signature could be reused." },
+  { code: "DOMAIN_<pattern>", family: "signing", severity: "LOW–HIGH", when: "The connecting application's address matches a phishing pattern (look-alike brand, punycode, shortener, raw IP, suspicious TLD, hidden characters, disguised destination…); an unknown domain is reported as unknown, never safe." },
+  { code: "DOMAIN_NOT_HTTPS", family: "signing", severity: "HIGH", when: "The connecting application uses plain http (outside local development)." },
+  { code: "PRESIGN_SOL_EXCEEDS_DECLARED", family: "signing", severity: "HIGH", when: "The simulation moves more SOL out of the wallet than the requesting application declared (network fee excluded)." },
+  { code: "PRESIGN_TOKEN_EXCEEDS_DECLARED:<mint>", family: "signing", severity: "HIGH", when: "The simulation moves more of a token out of the wallet than the application declared." },
+  { code: "PRESIGN_UNDECLARED_TOKEN_OUTFLOW:<mint>", family: "signing", severity: "HIGH", when: "The simulation moves a token out of the wallet that the application did not declare at all." },
+  { code: "PRESIGN_RECEIVED_RISKY_TOKEN", family: "signing", severity: "HIGH", when: "(suffixed :<mint>) A token the simulation credits to the wallet has HIGH/CRITICAL token findings (freeze authority, permanent delegate, paused, default-frozen, RugCheck rugged…): a honeypot swap. A failed scan makes the analysis PARTIAL." },
+  { code: "PRESIGN_POISONED_RECIPIENT", family: "signing", severity: "HIGH", when: "(suffixed :<address>) The wallet pays an address directly whose only earlier contact with it was unsolicited dust (≤ 0.001 SOL / 0.01 tokens, never signed by the wallet): the address-poisoning pattern. Checks the last 1,000 transactions; a failed lookup makes the analysis PARTIAL." },
+  { code: "DOMAIN_NAME_IMPERSONATION", family: "signing", severity: "MEDIUM", when: "The application's name claims a well-known brand (Phantom, Jupiter, Solflare…) but its domain is not one of that brand's known domains." },
+  { code: "DOMAIN_INVALID", family: "signing", severity: "HIGH", when: "The connecting application's address is not a valid https:// URL; the connection request is refused." },
+  { code: "DOMAIN_LOCAL_DEVELOPMENT", family: "signing", severity: "LOW", when: "The connecting application runs on this computer (localhost) over plain http." },
 ];

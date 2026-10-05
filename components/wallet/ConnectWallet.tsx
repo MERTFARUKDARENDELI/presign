@@ -1,24 +1,26 @@
 "use client";
 
-import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { LogOut, Wallet } from "lucide-react";
+import { BadgeCheck, LogOut, Wallet } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { WALLET_ERROR_EVENT } from "@/components/providers/WalletProviders";
 import { shortAddr } from "@/components/security/badges";
+import { clearVerifiedSession, fetchSession } from "@/lib/presign/client";
 
 /**
- * Connects via Wallet Standard wallets (Phantom, Solflare, Backpack, mobile
- * in-app browsers). Selecting a wallet lets the provider's autoConnect open
- * it — the documented wallet-adapter flow. Only the PUBLIC address is used;
- * this app never asks for private keys or seed phrases.
+ * Header wallet control. "Connect wallet" never opens a wallet directly: it
+ * starts Presign Secure Connect (/connect), which checks the connection
+ * context first. Once connected, the address and its ownership status show.
  */
 export default function ConnectWallet() {
-  const { wallets, wallet, publicKey, connecting, connected, select, disconnect } = useWallet();
-  const [open, setOpen] = useState(false);
+  const { wallet, publicKey, connected, disconnect } = useWallet();
+  const pathname = usePathname();
   const [error, setError] = useState<string | null>(null);
+  const [verified, setVerified] = useState<{ wallet: string; checkedFor: string } | null>(null);
+  const address = publicKey?.toBase58() ?? null;
 
   useEffect(() => {
     const onError = (e: Event) => setError((e as CustomEvent<string>).detail);
@@ -26,23 +28,43 @@ export default function ConnectWallet() {
     return () => window.removeEventListener(WALLET_ERROR_EVENT, onError);
   }, []);
 
-  const installed = wallets.filter((w) => w.readyState === WalletReadyState.Installed || w.readyState === WalletReadyState.Loadable);
-  const notDetected = wallets.filter((w) => w.readyState === WalletReadyState.NotDetected);
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    const load = () =>
+      fetchSession()
+        .then((s) => !cancelled && setVerified({ wallet: s.verified?.wallet ?? "", checkedFor: address }))
+        .catch(() => !cancelled && setVerified({ wallet: "", checkedFor: address }));
+    void load();
+    window.addEventListener("presign-session", load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("presign-session", load);
+    };
+  }, [address]);
 
-  function choose(name: WalletName) {
-    setError(null);
-    select(name); // WalletProvider autoConnect performs the connection
-    setOpen(false);
-  }
-
-  if (connected && publicKey) {
+  if (connected && address) {
+    const isVerified = verified?.checkedFor === address && verified.wallet === address;
     return (
       <div className="flex items-center gap-2">
-        <span className="hidden rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 font-mono text-xs text-zinc-300 sm:inline" title={publicKey.toBase58()}>
-          {wallet?.adapter.name}: {shortAddr(publicKey.toBase58())}
+        <span className="hidden items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 font-mono text-xs text-zinc-300 sm:inline-flex" title={address}>
+          {wallet?.adapter.name}: {shortAddr(address)}
+          {isVerified ? (
+            <span className="inline-flex items-center gap-0.5 font-sans text-emerald-300" title="Ownership verified in this session"><BadgeCheck className="size-3.5" aria-hidden /> verified</span>
+          ) : (
+            <Link href={`/connect?next=${encodeURIComponent(pathname || "/dashboard")}`} className="font-sans text-amber-200 underline">verify</Link>
+          )}
         </span>
-        <Button variant="outline" size="sm" onClick={() => void disconnect()} aria-label="Disconnect wallet">
-          <LogOut /> <span className="sm:hidden">{shortAddr(publicKey.toBase58())}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void clearVerifiedSession().catch(() => null).finally(() => window.dispatchEvent(new Event("presign-session")));
+            void disconnect();
+          }}
+          aria-label="Disconnect wallet"
+        >
+          <LogOut /> <span className="sm:hidden">{shortAddr(address)}</span>
           <span className="hidden sm:inline">Disconnect</span>
         </Button>
       </div>
@@ -51,42 +73,11 @@ export default function ConnectWallet() {
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)} disabled={connecting}>
-        <Wallet /> {connecting ? "Connecting…" : "Connect wallet"}
-      </Button>
-      {error && !open && <span className="max-w-48 truncate text-xs text-red-300" title={error}>{error}</span>}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
-          <DialogHeader>
-            <DialogTitle>Connect a Solana wallet</DialogTitle>
-            <DialogDescription>
-              Only your public address is used. This app will never ask for your private key or seed phrase.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            {installed.length === 0 && (
-              <p className="rounded-lg border border-zinc-800 p-3 text-sm text-zinc-400">
-                No Solana wallet detected. Install Phantom or Solflare, or open this page inside your wallet&apos;s in-app browser. You can still scan any address read-only or try Demo Mode.
-              </p>
-            )}
-            {installed.map((w) => (
-              <button
-                key={w.adapter.name}
-                type="button"
-                onClick={() => choose(w.adapter.name)}
-                className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-left text-sm hover:border-zinc-600"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={w.adapter.icon} alt="" className="size-6 rounded" />
-                <span className="font-medium">{w.adapter.name}</span>
-                <span className="ml-auto text-xs text-zinc-500">{w.adapter.supportedTransactionVersions?.has(0) ? "v0 ✓" : "legacy only"}</span>
-              </button>
-            ))}
-            {notDetected.length > 0 && <p className="text-xs text-zinc-500">Not installed: {notDetected.map((w) => w.adapter.name).join(", ")}</p>}
-            {error && <p className="text-sm text-red-300">{error}</p>}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* From the homepage the flow ends on the wallet dashboard; from a tool page it returns there. */}
+      <Link href={`/connect${pathname && pathname !== "/" && pathname !== "/connect" ? `?next=${encodeURIComponent(pathname)}` : ""}`} className={buttonVariants({ size: "sm" })}>
+        <Wallet /> Connect wallet
+      </Link>
+      {error && <span className="max-w-48 truncate text-xs text-red-300" title={error}>{error}</span>}
     </>
   );
 }

@@ -7,8 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components lib tests watchtower mcp scripts",
+    "lint": "eslint app components lib tests watchtower mcp scripts extension/src",
     "typecheck": "next typegen && tsc --noEmit",
+    "build:extension": "node scripts/build-extension.mjs",
     "test": "vitest run",
     "watchtower": "node --env-file-if-exists=.env.local watchtower/main.ts",
     "mcp": "node mcp/server.ts",
@@ -43,6 +44,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "rolldown": "^1.2.9",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.1"
