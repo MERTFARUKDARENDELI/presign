@@ -41,6 +41,10 @@ const ENDPOINTS = [
   { method: "POST", path: "/api/guard/prepare", body: '{ "kind": "veto" | "execute", "action": "<action>", "signer": "<wallet>" }', does: "Unsigned veto (guardians) or execute (anyone, after the delay) transaction for a Guard action; sign it in your wallet, then submit via /api/transaction/submit." },
   { method: "GET", path: "/api/token?mint=<mint>", body: "—", does: "Token security signals: authorities, Token-2022 extensions, concentration, age, metadata links." },
   { method: "GET", path: "/api/health", body: "—", does: "Cluster and configured data sources (no secrets)." },
+  { method: "POST", path: "/api/presign/connect", body: '{ "target"?: "https://<dapp>", "name"?: "<label>", "returnUrl"?: "https://<dapp>/<callback>" }', does: "Pre-connect checks before any wallet opens: Presign origin, HTTPS, session, request structure, target domain (unknown is never safe), expiry. Returns a session-bound connection token." },
+  { method: "POST", path: "/api/presign/nonce → /connect/verify", body: '{ "walletAddress" } → { "walletAddress", "message", "signature", "nonceToken" }', does: "Wallet ownership: a one-time message that authorizes nothing, verified with ed25519; the nonce is spent." },
+  { method: "POST", path: "/api/presign/signing/analyze", body: '{ "type": "TRANSACTION" | "MESSAGE", "payload", "payloadEncoding"?, "walletAddress", "connectionToken"?, "expectedEffects"?: { "summary", "maxSolOutLamports", "maxTokenOut" } }', does: "Pre-sign review of the exact payload: decode, simulate, rules (plus the application address and what the application declared versus what the simulation shows), the unchanged machine gate, and the human decision (technicalValidation, recommendedAction, userCanReview, userCanOverride)." },
+  { method: "POST", path: "/api/presign/signing/approve", body: '{ "analysisToken", "payload", "walletAddress", "choice": "SIGN" | "CONTINUE" | "OVERRIDE", "overrideConfirmed"? }', does: "The user's decision, bound to request + wallet + session + payload hash + expiry, single use. The wallet is asked only after this; /api/transaction/submit accepts the approval token." },
 ];
 
 export default function DocsPage() {
@@ -53,7 +57,7 @@ export default function DocsPage() {
           multisig teams. Everything is read-only: {BRAND.name} never takes keys and never signs.
         </p>
         <nav aria-label="On this page" className="mt-4 flex flex-wrap gap-2 text-sm">
-          {[["api", "HTTP API"], ["gate", "The gate"], ["policy", "Team policy"], ["mcp", "MCP for agents"], ["agent-guard", "Guard snippet"], ["watchtower", "Watchtower"], ["presign-guard", "Presign Guard (on-chain)"]].map(([id, label]) => (
+          {[["api", "HTTP API"], ["gate", "The gate"], ["presign-flow", "Secure connect & pre-sign"], ["extension", "Browser extension"], ["policy", "Team policy"], ["mcp", "MCP for agents"], ["agent-guard", "Guard snippet"], ["watchtower", "Watchtower"], ["presign-guard", "Presign Guard (on-chain)"]].map(([id, label]) => (
             <a key={id} href={`#${id}`} className="rounded-md border border-zinc-800 px-2 py-1 text-zinc-300 hover:bg-zinc-900">{label}</a>
           ))}
           <a href="/rules" className="rounded-md border border-fuchsia-500/40 px-2 py-1 text-fuchsia-200 hover:bg-zinc-900">Rule catalog →</a>
@@ -101,6 +105,45 @@ export default function DocsPage() {
           ))}
         </ul>
         <p className="text-xs text-zinc-500">block: CRITICAL or HIGH · require_human_review: MEDIUM, unrated, or any incomplete analysis · no_known_risk: LOW or no signal, with every check complete.</p>
+      </Section>
+
+      <Section id="presign-flow" title="Secure connect & pre-sign review">
+        <p className="text-sm text-zinc-400">
+          For people signing in a wallet, {BRAND.name} adds a second decision layer on top of the gate. The gate above stays fail-closed for bots and agents; a human who has seen the
+          evidence may still decide. {BRAND.name} advises, the user decides — but only about a request it could actually verify.
+        </p>
+        <ul className="space-y-2 text-sm text-zinc-300">
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">SAFE / LOW</span> — sign. <span className="font-semibold">MEDIUM</span> — warning, “Continue anyway”. <span className="font-semibold">HIGH / CRITICAL</span> — recommendation “do not sign”; the user can still choose “I understand the risk — sign anyway” after one explicit confirmation.</li>
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">Cannot verify</span> (malformed, unsupported, no simulation, wrong wallet, expired, changed after analysis) — Cancel only. No “sign anyway” for something {BRAND.name} does not understand.</li>
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">Exact payload</span> — the approval is bound to the request id, wallet, browser session, sha256 of the bytes the wallet signs and a short expiry, and is single use. The wallet is asked for exactly those bytes; a changed payload is refused before the wallet, after the wallet, and at submission.</li>
+        </ul>
+        <p className="text-sm text-zinc-400">
+          An integration hands {BRAND.name} its context with a link such as <span className="font-mono text-xs">/connect?target=https://app.example&amp;name=Example&amp;return=https://app.example/done</span> (the return
+          address must be on the target&apos;s own origin), then sends each signing request to <span className="font-mono text-xs">/api/presign/signing/analyze</span> before forwarding it to the wallet.
+          A standalone website cannot see what other websites ask a wallet to sign; the <a href="#extension" className="text-violet-300 underline">{BRAND.name} browser extension</a> does that, on the same boundary
+          (<span className="font-mono text-xs">lib/presign/interceptor.ts</span> — the web app&apos;s own implementation is used by the demo dApp). An integration can also declare what a request is supposed
+          to do (<span className="font-mono text-xs">expectedEffects</span>); a simulation that moves more, or moves tokens it did not mention, is a HIGH finding. Try it with your own wallet in the <a href="/demo/sign" className="text-violet-300 underline">pre-sign demo</a>.
+        </p>
+      </Section>
+
+      <Section id="extension" title="Browser extension (every site)">
+        <p className="text-sm text-zinc-400">
+          The extension reviews signing requests on any website, with no link to share: when a site asks your wallet to sign, {BRAND.name} opens its review first, and the wallet opens
+          only after your decision.
+        </p>
+        <ul className="space-y-2 text-sm text-zinc-300">
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">What it wraps</span> — Wallet Standard wallets (Phantom, Solflare, Backpack and most others) and injected providers such as <span className="font-mono text-xs">window.phantom.solana</span>: sign transaction(s), sign and send, sign message, Sign-In With Solana.</li>
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">Same review</span> — the request goes to <span className="font-mono text-xs">/extension/review</span> on {BRAND.name}: the same analysis, decision rules and server approval as everywhere else. The site&apos;s address is the one the browser reports, not what the site says.</li>
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">Exact bytes, both ways</span> — after approval the wallet receives the site&apos;s own request, untouched. If the wallet returns a transaction or message that differs from what was reviewed, the signature is withheld from the site.</li>
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">Ownership, once per session</span> — {BRAND.name} approves only for a wallet you proved is yours with a message that authorizes nothing; your wallet extension works on the review page too.</li>
+          <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">No keys, no network</span> — the extension never signs, never holds keys and makes no requests of its own; a test fails if it ever does.</li>
+        </ul>
+        <Code>{`npm run build:extension
+# Chrome → chrome://extensions → Developer mode → Load unpacked → extension/dist`}</Code>
+        <p className="text-sm text-zinc-400">
+          Limits: a page written specifically to evade a page-level hook can bypass it (wallet-level integration closes that); a transaction the wallet broadcasts itself
+          (sign and send) can only be checked before the wallet; a sign-in whose account is chosen inside the wallet goes to the wallet unreviewed and is logged as such.
+        </p>
       </Section>
 
       <Section id="policy" title="Team policy">

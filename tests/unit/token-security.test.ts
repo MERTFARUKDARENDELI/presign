@@ -5,6 +5,7 @@ import { TOKEN_2022_PROGRAM_ID, USDC_MINT } from "@/lib/solana/constants";
 import { parseDasAsset } from "@/lib/solana/das";
 import { parseMintAccount, parseTokenAccount } from "@/lib/solana/parsers";
 import { parseRugcheck } from "@/lib/token/rugcheck-types";
+import { impersonatedToken, normalizeTokenLabel } from "@/lib/token/well-known";
 import { ATTACKER, MINT, parsedMint, parsedTokenAccount, WALLET } from "../helpers/fixtures";
 
 const mintAddr = MINT.toBase58();
@@ -144,5 +145,28 @@ describe("cNFT / NFT risk rules", () => {
   it("rejects malformed DAS assets", () => {
     expect(parseDasAsset({ id: 42 })).toBeNull();
     expect(parseDasAsset(null)).toBeNull();
+  });
+});
+
+describe("token impersonation (fake copies of widely held tokens)", () => {
+  const codes = (o: Partial<TokenRuleInput>) => evaluateTokenRisk(input(o)).signals.map((s) => s.code);
+
+  it("a different mint using the USDC symbol or name is HIGH", () => {
+    expect(codes({ metadata: { name: "USD Coin", symbol: "USDC", source: "HELIUS_DAS" } })).toContain("TOKEN_IMPERSONATION");
+    expect(codes({ metadata: { name: "Tether USD", symbol: "TETHER", source: "HELIUS_DAS" } })).toContain("TOKEN_IMPERSONATION");
+    expect(evaluateTokenRisk(input({ metadata: { symbol: "$JUP", source: "HELIUS_DAS" } })).signals.find((s) => s.code === "TOKEN_IMPERSONATION")?.severity).toBe("HIGH");
+  });
+
+  it("lookalike letters, spacing and full-width characters do not hide the claim", () => {
+    expect(normalizeTokenLabel("USDС")).toBe("USDC"); // Cyrillic С
+    expect(normalizeTokenLabel(" u s d c ")).toBe("USDC");
+    expect(normalizeTokenLabel("ＵＳＤＣ")).toBe("USDC"); // full-width
+    expect(impersonatedToken(mintAddr, "USDС", null)).toBe("USDC");
+  });
+
+  it("the canonical mint and unrelated symbols are not flagged", () => {
+    expect(impersonatedToken(USDC_MINT, "USDC", "USD Coin")).toBeNull();
+    expect(impersonatedToken(mintAddr, "USDCet", "USD Coin (Wormhole from Ethereum)")).toBeNull();
+    expect(codes({ metadata: { name: "Good Token", symbol: "GOOD", source: "HELIUS_DAS" } })).not.toContain("TOKEN_IMPERSONATION");
   });
 });

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SecurityTimeline } from "@/components/dashboard/SecurityTimeline";
+import { PresignConnectionCard } from "@/components/presign/PresignConnectionCard";
 import { WalletDashboard } from "@/components/dashboard/WalletDashboard";
 import { api, ApiClientError } from "@/lib/client/api";
 import { isValidPublicKey } from "@/lib/validation/schemas";
@@ -79,6 +80,8 @@ export default function DashboardPage() {
         <p className="text-sm text-zinc-400">Connect your wallet (public address only) or paste any address to scan it read-only.</p>
       </div>
 
+      {connected && <PresignConnectionCard wallet={connected} scan={shown} />}
+
       <form
         className="flex flex-col gap-2 sm:flex-row"
         onSubmit={(e) => {
@@ -115,7 +118,7 @@ export default function DashboardPage() {
             mode={{ kind: "live", connectedWallet: connected, onChanged: () => scan(shown.snapshot.address) }}
             extra={
               <section className="space-y-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Recent activity</h3>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Recent transactions</h3>
                 <SecurityTimeline key={shown.snapshot.address} address={shown.snapshot.address} />
               </section>
             }

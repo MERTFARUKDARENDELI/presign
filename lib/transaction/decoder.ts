@@ -5,6 +5,7 @@ import {
 import {
   ComputeBudgetInstruction,
   PublicKey,
+  StakeInstruction,
   SystemInstruction,
   TransactionInstruction,
   type AccountKeysFromLookups,
@@ -13,10 +14,12 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   BPF_LOADER_UPGRADEABLE_ID,
+  BUBBLEGUM_PROGRAM_ID,
   COMPUTE_BUDGET_PROGRAM_ID,
   MEMO_PROGRAM_ID,
   MEMO_V1_PROGRAM_ID,
   programInfo,
+  STAKE_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -215,6 +218,8 @@ export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptio
       if (ix && programId === SYSTEM_PROGRAM_ID) decoded = decodeSystem(ix, index, out, base);
       else if (ix && (programId === TOKEN_PROGRAM_ID || programId === TOKEN_2022_PROGRAM_ID)) decoded = decodeToken(ix, index, out, base);
       else if (ix && programId === COMPUTE_BUDGET_PROGRAM_ID) decoded = decodeComputeBudget(ix, base);
+      else if (ix && programId === STAKE_PROGRAM_ID) decoded = decodeStake(ix, base);
+      else if (programId === BUBBLEGUM_PROGRAM_ID) decoded = decodeBubblegum(cix.data, accountKeys, base);
       else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(cix.data, base);
       else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(cix.data, accountKeys, index, out, base);
       else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(cix.data, accountKeys, base);
@@ -289,6 +294,8 @@ export function decodeInnerRaw(
     if (programId === SYSTEM_PROGRAM_ID) decoded = decodeSystem(ix, parentIndex, scratch, base);
     else if (programId === TOKEN_PROGRAM_ID || programId === TOKEN_2022_PROGRAM_ID) decoded = decodeToken(ix, parentIndex, scratch, base);
     else if (programId === COMPUTE_BUDGET_PROGRAM_ID) decoded = decodeComputeBudget(ix, base);
+    else if (programId === STAKE_PROGRAM_ID) decoded = decodeStake(ix, base);
+    else if (programId === BUBBLEGUM_PROGRAM_ID) decoded = decodeBubblegum(data, accounts, base);
     else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) decoded = decodeAta(data, base);
     else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(data, accounts, parentIndex, scratch, base);
     else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(data, accounts, base);
@@ -348,6 +355,14 @@ function decodeSystem(ix: TransactionInstruction, index: number, out: DecodedTra
       const lamports = BigInt(d.lamports).toString();
       out.solTransfers.push({ instruction: index, from: b58(d.noncePubkey), to: b58(d.toPubkey), lamports });
       return base("system:withdrawNonce", true, ["nonce", "to"], { nonce: b58(d.noncePubkey), to: b58(d.toPubkey), lamports });
+    }
+    case "Allocate": {
+      const d = SystemInstruction.decodeAllocate(ix);
+      return base("system:allocate", true, ["account"], { account: b58(d.accountPubkey), space: String(d.space) });
+    }
+    case "AllocateWithSeed": {
+      const d = SystemInstruction.decodeAllocateWithSeed(ix);
+      return base("system:allocateWithSeed", true, ["account", "base"], { account: b58(d.accountPubkey), base: b58(d.basePubkey), space: String(d.space) });
     }
     case "AuthorizeNonceAccount": {
       const d = SystemInstruction.decodeNonceAuthorize(ix);
@@ -446,6 +461,91 @@ function decodeToken(ix: TransactionInstruction, index: number, out: DecodedTran
     }
     default:
       return base(t, true);
+  }
+}
+
+const STAKE_AUTHORITY = ["Staker", "Withdrawer"];
+
+/**
+ * Stake program. Staked SOL sits in stake accounts, not in the wallet: a
+ * withdraw-authority change or a withdrawal to another address moves funds the
+ * wallet's own balance never shows, so these are decoded explicitly.
+ */
+function decodeStake(ix: TransactionInstruction, base: BaseFn): DecodedInstruction | null {
+  const tag = ix.data.length >= 4 ? ix.data.readUInt32LE(0) : -1;
+  const key = (i: number) => (ix.keys[i] ? b58(ix.keys[i].pubkey) : null);
+  try {
+    switch (tag) {
+      case 1: {
+        const d = StakeInstruction.decodeAuthorize(ix);
+        return base("stake:authorize", true, ["stakeAccount", "clock", "authority"], { stakeAccount: b58(d.stakePubkey), authority: b58(d.authorizedPubkey), newAuthority: b58(d.newAuthorizedPubkey), authorityType: STAKE_AUTHORITY[d.stakeAuthorizationType.index] ?? String(d.stakeAuthorizationType.index) });
+      }
+      case 8: {
+        const d = StakeInstruction.decodeAuthorizeWithSeed(ix);
+        return base("stake:authorizeWithSeed", true, ["stakeAccount", "authorityBase"], { stakeAccount: b58(d.stakePubkey), authority: b58(d.authorityBase), newAuthority: b58(d.newAuthorizedPubkey), authorityType: STAKE_AUTHORITY[d.stakeAuthorizationType.index] ?? String(d.stakeAuthorizationType.index) });
+      }
+      case 10:
+      case 11: {
+        // AuthorizeChecked(WithSeed): the new authority is an account (and must sign); the type follows the tag.
+        const type = ix.data.length >= 8 ? ix.data.readUInt32LE(4) : -1;
+        const checked = tag === 10;
+        return base(checked ? "stake:authorizeChecked" : "stake:authorizeCheckedWithSeed", true, checked ? ["stakeAccount", "clock", "authority", "newAuthority"] : ["stakeAccount", "authorityBase", "clock", "newAuthority"], { stakeAccount: key(0), authority: checked ? key(2) : key(1), newAuthority: key(3), authorityType: STAKE_AUTHORITY[type] ?? String(type) });
+      }
+      case 4: {
+        const d = StakeInstruction.decodeWithdraw(ix);
+        return base("stake:withdraw", true, ["stakeAccount", "to", "clock", "stakeHistory", "authority"], { stakeAccount: b58(d.stakePubkey), to: b58(d.toPubkey), authority: b58(d.authorizedPubkey), lamports: BigInt(d.lamports).toString() });
+      }
+      case 6:
+      case 12:
+        return base(tag === 6 ? "stake:setLockup" : "stake:setLockupChecked", true, ["stakeAccount", "authority"], { stakeAccount: key(0), authority: key(1) });
+      case 3: {
+        const d = StakeInstruction.decodeSplit(ix);
+        return base("stake:split", true, ["stakeAccount", "splitStakeAccount", "authority"], { stakeAccount: b58(d.stakePubkey), splitStakeAccount: b58(d.splitStakePubkey), authority: b58(d.authorizedPubkey), lamports: BigInt(d.lamports).toString() });
+      }
+      case 2:
+        return base("stake:delegate", true, ["stakeAccount", "vote"], { stakeAccount: key(0), vote: key(1) });
+      case 5:
+        return base("stake:deactivate", true, ["stakeAccount"], { stakeAccount: key(0) });
+      case 7:
+        return base("stake:merge", true, ["destination", "source"], { destination: key(0), source: key(1) });
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** Anchor discriminators (sha256("global:<name>")[0..8]) of Metaplex Bubblegum instructions that move or give away compressed NFTs. */
+export const BUBBLEGUM_DISCRIMINATORS: Record<string, number[]> = {
+  transfer: [163, 52, 200, 231, 140, 3, 69, 186],
+  delegate: [90, 147, 75, 178, 85, 88, 4, 137],
+  burn: [116, 110, 29, 56, 107, 219, 42, 93],
+  transferV2: [119, 40, 6, 235, 234, 221, 248, 49],
+  delegateV2: [95, 87, 125, 140, 181, 131, 128, 227],
+  burnV2: [115, 210, 34, 240, 232, 143, 183, 16],
+};
+
+/**
+ * Metaplex Bubblegum (compressed NFTs). cNFTs live in Merkle trees, not token
+ * accounts, so their movement never appears in a token-balance simulation —
+ * the decoded instruction is the only evidence. v1 account layouts are decoded;
+ * v2 instructions are identified by name only (accounts not interpreted).
+ */
+function decodeBubblegum(data: Uint8Array, accounts: Array<string | null>, base: BaseFn): DecodedInstruction | null {
+  if (data.length < 8) return null;
+  const name = Object.entries(BUBBLEGUM_DISCRIMINATORS).find(([, d]) => d.every((b, i) => data[i] === b))?.[0];
+  if (!name) return null;
+  const a = (i: number) => accounts[i] ?? null;
+  switch (name) {
+    case "transfer":
+      return base("bubblegum:transfer", true, ["treeAuthority", "leafOwner", "leafDelegate", "newLeafOwner", "merkleTree"], { leafOwner: a(1), leafDelegate: a(2), newLeafOwner: a(3), merkleTree: a(4) });
+    case "delegate":
+      return base("bubblegum:delegate", true, ["treeAuthority", "leafOwner", "previousLeafDelegate", "newLeafDelegate", "merkleTree"], { leafOwner: a(1), previousLeafDelegate: a(2), newLeafDelegate: a(3), merkleTree: a(4) });
+    case "burn":
+      return base("bubblegum:burn", true, ["treeAuthority", "leafOwner", "leafDelegate", "merkleTree"], { leafOwner: a(1), leafDelegate: a(2), merkleTree: a(3) });
+    default:
+      return base(`bubblegum:${name}`, false);
   }
 }
 

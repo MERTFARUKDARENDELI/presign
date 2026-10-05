@@ -10,7 +10,7 @@ export type RiskLevel = (typeof RISK_LEVELS)[number];
  */
 export type RiskVerdict = RiskLevel | "UNKNOWN";
 
-export type RiskCategory = "token" | "wallet" | "transaction" | "asset" | "proposal" | "multisig";
+export type RiskCategory = "token" | "wallet" | "transaction" | "asset" | "proposal" | "multisig" | "message";
 
 export interface RiskSignal {
   /** Stable rule id, e.g. TOKEN_FREEZE_AUTHORITY_ACTIVE. */

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presign</title>
+    <style>
+      :root { color-scheme: dark; --bg: #09090b; --card: #111114; --line: #27272a; --text: #f4f4f5; --muted: #a1a1aa; --violet: #c4b5fd; --green: #6ee7b7; --amber: #fcd34d; --red: #fca5a5; }
+      * { box-sizing: border-box; }
+      body { margin: 0; width: 360px; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+      header img { width: 28px; height: 28px; border-radius: 6px; }
+      header strong { display: block; font-size: 14px; }
+      header span { color: var(--muted); font-size: 12px; }
+      section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+      h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+      label.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; cursor: pointer; }
+      label.row small { display: block; color: var(--muted); font-size: 11.5px; }
+      input[type="checkbox"] { width: 34px; height: 18px; accent-color: #8b5cf6; cursor: pointer; }
+      select { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+      .status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+      .off .dot { background: var(--amber); }
+      ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; }
+      li { padding: 6px 0; border-top: 1px solid #1c1c20; }
+      li:first-child { border-top: 0; }
+      li .top { display: flex; justify-content: space-between; gap: 8px; }
+      li .host { font-family: ui-monospace, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      li .detail { color: var(--muted); font-size: 11.5px; }
+      .badge { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+      .signed { color: var(--green); } .cancelled, .rejected { color: var(--muted); } .blocked { color: var(--red); } .passed { color: var(--amber); }
+      p.note { margin: 0; color: var(--muted); font-size: 11.5px; }
+      a { color: var(--violet); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-48.png" alt="" />
+      <div><strong>Presign</strong><span>Know exactly what you sign.</span></div>
+    </header>
+    <section>
+      <div id="status" class="status"><span class="dot" aria-hidden="true"></span><span id="status-text">Protection on</span></div>
+      <p class="note" style="margin-top:6px">Every Solana signing request is reviewed by Presign before your wallet opens. Presign advises; you decide.</p>
+    </section>
+    <section>
+      <h2>Settings</h2>
+      <label class="row"><span>Review signing requests<small>Turn off to pass requests straight to your wallet.</small></span><input id="enabled" type="checkbox" /></label>
+      <label class="row" id="site-row"><span>Review on this site<small id="site-host">—</small></span><input id="site" type="checkbox" /></label>
+      <label class="row"><span>Presign instance<small>Production picks mainnet or devnet by the request's chain.</small></span>
+        <select id="instance"><option value="production">Production</option><option value="local">Local (localhost:3000)</option></select>
+      </label>
+    </section>
+    <section>
+      <h2>Recent decisions</h2>
+      <ul id="log"><li class="detail">No requests yet.</li></ul>
+    </section>
+    <section>
+      <p class="note">Presign never signs, never holds keys and never sees your seed phrase. <a href="https://presign-app.vercel.app" target="_blank" rel="noreferrer">presign-app.vercel.app</a></p>
+    </section>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -113,6 +113,11 @@ export default function DemoPage() {
         </p>
       </div>
 
+      <a href="/demo/sign" className="block rounded-xl border border-violet-500/40 bg-violet-500/10 p-4 transition hover:border-violet-400/70">
+        <span className="font-semibold text-violet-100">Pre-sign demo with your own wallet →</span>
+        <span className="mt-1 block text-sm text-violet-100/80">A controlled demo dApp sends real signing requests (safe, risky, critical, unverifiable) through Presign Secure Connect and the pre-sign review. Presign warns; you decide.</span>
+      </a>
+
       <ol className="flex gap-2 overflow-x-auto pb-1">
         {STEPS.map((s, i) => (
           <li key={s}>

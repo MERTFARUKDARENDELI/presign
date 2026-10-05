@@ -48,10 +48,23 @@ describe("server never signs on the user's behalf", () => {
     }
   });
 
+  it("the browser extension never creates a signature, loads a key or talks to the network", () => {
+    const ext = sourceFiles(path.join(ROOT, "extension", "src"));
+    expect(ext.length).toBeGreaterThan(5);
+    for (const f of ext) {
+      const src = readFileSync(f, "utf8");
+      // It only forwards the site's own request to the wallet's own method after the user's decision.
+      expect(src, rel(f)).not.toMatch(/fromSecretKey|Keypair|secretKey|ed25519|nacl|bip39|mnemonic|\.(partialSign|sign)\(/);
+      // No requests anywhere: data leaves the page only to the Presign review page the user sees.
+      expect(src, rel(f)).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/);
+    }
+  });
+
   it("wallet signing goes only through the connected wallet adapter in client components", () => {
     const signers = all.filter((f) => /signTransaction/.test(readFileSync(f, "utf8"))).map(rel).sort();
-    // Every new signing site is reviewed here: Guard veto / execute signs prepared bytes after a hash check.
-    expect(signers).toEqual(["components/cleanup/CleanupDialog.tsx", "components/guard/GuardActionButtons.tsx", "components/transaction/SignPanel.tsx"]);
+    // Every new signing site is reviewed here: Guard veto / execute signs prepared bytes after a hash check;
+    // the pre-sign review signs only after server approval of the exact payload hash (lib/presign/controller.ts).
+    expect(signers).toEqual(["components/cleanup/CleanupDialog.tsx", "components/guard/GuardActionButtons.tsx", "components/presign/SigningReview.tsx", "components/transaction/SignPanel.tsx"]);
     for (const f of signers) expect(readFileSync(path.join(ROOT, f), "utf8")).toMatch(/^"use client";/);
   });
 });

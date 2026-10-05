@@ -1,4 +1,5 @@
 import { USDC_MINT, USDT_MINT } from "@/lib/solana/constants";
+import { impersonatedToken } from "@/lib/token/well-known";
 import { isMetaplexEditionControlled } from "@/lib/solana/metaplex";
 import { describeAge, isConclusivelyEstablished, TOKEN_AGE_THRESHOLDS, type TokenAge } from "@/lib/token/age";
 import type { RugcheckData, RugcheckResult } from "@/lib/token/rugcheck-types";
@@ -220,6 +221,16 @@ export function evaluateTokenRisk(input: TokenRuleInput): RiskAssessment {
   } else if (input.metadataStatus !== "SKIPPED") {
     sources.push({ source: "HELIUS_DAS", status: input.metadataStatus === "NOT_CONFIGURED" ? "NOT_CONFIGURED" : "FAILED", detail: "Token metadata" });
     statuses.push("PARTIAL");
+  }
+
+  // --- Impersonation of a widely held token (symbol / name of USDC, SOL, JUP… on another mint) ---
+  const labels = [input.metadata, m?.onchainMetadata].filter((x): x is { name?: string; symbol?: string } => !!x);
+  for (const l of labels) {
+    const claimed = impersonatedToken(input.mintAddress, l.symbol, l.name);
+    if (!claimed) continue;
+    const id = c.ev("impersonation", { source: "DETERMINISTIC_RULE", label: "Token symbol / name", observed: `${l.symbol ?? ""} ${l.name ?? ""}`.trim().slice(0, 60), condition: `claims ${claimed} but is not its canonical mint` });
+    c.signal({ code: "TOKEN_IMPERSONATION", title: `Pretends to be ${claimed}`, description: `This token uses the ${claimed} symbol or name, but it is not the real ${claimed} mint. Fake copies of popular tokens are used in honeypot swaps and address-poisoning dust; they are usually worthless.`, severity: "HIGH", evidenceIds: [id] });
+    break;
   }
 
   // --- Token age (evaluated last: the combined signal looks at the factors above) ---

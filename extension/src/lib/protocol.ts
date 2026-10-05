@@ -1,0 +1,119 @@
+/**
+ * Messages between the page hook, the extension and Presign's review page.
+ * Pure data + validation, shared by the extension and the Presign web app
+ * (`/extension/review`), so both sides agree on one shape.
+ *
+ *   page hook (MAIN world) ──port──▶ content script ──runtime──▶ background
+ *   background ──opens──▶ Presign /extension/review?rid=…&ext=…
+ *   review page ──externally_connectable──▶ background ──▶ content ──port──▶ page hook
+ *
+ * The page hook only ever receives "approved" or "cancelled": it signs the
+ * bytes it captured itself, never bytes handed back to it.
+ */
+
+export type ReviewMethod = "signTransaction" | "signAndSendTransaction" | "signAllTransactions" | "signMessage" | "signIn";
+
+export const REVIEW_METHOD_LABEL: Record<ReviewMethod, string> = {
+  signTransaction: "Sign a transaction",
+  signAllTransactions: "Sign several transactions",
+  signAndSendTransaction: "Sign and send a transaction",
+  signMessage: "Sign a message",
+  signIn: "Sign in with Solana",
+};
+
+export interface ReviewRequest {
+  /** UNREADABLE: Presign could not obtain the exact bytes; only Cancel is offered. */
+  type: "TRANSACTION" | "MESSAGE" | "UNREADABLE";
+  /** base64 of the serialized transaction (signature slots included) or of the message bytes. */
+  payload: string | null;
+  walletAddress: string | null;
+  /** Wallet Standard chain, e.g. "solana:mainnet" / "solana:devnet"; null when the API does not say. */
+  chain: string | null;
+  method: ReviewMethod;
+  walletName: string | null;
+  /** Position in a batch (signAllTransactions / several inputs); each is reviewed separately. */
+  index: number;
+  total: number;
+  /** The sign-in text was rebuilt from the request fields (SIWS standard). */
+  reconstructed?: boolean;
+  /** Why the request is UNREADABLE. */
+  reason?: string;
+}
+
+export type Decision = { approved: true } | { approved: false; reason: string };
+
+export type ReviewState = "pending" | "forwarded" | "signed" | "rejected" | "blocked" | "cancelled" | "expired";
+
+/** What the review page receives for a request id. `origin` is observed by the extension (the browser's sender origin), not claimed by the page. */
+export interface ReviewTicket {
+  rid: string;
+  origin: string;
+  request: ReviewRequest;
+  state: ReviewState;
+  detail: string | null;
+  createdAt: number;
+}
+
+export type ExternalMessage =
+  | { kind: "presign:get"; rid: string }
+  | { kind: "presign:status"; rid: string }
+  | { kind: "presign:approve"; rid: string; payload: string; payloadHash: string; approvalToken: string; riskLevel: string; choice: string }
+  | { kind: "presign:cancel"; rid: string; reason?: string; riskLevel?: string }
+  | { kind: "presign:close"; rid: string };
+
+export const REVIEW_TTL_MS = 15 * 60_000;
+
+/** Presign instances allowed to drive the extension (must match `externally_connectable` in the manifest). */
+export const PRESIGN_ORIGINS = {
+  mainnet: "https://presign-app.vercel.app",
+  devnet: "https://presign-devnet.vercel.app",
+  local: "http://localhost:3000",
+} as const;
+
+export const ALLOWED_PRESIGN_ORIGINS: readonly string[] = Object.values(PRESIGN_ORIGINS);
+
+export type Instance = "production" | "local";
+
+/** Which Presign instance reviews a request: by its chain, so a devnet request is simulated on devnet. */
+export function presignBaseFor(chain: string | null, instance: Instance): string {
+  if (instance === "local") return PRESIGN_ORIGINS.local;
+  return chain === "solana:devnet" ? PRESIGN_ORIGINS.devnet : PRESIGN_ORIGINS.mainnet;
+}
+
+const METHODS = new Set<ReviewMethod>(["signTransaction", "signAndSendTransaction", "signAllTransactions", "signMessage", "signIn"]);
+const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+/** Same bound as the analysis API (MAX_PAYLOAD_CHARS). */
+export const MAX_PAYLOAD_CHARS = 8_000;
+
+/** Validates a request coming from a web page (untrusted). Returns a clean copy or null. */
+export function validateReviewRequest(raw: unknown): ReviewRequest | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.type !== "TRANSACTION" && r.type !== "MESSAGE" && r.type !== "UNREADABLE") return null;
+  if (typeof r.method !== "string" || !METHODS.has(r.method as ReviewMethod)) return null;
+  const index = Number(r.index);
+  const total = Number(r.total);
+  if (!Number.isInteger(index) || !Number.isInteger(total) || total < 1 || total > 50 || index < 1 || index > total) return null;
+  const payload = typeof r.payload === "string" ? r.payload : null;
+  if (r.type !== "UNREADABLE" && (!payload || payload.length > MAX_PAYLOAD_CHARS || !BASE64.test(payload) || payload.length % 4 !== 0)) return null;
+  const walletAddress = typeof r.walletAddress === "string" && ADDRESS.test(r.walletAddress) ? r.walletAddress : null;
+  const chain = typeof r.chain === "string" && /^solana:[a-z]{1,20}$/.test(r.chain) ? r.chain : null;
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max) : null);
+  return {
+    type: r.type,
+    payload: r.type === "UNREADABLE" ? null : payload,
+    walletAddress,
+    chain,
+    method: r.method as ReviewMethod,
+    walletName: text(r.walletName, 40),
+    index,
+    total,
+    ...(r.reconstructed === true ? { reconstructed: true } : {}),
+    ...(r.type === "UNREADABLE" ? { reason: text(r.reason, 200) ?? "Presign could not read this request." } : {}),
+  };
+}
+
+export function isAllowedPresignOrigin(origin: string | undefined | null): boolean {
+  return typeof origin === "string" && ALLOWED_PRESIGN_ORIGINS.includes(origin);
+}
