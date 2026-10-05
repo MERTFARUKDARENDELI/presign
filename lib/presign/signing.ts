@@ -337,7 +337,7 @@ export async function approveSigning(input: ApproveSigningInput, sid: string | n
   if (input.choice !== expected || a.choice !== expected) throw block("DECISION_MISMATCH", "This request needs a different decision for its risk level.");
   if (expected === "OVERRIDE" && input.overrideConfirmed !== true) throw block("CONFIRMATION_REQUIRED", "Confirm explicitly that you want to continue despite Presign's warning.");
 
-  if (!consumeOnce("approve", a.rid, opened.exp, now)) throw block("REQUEST_REPLAYED", "This request was already approved once. Analyze it again to sign again.");
+  if (!(await consumeOnce("approve", a.rid, opened.exp, now))) throw block("REQUEST_REPLAYED", "This request was already approved once. Analyze it again to sign again.");
   const approval: SealedApproval = { rid: a.rid, w: a.w, sid, ph: a.ph, t: a.t, choice: input.choice, lvl: a.lvl, to: a.to };
   logger.info("presign.signing_approved", { type: a.t, level: a.lvl, choice: input.choice });
   return { approvalToken: sealToken("approval", approval, APPROVAL_TTL_MS, now), requestId: a.rid, userDecision: input.choice, payloadHash: a.ph, expiresAt: new Date(now + APPROVAL_TTL_MS).toISOString() };
@@ -365,6 +365,6 @@ export async function verifyApprovalForSubmit(approvalToken: string, sid: string
   if ((await messageHashOfTx(bytes)) !== a.ph) throw block("PAYLOAD_MISMATCH", PAYLOAD_CHANGED_MESSAGE);
   const sig = verifyTransactionSignatures(bytes, [a.w]);
   if (!sig.ok) throw block("WALLET_MISMATCH", "The transaction is not validly signed by the approved wallet.");
-  if (!consumeOnce("submit", a.rid, opened.exp, now)) throw block("REQUEST_REPLAYED", "This approved transaction was already submitted.");
+  if (!(await consumeOnce("submit", a.rid, opened.exp, now))) throw block("REQUEST_REPLAYED", "This approved transaction was already submitted.");
 }
 

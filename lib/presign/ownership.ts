@@ -82,11 +82,11 @@ function decodeSignature(signature: string): Uint8Array {
  * forged nonce, other session, other wallet, changed message, replay, or a
  * signature that does not verify for this wallet.
  */
-export function verifyOwnership(
+export async function verifyOwnership(
   input: { walletAddress: string; message: string; signature: string; nonceToken: string },
   sid: string | null,
   now: number = Date.now(),
-): VerifiedWallet {
+): Promise<VerifiedWallet> {
   const opened = openToken<SealedChallenge>("own", input.nonceToken, now);
   if (!opened.ok) {
     throw new AppError("SECURITY_BLOCK", opened.reason === "EXPIRED" ? "The verification request expired. Request a new one." : "The verification nonce is invalid.", { reason: opened.reason === "EXPIRED" ? "NONCE_EXPIRED" : "NONCE_INVALID" });
@@ -105,7 +105,7 @@ export function verifyOwnership(
     valid = false;
   }
   if (!valid) throw new AppError("SECURITY_BLOCK", "The signature does not match this wallet.", { reason: "INVALID_SIGNATURE" });
-  if (!consumeOnce("own", c.n, opened.exp, now)) throw new AppError("SECURITY_BLOCK", "This verification was already used.", { reason: "NONCE_REPLAYED" });
+  if (!(await consumeOnce("own", c.n, opened.exp, now))) throw new AppError("SECURITY_BLOCK", "This verification was already used.", { reason: "NONCE_REPLAYED" });
 
   return { wallet: c.w, verifiedAt: new Date(now).toISOString(), expiresAt: new Date(now + VERIFIED_TTL_MS).toISOString() };
 }

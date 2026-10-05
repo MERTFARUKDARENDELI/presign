@@ -32,6 +32,15 @@ const reason = (fn: () => unknown) => {
   }
   return null;
 };
+/** The same for an async call (ownership verification awaits the single-use store). */
+const reasonOf = async (p: Promise<unknown>) => {
+  try {
+    await p;
+  } catch (e) {
+    return (e as AppError).details?.reason ?? (e as AppError).code;
+  }
+  return null;
+};
 
 beforeEach(() => {
   resetReplayRegistry();
@@ -126,30 +135,30 @@ describe("pre-connect context", () => {
 describe("wallet ownership verification", () => {
   const signWith = (kp: typeof OWNER, message: string) => bs58.encode(ed25519.sign(new TextEncoder().encode(message), kp.secretKey.slice(0, 32)));
 
-  it("valid nonce + matching signature verifies, then the nonce is spent", () => {
+  it("valid nonce + matching signature verifies, then the nonce is spent", async () => {
     const ch = createOwnershipChallenge(W, HOST, SID);
     expect(ch.message).toContain("This signature proves wallet control.");
     expect(ch.message).toContain("It does not authorize a transfer.");
     expect(ch.message).toContain(`Wallet: ${W}`);
     const input = { walletAddress: W, message: ch.message, signature: signWith(OWNER, ch.message), nonceToken: ch.nonceToken };
-    expect(verifyOwnership(input, SID).wallet).toBe(W);
-    expect(reason(() => verifyOwnership(input, SID))).toBe("NONCE_REPLAYED");
+    expect((await verifyOwnership(input, SID)).wallet).toBe(W);
+    expect(await reasonOf(verifyOwnership(input, SID))).toBe("NONCE_REPLAYED");
   });
 
-  it("invalid, expired and other-session nonces are refused", () => {
+  it("invalid, expired and other-session nonces are refused", async () => {
     const ch = createOwnershipChallenge(W, HOST, SID);
     const input = { walletAddress: W, message: ch.message, signature: signWith(OWNER, ch.message), nonceToken: ch.nonceToken };
-    expect(reason(() => verifyOwnership({ ...input, nonceToken: `${ch.nonceToken}x` }, SID))).toBe("NONCE_INVALID");
-    expect(reason(() => verifyOwnership(input, SID, Date.now() + 6 * 60_000))).toBe("NONCE_EXPIRED");
-    expect(reason(() => verifyOwnership(input, "session-bbbbbbbbbbbbbbbbbbbbbbbb"))).toBe("SESSION_MISMATCH");
+    expect(await reasonOf(verifyOwnership({ ...input, nonceToken: `${ch.nonceToken}x` }, SID))).toBe("NONCE_INVALID");
+    expect(await reasonOf(verifyOwnership(input, SID, Date.now() + 6 * 60_000))).toBe("NONCE_EXPIRED");
+    expect(await reasonOf(verifyOwnership(input, "session-bbbbbbbbbbbbbbbbbbbbbbbb"))).toBe("SESSION_MISMATCH");
   });
 
-  it("a signature by another wallet, or for another message, is refused", () => {
+  it("a signature by another wallet, or for another message, is refused", async () => {
     const ch = createOwnershipChallenge(W, HOST, SID);
-    expect(reason(() => verifyOwnership({ walletAddress: W, message: ch.message, signature: signWith(OTHER, ch.message), nonceToken: ch.nonceToken }, SID))).toBe("INVALID_SIGNATURE");
+    expect(await reasonOf(verifyOwnership({ walletAddress: W, message: ch.message, signature: signWith(OTHER, ch.message), nonceToken: ch.nonceToken }, SID))).toBe("INVALID_SIGNATURE");
     const changed = ch.message.replace("It does not authorize a transfer.", "It authorizes a transfer.");
-    expect(reason(() => verifyOwnership({ walletAddress: W, message: changed, signature: signWith(OWNER, changed), nonceToken: ch.nonceToken }, SID))).toBe("MESSAGE_MISMATCH");
-    expect(reason(() => verifyOwnership({ walletAddress: ATTACKER.toBase58(), message: ch.message, signature: signWith(OTHER, ch.message), nonceToken: ch.nonceToken }, SID))).toBe("WALLET_MISMATCH");
+    expect(await reasonOf(verifyOwnership({ walletAddress: W, message: changed, signature: signWith(OWNER, changed), nonceToken: ch.nonceToken }, SID))).toBe("MESSAGE_MISMATCH");
+    expect(await reasonOf(verifyOwnership({ walletAddress: ATTACKER.toBase58(), message: ch.message, signature: signWith(OTHER, ch.message), nonceToken: ch.nonceToken }, SID))).toBe("WALLET_MISMATCH");
   });
 
   it("the verified-wallet seal is bound to its session", () => {

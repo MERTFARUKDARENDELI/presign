@@ -2,7 +2,7 @@ import "server-only";
 import { ZodError } from "zod";
 import { AppError, isAppError } from "./errors";
 import { logger } from "./logger";
-import { checkRateLimit, clientKey } from "./rate-limit";
+import { checkRateLimitShared, clientKey } from "./rate-limit";
 import { fail } from "./response";
 
 export interface RouteOptions {
@@ -21,7 +21,7 @@ export function withApi(
   handler: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
   return async (request: Request) => {
-    const rl = checkRateLimit(`${options.name}:${clientKey(request)}`, options.limit, options.windowMs);
+    const rl = await checkRateLimitShared(`${options.name}:${clientKey(request)}`, options.limit, options.windowMs);
     if (!rl.allowed) {
       logger.warn("api.rate_limited", { route: options.name });
       return fail("RATE_LIMITED", "Too many requests. Please retry shortly.", 429, undefined, {

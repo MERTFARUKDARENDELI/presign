@@ -8,6 +8,6 @@ import { sessionIdFrom } from "@/lib/presign/tokens";
 export const POST = withApi({ name: "presign-verify", limit: 20, windowMs: 60_000 }, async (request) => {
   const body = ownershipVerifySchema.parse(await readJsonBody(request, 6_000));
   const sid = sessionIdFrom(request);
-  const verified = verifyOwnership(body, sid);
+  const verified = await verifyOwnership(body, sid);
   return ok(verified, { headers: { "Set-Cookie": walletCookie(request, verified, sid!) } });
 });
