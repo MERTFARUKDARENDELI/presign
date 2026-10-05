@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { AppError } from "@/lib/api/errors";
 
 /**
  * Sealed, session-bound tokens for the secure connect and pre-sign flow.
@@ -24,26 +25,43 @@ interface Envelope<T> {
 export type KeySource = "configured" | "derived" | "ephemeral";
 
 const LABEL = "presign-session-key-v1";
+const MIN_SECRET = 32;
 const g = globalThis as { __presignEphemeralKey?: Buffer };
 
+const fromSecret = (secret: string) => createHash("sha256").update(secret).digest();
+
+export function sessionSecretConfigured(): boolean {
+  return (process.env.PRESIGN_SESSION_SECRET ?? "").length >= MIN_SECRET;
+}
+
 /**
- * Key: PRESIGN_SESSION_SECRET when set (≥ 32 chars). Otherwise derived with
- * HMAC from an existing server-only secret, so a deployment works without an
- * extra variable. Without either (local dev), a per-process random key.
+ * Key: PRESIGN_SESSION_SECRET (≥ 32 characters). Production requires it — a
+ * key derived from a third-party API key (Helius, Anthropic) would tie every
+ * session to that key's exposure and rotation — so without it the secure
+ * connect and pre-sign review refuse to run instead of guessing. Development
+ * falls back to a key derived from a server-only secret, or a per-process key.
  */
 export function sessionKey(): { key: Buffer; source: KeySource } {
-  const explicit = process.env.PRESIGN_SESSION_SECRET;
-  if (explicit && explicit.length >= 32) return { key: createHash("sha256").update(explicit).digest(), source: "configured" };
+  if (sessionSecretConfigured()) return { key: fromSecret(process.env.PRESIGN_SESSION_SECRET!), source: "configured" };
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError("NOT_CONFIGURED", "Secure connect and the pre-sign review are not configured on this server (PRESIGN_SESSION_SECRET, at least 32 characters, is missing). Nothing was signed.");
+  }
   const base = process.env.HELIUS_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (base && base.trim()) return { key: createHmac("sha256", base.trim()).update(LABEL).digest(), source: "derived" };
   g.__presignEphemeralKey ??= randomBytes(32);
   return { key: g.__presignEphemeralKey, source: "ephemeral" };
 }
 
+/** Keys a token may be sealed with: the current one, then PRESIGN_SESSION_SECRET_PREVIOUS during a rotation. */
+function openingKeys(): Buffer[] {
+  const previous = process.env.PRESIGN_SESSION_SECRET_PREVIOUS ?? "";
+  return [sessionKey().key, ...(previous.length >= MIN_SECRET ? [fromSecret(previous)] : [])];
+}
+
 const b64url = (buf: Buffer) => buf.toString("base64url");
 
-function mac(kind: TokenKind, body: string): Buffer {
-  return createHmac("sha256", sessionKey().key).update(`presign:v1:${kind}:${body}`).digest();
+function mac(kind: TokenKind, body: string, key: Buffer = sessionKey().key): Buffer {
+  return createHmac("sha256", key).update(`presign:v1:${kind}:${body}`).digest();
 }
 
 export function sealToken<T>(kind: TokenKind, data: T, ttlMs: number, now: number = Date.now()): string {
@@ -63,9 +81,12 @@ export function openToken<T>(kind: TokenKind, token: unknown, now: number = Date
   } catch {
     return { ok: false, reason: "MALFORMED" };
   }
-  const expected = mac(kind, body);
   // The kind is inside the MAC, so a genuine token of another kind also fails here.
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { ok: false, reason: "BAD_SEAL" };
+  const sealedByUs = openingKeys().some((key) => {
+    const expected = mac(kind, body, key);
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  });
+  if (!sealedByUs) return { ok: false, reason: "BAD_SEAL" };
   let env: Envelope<T>;
   try {
     env = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Envelope<T>;
