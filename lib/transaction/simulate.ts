@@ -2,17 +2,19 @@ import "server-only";
 import { AddressLookupTableAccount, PublicKey, type VersionedTransaction } from "@solana/web3.js";
 import { AppError } from "@/lib/api/errors";
 import { logger } from "@/lib/api/logger";
-import { getParsedAccounts } from "@/lib/solana/accounts";
+import { getParsedAccounts, type ParsedAccountsResult } from "@/lib/solana/accounts";
 import { rpcCall } from "@/lib/solana/client";
 import { BASE_FEE_LAMPORTS_PER_SIGNATURE } from "@/lib/solana/constants";
 import { estimatePriorityFeeLamports } from "./decoder";
 import { messageBytesOf } from "@/lib/wallet/signing";
 import { bytesToBase64 } from "./input";
-import { diffSnapshots } from "./effects";
-import type { DecodedTransaction, TransactionEffects } from "./types";
+import { concurrentChanges, diffSnapshots } from "./effects";
+import type { DecodedTransaction, PreStateConsistency, TransactionEffects } from "./types";
 
 /** Max slots between pre-state snapshot and simulation before results are marked stale (~1 min). */
 export const MAX_SLOT_DRIFT = 150;
+/** Simulations run while other transactions keep changing the simulated accounts. */
+export const MAX_SIMULATION_ROUNDS = 2;
 const MAX_LOG_LINES = 60;
 
 interface SimulateResponse {
@@ -76,21 +78,7 @@ export interface SimulationOutput {
   innerInstructions: unknown;
 }
 
-/**
- * Simulates an (unsigned or signed) transaction against current state.
- * Pre-state is snapshotted just before simulation so diffs reflect the
- * transaction's effect; slot drift beyond MAX_SLOT_DRIFT marks results stale.
- */
-export async function simulateTransaction(tx: VersionedTransaction, decoded: DecodedTransaction, extraAddresses: string[] = [], bytes?: Uint8Array): Promise<SimulationOutput> {
-  const writable = decoded.accounts.filter((a) => a.writable && a.address).map((a) => a.address as string);
-  const addresses = [...new Set([...writable, ...extraAddresses])].slice(0, 64);
-  // `bytes` = the original serialized transaction; required for v1, which web3.js cannot re-serialize.
-  if (tx.message.version === 1 && !bytes) throw new AppError("SIMULATION_FAILED", "A v1 transaction can only be simulated from its original bytes.");
-  const raw = bytes ?? tx.serialize();
-  const txBase64 = bytesToBase64(raw);
-
-  const pre = await getParsedAccounts(addresses);
-  let sim: SimulateResponse;
+async function runSimulation(txBase64: string, addresses: string[], minContextSlot: number): Promise<SimulateResponse> {
   try {
     const res = await rpcCall<SimulateResponse>("simulateTransaction", [
       txBase64,
@@ -99,14 +87,69 @@ export async function simulateTransaction(tx: VersionedTransaction, decoded: Dec
         sigVerify: false,
         replaceRecentBlockhash: true,
         commitment: "confirmed",
+        // Never against state older than the pre-state snapshot.
+        minContextSlot,
         accounts: { encoding: "jsonParsed", addresses },
         innerInstructions: true,
       },
     ], { timeoutMs: 15_000, retries: 1 });
-    sim = res.result;
+    return res.result;
   } catch (error) {
     logger.warn("tx.simulation_unavailable", { code: error instanceof AppError ? error.code : "UNKNOWN" });
     throw new AppError("SIMULATION_FAILED", "Transaction simulation could not be performed.");
+  }
+}
+
+const diffable = (sim: SimulateResponse, addresses: string[]) =>
+  (sim.value.err === null || sim.value.err === undefined) && sim.value.accounts?.length === addresses.length;
+
+/**
+ * Simulates an (unsigned or signed) transaction against current state.
+ * A diff is only the transaction's own effect if the pre-state is the state the simulation
+ * started from, so the pre-state is snapshotted before the simulation (which may not run on
+ * older state) and again after it (which may not be older than the simulation). A snapshot at the
+ * simulation's slot is exact; otherwise accounts that differ between the two snapshots were changed
+ * by other transactions in between and are reported in `preStateConsistency`, after one more
+ * simulation from the later snapshot. Slot drift beyond MAX_SLOT_DRIFT marks results stale.
+ */
+export async function simulateTransaction(tx: VersionedTransaction, decoded: DecodedTransaction, extraAddresses: string[] = [], bytes?: Uint8Array): Promise<SimulationOutput> {
+  const writable = decoded.accounts.filter((a) => a.writable && a.address).map((a) => a.address as string);
+  const addresses = [...new Set([...writable, ...extraAddresses])].slice(0, 64);
+  // `bytes` = the original serialized transaction; required for v1, which web3.js cannot re-serialize.
+  if (tx.message.version === 1 && !bytes) throw new AppError("SIMULATION_FAILED", "A v1 transaction can only be simulated from its original bytes.");
+  const raw = bytes ?? tx.serialize();
+  const txBase64 = bytesToBase64(raw);
+  const values = (s: ParsedAccountsResult) => addresses.map((a) => s.accounts.get(a) ?? null);
+
+  let pre = await getParsedAccounts(addresses);
+  let sim = await runSimulation(txBase64, addresses, pre.slot);
+  let consistency: PreStateConsistency | undefined;
+  for (let round = 1; ; round++) {
+    consistency = undefined;
+    if (!diffable(sim, addresses)) break;
+    const simSlot = sim.context?.slot ?? null;
+    if (simSlot === pre.slot) {
+      consistency = { kind: "EXACT", laterSlot: null, concurrent: [] };
+      break;
+    }
+    const later = simSlot !== null && simSlot > pre.slot ? await getParsedAccounts(addresses, { minContextSlot: simSlot }).catch(() => null) : null;
+    if (later && later.slot === simSlot) {
+      pre = later;
+      consistency = { kind: "EXACT", laterSlot: null, concurrent: [] };
+      break;
+    }
+    const concurrent = later ? concurrentChanges(addresses, values(pre), values(later), sim.value.accounts ?? []) : null;
+    if (!later || !concurrent) {
+      consistency = { kind: "UNVERIFIED", laterSlot: null, concurrent: [] };
+      break;
+    }
+    consistency = { kind: "BRACKETED", laterSlot: later.slot, concurrent };
+    if (concurrent.length === 0 || round >= MAX_SIMULATION_ROUNDS) break;
+    // Other transactions are changing these accounts: try once more, starting from the later snapshot.
+    const retry = await runSimulation(txBase64, addresses, later.slot).catch(() => null);
+    if (!retry) break;
+    pre = later;
+    sim = retry;
   }
 
   const [blockhashValid, feeQuoted] = await Promise.all([
@@ -136,6 +179,10 @@ export async function simulateTransaction(tx: VersionedTransaction, decoded: Dec
   if (feeQuoted === null) notes.push("Network fee could not be quoted by the RPC; an estimate (base + priority fee) is shown.");
   if (diff.unparsed.length) notes.push(`${diff.unparsed.length} account(s) could not be parsed; their changes are not shown.`);
   if (stale) notes.push("Pre-state snapshot and simulation slot differ significantly; balance diffs may be stale.");
+  if (consistency?.kind === "UNVERIFIED") notes.push("The pre-state could not be confirmed at the simulation slot; balance changes may include other transactions' activity.");
+  if (consistency?.concurrent.length) {
+    notes.push(`${consistency.concurrent.length} account(s) were also changed by other transactions around the simulation (slots ${pre.slot}–${consistency.laterSlot}); their balance changes may include that activity.`);
+  }
   if (success && post.length !== addresses.length) notes.push("Simulation did not return post-state for all accounts.");
 
   const logs = sim.value.logs ?? [];
@@ -149,7 +196,7 @@ export async function simulateTransaction(tx: VersionedTransaction, decoded: Dec
     }
   }
 
-  logger.info("tx.simulated", { success, slot, stale, accounts: addresses.length });
+  logger.info("tx.simulated", { success, slot, stale, accounts: addresses.length, preState: consistency?.kind ?? null, concurrent: consistency?.concurrent.length ?? 0 });
 
   return {
     effects: {
@@ -161,6 +208,7 @@ export async function simulateTransaction(tx: VersionedTransaction, decoded: Dec
       unitsConsumed: sim.value.unitsConsumed ?? null,
       slot,
       preStateSlot: pre.slot,
+      ...(consistency ? { preStateConsistency: consistency } : {}),
       stale,
       blockhashValid,
       feeLamports: fee,

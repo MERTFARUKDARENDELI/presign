@@ -13,8 +13,8 @@ export interface ParsedAccountsResult {
   fallbackUsed: boolean;
 }
 
-/** Batched getMultipleAccounts (jsonParsed), 100 keys per request. */
-export async function getParsedAccounts(addresses: string[]): Promise<ParsedAccountsResult> {
+/** Batched getMultipleAccounts (jsonParsed), 100 keys per request. `minContextSlot` refuses state older than that slot. */
+export async function getParsedAccounts(addresses: string[], options: { minContextSlot?: number } = {}): Promise<ParsedAccountsResult> {
   const unique = [...new Set(addresses)];
   const accounts = new Map<string, unknown | null>();
   let slot = 0;
@@ -25,7 +25,7 @@ export async function getParsedAccounts(addresses: string[]): Promise<ParsedAcco
     const chunk = unique.slice(i, i + 100);
     const res = await rpcCall<MultipleAccountsResult>("getMultipleAccounts", [
       chunk,
-      { encoding: "jsonParsed", commitment: "confirmed" },
+      { encoding: "jsonParsed", commitment: "confirmed", ...(options.minContextSlot === undefined ? {} : { minContextSlot: options.minContextSlot }) },
     ]);
     slot = Math.max(slot, res.result.context?.slot ?? 0);
     source = res.source;

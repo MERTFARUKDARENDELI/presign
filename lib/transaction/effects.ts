@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AccountStateChange, SolBalanceChange, TokenBalanceChange } from "./types";
+import type { AccountStateChange, ConcurrentChange, SolBalanceChange, TokenBalanceChange } from "./types";
 
 /**
  * Pure diffing of account state snapshots → balance and state changes.
@@ -118,6 +118,43 @@ export function diffSnapshots(addresses: string[], pre: unknown[], post: unknown
     }
   });
 
+  return out;
+}
+
+/** Diff-relevant state of a raw account; accounts that cannot be parsed compare by their raw JSON. */
+function fingerprint(raw: unknown): string {
+  if (raw === null || raw === undefined) return "absent";
+  const a = toLiteAccount(raw);
+  return a ? JSON.stringify([a.lamports.toString(), a.owner, a.token]) : `raw:${JSON.stringify(raw)}`;
+}
+
+/**
+ * Accounts whose diff-relevant state differs between the pre-state snapshot and a later one —
+ * i.e. other transactions changed them in between — with the simulated post-state alongside.
+ * Accounts already left out of the diff as unparseable are skipped. Returns null when a changed
+ * account cannot be parsed in the later snapshot only: its concurrent change cannot be measured.
+ */
+export function concurrentChanges(addresses: string[], pre: unknown[], later: unknown[], post: unknown[]): ConcurrentChange[] | null {
+  const out: ConcurrentChange[] = [];
+  for (const [i, address] of addresses.entries()) {
+    const rawPre = pre[i] ?? null;
+    const rawLater = later[i] ?? null;
+    const rawPost = post[i] ?? null;
+    if (fingerprint(rawPre) === fingerprint(rawLater)) continue;
+    const a = rawPre === null ? null : toLiteAccount(rawPre);
+    const l = rawLater === null ? null : toLiteAccount(rawLater);
+    const b = rawPost === null ? null : toLiteAccount(rawPost);
+    if ((rawPre !== null && !a) || (rawPost !== null && !b)) continue;
+    if (rawLater !== null && !l) return null;
+    const tok = a?.token ?? l?.token;
+    out.push({
+      address,
+      lamports: { pre: (a?.lamports ?? 0n).toString(), later: (l?.lamports ?? 0n).toString(), post: (b?.lamports ?? 0n).toString() },
+      token: tok
+        ? { mint: tok.mint, owner: tok.owner, decimals: tok.decimals, pre: a?.token?.amount ?? "0", later: l?.token?.amount ?? "0", post: b?.token?.amount ?? "0" }
+        : null,
+    });
+  }
   return out;
 }
 

@@ -109,4 +109,6 @@ export const RULE_CATALOG: RuleEntry[] = [
   { code: "TX_SIMULATION_FAILED", family: "transaction", severity: "LOW", when: "The simulation fails; balance changes cannot be observed." },
   { code: "TX_RENT_DEPOSIT", family: "transaction", severity: "LOW", when: "SOL goes into new accounts as their rent-exempt deposit." },
   { code: "TX_TOKEN2022_CONFIDENTIAL", family: "transaction", severity: "LOW", when: "A confidential transfer hides amounts." },
+  { code: "TX_SOL_CHANGE_UNCERTAIN", family: "transaction", severity: "LOW", when: "Other transactions changed your SOL balance during the simulation; only outflow they cannot explain is treated as unexpected." },
+  { code: "TX_TOKEN_CHANGE_UNCERTAIN", family: "transaction", severity: "LOW", when: "Other transactions changed your token balance during the simulation; only outflow they cannot explain is treated as unexpected." },
 ];

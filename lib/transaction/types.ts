@@ -167,6 +167,32 @@ export interface AccountStateChange {
   tokenOwnerAfter?: string | null;
 }
 
+/**
+ * An account other transactions changed between the pre-state snapshot and a snapshot taken
+ * after the simulation. Its diff above includes that unrelated activity; the transaction's own
+ * effect lies between `post - pre` and `post - later`.
+ */
+export interface ConcurrentChange {
+  address: string;
+  /** Lamports in the pre-state snapshot, in the later snapshot, and after the simulated transaction. */
+  lamports: { pre: string; later: string; post: string };
+  /** Token accounts: raw amounts likewise (mint/owner from the pre-state, else the later snapshot). */
+  token: { mint: string; owner: string; decimals: number; pre: string; later: string; post: string } | null;
+}
+
+/**
+ * How the pre-state used for diffs relates to the simulation slot (simulation only).
+ * EXACT: the snapshot is from the simulation's own slot. BRACKETED: snapshots before and after the
+ * simulation agree for every account not listed in `concurrent`. UNVERIFIED: no snapshot after the
+ * simulation could be taken, so changes by other transactions cannot be ruled out.
+ */
+export interface PreStateConsistency {
+  kind: "EXACT" | "BRACKETED" | "UNVERIFIED";
+  /** Slot of the snapshot taken after the simulation (BRACKETED only). */
+  laterSlot: number | null;
+  concurrent: ConcurrentChange[];
+}
+
 export interface TransactionEffects {
   /** SIMULATION = pre-sign simulation, EXECUTED = on-chain result of a past tx. */
   source: "SIMULATION" | "EXECUTED" | "DEMO";
@@ -178,6 +204,8 @@ export interface TransactionEffects {
   slot: number | null;
   /** Slot of the pre-state snapshot used for diffs (simulation only). */
   preStateSlot: number | null;
+  /** Simulation only; absent when no diff was computed (failed simulation, executed or demo effects). */
+  preStateConsistency?: PreStateConsistency;
   stale: boolean;
   /** Whether the transaction's own blockhash is still valid (simulation only). */
   blockhashValid: boolean | null;

@@ -77,8 +77,8 @@ async function callProvider<T>(
   const obj = body as { result?: unknown; error?: { code?: number; message?: string } };
   if (obj.error) {
     const code = typeof obj.error.code === "number" ? obj.error.code : undefined;
-    // -32005 node behind / -32004 block not available / -32603 internal are transient.
-    const retryable = code === -32005 || code === -32004 || code === -32603 || code === 429;
+    // -32005 node behind / -32004 block not available / -32016 min context slot not reached / -32603 internal are transient.
+    const retryable = code === -32005 || code === -32004 || code === -32016 || code === -32603 || code === 429;
     throw new RpcRequestError(`RPC error ${code ?? "?"}: ${String(obj.error.message ?? "").slice(0, 200)}`, retryable, code);
   }
   if (!("result" in obj)) {

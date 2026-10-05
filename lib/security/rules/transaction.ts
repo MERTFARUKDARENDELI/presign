@@ -179,13 +179,17 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
     sources.push({ source: input.demo ? "DEMO" : effSource, status: "OK", detail: effects.source === "EXECUTED" ? "Executed transaction balances" : `Simulation at slot ${effects.slot ?? "?"}` });
     statuses.push(input.effectsStatus);
     if (effects.stale) statuses.push("PARTIAL");
+    if (effects.preStateConsistency?.kind === "UNVERIFIED") {
+      ev({ source: effSource, label: "Pre-state at simulation slot", observed: "not confirmed", condition: "balance changes may include other transactions' activity" });
+      statuses.push("PARTIAL");
+    }
 
     if (!effects.success) {
       const id = ev({ source: effSource, label: effects.source === "EXECUTED" ? "Execution result" : "Simulation result", observed: effects.error ?? "failed", condition: "transaction fails" });
       signals.push({ code: "TX_SIMULATION_FAILED", title: effects.source === "EXECUTED" ? "Transaction failed on-chain" : "Simulation failed", description: "The transaction fails; no balance changes could be observed. If signed it would likely fail and still cost a fee.", severity: "LOW", evidenceIds: [id] });
       statuses.push("PARTIAL");
     } else {
-      evaluateEffects(effects, input, ev, signals, effSource);
+      evaluateEffects(effects, input, ev, signals, statuses, effSource);
     }
   }
 
@@ -216,64 +220,115 @@ function rentDeposits(decoded: DecodedTransaction, wallet: string): bigint {
   return total;
 }
 
+/**
+ * The transaction's own outflow from an account other transactions also changed around the
+ * simulation. Assuming that activity did not reverse direction in between, it lies between the
+ * readings against the earlier and the later snapshot: take the amount the visible instructions
+ * explain when it fits that range, else the nearest bound — so only outflow that no reading of the
+ * concurrent activity explains is treated as unexplained.
+ */
+function boundedOutflow(earlier: bigint, later: bigint, explained: bigint) {
+  const [lo, hi] = earlier < later ? [earlier, later] : [later, earlier];
+  return { lo, hi, value: explained < lo ? lo : explained > hi ? hi : explained };
+}
+
 function evaluateEffects(
   effects: TransactionEffects,
   input: TxRuleInput,
   ev: (e: Omit<Evidence, "id">) => string,
   signals: RiskSignal[],
+  statuses: AnalysisStatus[],
   effSource: "ONCHAIN_RPC" | "SIMULATION",
 ) {
   const { decoded, wallet } = input;
   const { solDelta, tokenDeltas } = walletNetChanges(wallet, effects.solChanges, effects.tokenChanges);
+  const concurrent = effects.preStateConsistency?.concurrent ?? [];
+  const slots = `slots ${effects.preStateSlot ?? "?"}–${effects.preStateConsistency?.laterSlot ?? "?"}`;
 
   // SOL
   const fee = decoded.feePayer === wallet && effects.feeLamports ? BigInt(effects.feeLamports) : 0n;
-  const outflow = -solDelta - fee;
+  // Only top-level transfers count as "explained"; CPI transfers are moved by a program on your behalf.
+  const destinations = decoded.solTransfers.filter((t) => t.from === wallet && !t.cpi);
+  const cpiDestinations = decoded.solTransfers.filter((t) => t.from === wallet && t.cpi);
+  // Priority fees set by the tx itself are fees, not asset outflow. Rent for accounts a program
+  // creates on the wallet's behalf (e.g. a multisig proposal) is explained up to the rent-exempt
+  // minimum for the account's size — anything above that is still unexplained outflow.
+  const rent = rentDeposits(decoded, wallet);
+  const explained = destinations.reduce((s, t) => s + BigInt(t.lamports), 0n) + (decoded.feePayer === wallet ? estimatePriorityFeeLamports(decoded) : 0n) + rent;
+  let outflow = -solDelta - fee;
+  let preLamports = effects.solChanges.find((c) => c.address === wallet)?.preLamports;
+  let condition = "wallet SOL decreases beyond network fee";
+  const uncertain: string[] = [];
+  const walletConc = concurrent.find((c) => c.address === wallet && c.lamports.pre !== c.lamports.later);
+  if (walletConc) {
+    statuses.push("PARTIAL");
+    const { pre, later, post } = walletConc.lamports;
+    const b = boundedOutflow(outflow, BigInt(later) - BigInt(post) - fee, explained);
+    outflow = b.value;
+    preLamports = BigInt(pre) > BigInt(later) ? pre : later;
+    condition += `; other transactions moved your SOL during the simulation, so the outflow is between ${formatLamports(b.lo.toString())} and ${formatLamports(b.hi.toString())} SOL`;
+    const id = ev({ source: effSource, label: "Wallet SOL changed by other transactions", observed: `${formatLamports(pre)} → ${formatLamports(later)} SOL (${slots})`, condition: "balance changed between the snapshots around the simulation" });
+    uncertain.push(id);
+    signals.push({ code: "TX_SOL_CHANGE_UNCERTAIN", title: "SOL change uncertain", description: "Other transactions changed your wallet's SOL balance while this one was simulated, so its exact SOL effect cannot be isolated. Only outflow that this activity cannot explain is reported as unexpected.", severity: "LOW", evidenceIds: [id] });
+  }
   if (outflow > TX_THRESHOLDS.solNoiseLamports) {
-    // Only top-level transfers count as "explained"; CPI transfers are moved by a program on your behalf.
-    const destinations = decoded.solTransfers.filter((t) => t.from === wallet && !t.cpi);
-    const cpiDestinations = decoded.solTransfers.filter((t) => t.from === wallet && t.cpi);
-    // Priority fees set by the tx itself are fees, not asset outflow. Rent for accounts a program
-    // creates on the wallet's behalf (e.g. a multisig proposal) is explained up to the rent-exempt
-    // minimum for the account's size — anything above that is still unexplained outflow.
-    const rent = rentDeposits(decoded, wallet);
-    const explained = destinations.reduce((s, t) => s + BigInt(t.lamports), 0n) + (decoded.feePayer === wallet ? estimatePriorityFeeLamports(decoded) : 0n) + rent;
     const allDest = [...destinations, ...cpiDestinations];
     const destText = allDest.length
       ? [...new Set(allDest.map((d) => `${d.to}${d.cpi ? " (via program call)" : ""}`))].join(", ")
       : "not visible in instructions";
-    const id = ev({ source: effSource, label: "Net SOL leaving your wallet", observed: `${formatLamports(outflow.toString())} SOL → ${destText}`, condition: "wallet SOL decreases beyond network fee" });
+    const id = ev({ source: effSource, label: "Net SOL leaving your wallet", observed: `${formatLamports(outflow.toString())} SOL → ${destText}`, condition });
+    const evidenceIds = [id, ...uncertain];
     if (explained >= outflow && destinations.length === 0 && rent > 0n) {
-      signals.push({ code: "TX_RENT_DEPOSIT", title: "SOL deposited as account rent", description: "SOL moves into newly created account(s) as their rent-exempt deposit, not to another wallet.", severity: "LOW", evidenceIds: [id] });
+      signals.push({ code: "TX_RENT_DEPOSIT", title: "SOL deposited as account rent", description: "SOL moves into newly created account(s) as their rent-exempt deposit, not to another wallet.", severity: "LOW", evidenceIds });
     } else if (explained >= outflow) {
-      signals.push({ code: "TX_SOL_OUTFLOW", title: "SOL leaves your wallet", description: "SOL is sent to the listed destination. Destination addresses without a known label are unverified, not necessarily malicious — confirm you intend to pay them.", severity: "MEDIUM", evidenceIds: [id] });
+      signals.push({ code: "TX_SOL_OUTFLOW", title: "SOL leaves your wallet", description: "SOL is sent to the listed destination. Destination addresses without a known label are unverified, not necessarily malicious — confirm you intend to pay them.", severity: "MEDIUM", evidenceIds });
     } else {
-      signals.push({ code: "TX_UNEXPECTED_SOL_OUTFLOW", title: "Unexpected SOL outflow", description: "More SOL leaves your wallet than the visible transfer instructions explain (moved by a program call).", severity: "HIGH", evidenceIds: [id] });
+      signals.push({ code: "TX_UNEXPECTED_SOL_OUTFLOW", title: "Unexpected SOL outflow", description: "More SOL leaves your wallet than the visible transfer instructions explain (moved by a program call).", severity: "HIGH", evidenceIds });
     }
-    const pre = effects.solChanges.find((c) => c.address === wallet);
-    if (pre && BigInt(pre.preLamports) > 0n && (outflow * 100n) / BigInt(pre.preLamports) >= TX_THRESHOLDS.drainRatioPct) {
-      const id2 = ev({ source: effSource, label: "Share of SOL balance leaving", observed: `${((outflow * 100n) / BigInt(pre.preLamports)).toString()}%`, condition: `>= ${TX_THRESHOLDS.drainRatioPct}%` });
+    if (preLamports && BigInt(preLamports) > 0n && (outflow * 100n) / BigInt(preLamports) >= TX_THRESHOLDS.drainRatioPct) {
+      const id2 = ev({ source: effSource, label: "Share of SOL balance leaving", observed: `${((outflow * 100n) / BigInt(preLamports)).toString()}%`, condition: `>= ${TX_THRESHOLDS.drainRatioPct}%` });
       signals.push({ code: "TX_SOL_DRAIN", title: "Near-total SOL drain", description: "Almost all of your SOL leaves the wallet.", severity: "CRITICAL", evidenceIds: [id, id2] });
     }
   }
 
-  // Tokens
+  // Tokens. For wallet token accounts other transactions changed, `post - later` = delta + (pre - later).
+  const laterShift = new Map<string, { shift: bigint; decimals: number; accounts: string[] }>();
+  for (const c of concurrent) {
+    if (!c.token || c.token.owner !== wallet || c.token.pre === c.token.later) continue;
+    const cur = laterShift.get(c.token.mint) ?? { shift: 0n, decimals: c.token.decimals, accounts: [] };
+    cur.shift += BigInt(c.token.pre) - BigInt(c.token.later);
+    cur.accounts.push(`${c.address}: ${formatRawAmount(c.token.pre, c.token.decimals)} → ${formatRawAmount(c.token.later, c.token.decimals)}`);
+    laterShift.set(c.token.mint, cur);
+  }
   const outMints: string[] = [];
-  for (const [mint, { delta, decimals }] of tokenDeltas) {
-    if (delta >= 0n) continue;
-    outMints.push(mint);
-    const amount = formatRawAmount((-delta).toString(), decimals);
+  for (const mint of new Set([...tokenDeltas.keys(), ...laterShift.keys()])) {
+    const conc = laterShift.get(mint);
+    let delta = tokenDeltas.get(mint)?.delta ?? 0n;
+    const decimals = tokenDeltas.get(mint)?.decimals ?? conc?.decimals ?? 0;
     const transfers = decoded.tokenTransfers.filter((t) => t.authority === wallet && !t.cpi && (t.mint === mint || t.mint === null));
     const cpiTransfers = decoded.tokenTransfers.filter((t) => t.authority === wallet && t.cpi && (t.mint === mint || t.mint === null));
     const burns = decoded.instructions.filter((i) => /:burn/.test(i.type) && i.info.owner === wallet && i.info.mint === mint);
+    const evidenceIds: string[] = [];
+    if (conc) {
+      statuses.push("PARTIAL");
+      const visible = [...transfers.map((t) => t.amountRaw), ...burns.map((i) => i.info.amount ?? "0")].reduce((s, a) => s + BigInt(a), 0n);
+      delta = -boundedOutflow(-delta, -(delta + conc.shift), visible).value;
+      const id = ev({ source: effSource, label: `Token balance changed by other transactions (mint ${mint})`, observed: `${conc.accounts.join("; ")} (${slots})`, condition: "balance changed between the snapshots around the simulation" });
+      evidenceIds.push(id);
+      signals.push({ code: `TX_TOKEN_CHANGE_UNCERTAIN:${mint}`, title: "Token change uncertain", description: "Other transactions changed this token balance in your wallet while this one was simulated, so the exact amount moved cannot be isolated. Only outflow that this activity cannot explain is reported as unexpected.", severity: "LOW", evidenceIds: [id] });
+    }
+    if (delta >= 0n) continue;
+    outMints.push(mint);
+    const amount = formatRawAmount((-delta).toString(), decimals);
     const dest = [...new Set([...transfers, ...cpiTransfers].map((t) => t.destination))];
     const destOwners = dest.map((d) => effects.tokenChanges.find((c) => c.tokenAccount === d)?.owner ?? d);
     const id = ev({ source: effSource, label: `Token leaving your wallet (mint ${mint})`, observed: `${amount} → ${destOwners.length ? destOwners.join(", ") : burns.length ? "burned" : "unknown destination"}`, condition: "wallet token balance decreases" });
+    evidenceIds.unshift(id);
 
     if (transfers.length > 0 || burns.length > 0) {
-      signals.push({ code: `TX_TOKEN_OUTFLOW:${mint}`, title: burns.length && !transfers.length ? "Tokens burned" : "Tokens leave your wallet", description: burns.length && !transfers.length ? `${amount} tokens are permanently burned.` : `${amount} tokens are sent to ${destOwners.join(", ")}. Unlabeled destinations are unverified — confirm the recipient.`, severity: "MEDIUM", evidenceIds: [id] });
+      signals.push({ code: `TX_TOKEN_OUTFLOW:${mint}`, title: burns.length && !transfers.length ? "Tokens burned" : "Tokens leave your wallet", description: burns.length && !transfers.length ? `${amount} tokens are permanently burned.` : `${amount} tokens are sent to ${destOwners.join(", ")}. Unlabeled destinations are unverified — confirm the recipient.`, severity: "MEDIUM", evidenceIds });
     } else {
-      signals.push({ code: `TX_UNEXPECTED_TOKEN_OUTFLOW:${mint}`, title: "Unexpected token outflow", description: "Tokens leave your wallet through a program call that is not a visible transfer instruction.", severity: "HIGH", evidenceIds: [id] });
+      signals.push({ code: `TX_UNEXPECTED_TOKEN_OUTFLOW:${mint}`, title: "Unexpected token outflow", description: "Tokens leave your wallet through a program call that is not a visible transfer instruction.", severity: "HIGH", evidenceIds });
     }
 
     const walletAccounts = effects.tokenChanges.filter((c) => c.owner === wallet && c.mint === mint);
