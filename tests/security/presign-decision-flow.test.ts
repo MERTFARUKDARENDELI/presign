@@ -88,7 +88,24 @@ describe("human decision layer vs machine gate", () => {
       expect(d.expectedChoice).toBeNull();
       expect(d.recommendedAction).toBe("CANNOT_VERIFY");
     }
-    expect(expectedChoiceFor("UNKNOWN")).toBe("CONTINUE");
+    expect(expectedChoiceFor("UNKNOWN", "INSUFFICIENT_DATA")).toBe("CONTINUE");
+  });
+
+  it("an incomplete analysis with only LOW signals asks to continue, not to sign", () => {
+    for (const status of ["PARTIAL", "INSUFFICIENT_DATA", "UNAVAILABLE"] as const) {
+      for (const level of ["LOW", "SAFE"] as const) {
+        const d = deriveDecision({ level, score: 5, status }, gateFor(level, status), []);
+        expect(d.gate).toBe("require_human_review");
+        expect(d.recommendedAction).toBe("CAUTION");
+        expect(d.expectedChoice).toBe("CONTINUE");
+        expect(d.primaryActionLabel).toBe("Continue anyway");
+        expect(d.headline).toMatch(/could not run/);
+        expect(expectedChoiceFor(level, status)).toBe("CONTINUE");
+      }
+    }
+    // A completed analysis keeps the plain "Sign".
+    expect(deriveDecision({ level: "LOW", score: 5, status: "COMPLETE" }, "no_known_risk", []).expectedChoice).toBe("SIGN");
+    expect(expectedChoiceFor("LOW", "COMPLETE")).toBe("SIGN");
   });
 });
 

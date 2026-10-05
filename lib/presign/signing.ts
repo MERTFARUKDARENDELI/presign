@@ -333,7 +333,7 @@ export async function approveSigning(input: ApproveSigningInput, sid: string | n
   const hash = bytes ? await payloadHashOf(a.t, bytes) : null;
   if (!hash || hash !== a.ph) throw block("PAYLOAD_MISMATCH", PAYLOAD_CHANGED_MESSAGE);
 
-  const expected = expectedChoiceFor(a.lvl);
+  const expected = expectedChoiceFor(a.lvl, a.st);
   if (input.choice !== expected || a.choice !== expected) throw block("DECISION_MISMATCH", "This request needs a different decision for its risk level.");
   if (expected === "OVERRIDE" && input.overrideConfirmed !== true) throw block("CONFIRMATION_REQUIRED", "Confirm explicitly that you want to continue despite Presign's warning.");
 

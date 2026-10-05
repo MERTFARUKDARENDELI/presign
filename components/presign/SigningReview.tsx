@@ -82,7 +82,7 @@ function Row({ label, ok, children }: { label: string; ok: boolean | null; child
 }
 
 /** The multisig view, in the order a council member checks it. */
-function MultisigBlock({ m, simulation, level }: { m: NonNullable<Review["multisigSummary"]>; simulation: string | null; level: Review["decision"]["risk"]["level"] }) {
+function MultisigBlock({ m, simulation, risk }: { m: NonNullable<Review["multisigSummary"]>; simulation: string | null; risk: Review["decision"]["risk"] }) {
   const tl = m.timeLockSeconds;
   return (
     <Section title="Multisig">
@@ -94,7 +94,7 @@ function MultisigBlock({ m, simulation, level }: { m: NonNullable<Review["multis
         <Row label="Time lock" ok={tl === null ? null : tl > 0}>{tl === null ? "Unknown (multisig account not loaded)" : tl > 0 ? `${tl} s` : "None"}</Row>
         <Row label="Durable nonce" ok={!m.durableNonce}>{m.durableNonce ? "Present — this signature never expires" : "No"}</Row>
         <Row label="Simulation" ok={simulation === null ? null : simulation === "PASS"}>{simulation ?? "Not run"}</Row>
-        <Row label="Risk" ok={level === "SAFE" || level === "LOW"}>{level}</Row>
+        <Row label="Risk" ok={risk.status !== "COMPLETE" ? null : risk.level === "SAFE" || risk.level === "LOW"}>{risk.status === "COMPLETE" ? risk.level : `${risk.level} (some checks did not run)`}</Row>
       </dl>
     </Section>
   );
@@ -258,7 +258,7 @@ export function SigningReview({ review, allowSubmit = false, onClose, external }
           <Section title="Assets affected"><Lines items={review.explanation.assetMovements} empty="No balance change for your wallet in the simulation (besides the network fee)." /></Section>
           <Section title="Authorities / permissions"><Lines items={review.findings.authorityChanges} empty="No authority change or token approval." /></Section>
           <Section title="Programs"><Lines items={review.explanation.programs} empty="—" /></Section>
-          {review.multisigSummary && <MultisigBlock m={review.multisigSummary} simulation={sim?.status ?? null} level={level} />}
+          {review.multisigSummary && <MultisigBlock m={review.multisigSummary} simulation={sim?.status ?? null} risk={d.risk} />}
           {!review.multisigSummary && review.findings.multisig.length > 0 && <Section title="Multisig"><Lines items={review.findings.multisig} empty="" /></Section>}
         </>
       )}

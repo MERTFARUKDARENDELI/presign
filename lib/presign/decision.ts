@@ -1,6 +1,7 @@
 import { gateFor, type Gate } from "@/lib/agent/gate";
 import { describeTransactionError } from "@/lib/cleanup/reclaim";
 import type { RiskAssessment, RiskVerdict } from "@/lib/security/risk";
+import type { AnalysisStatus } from "@/lib/security/types";
 import type { TransactionAnalysis } from "@/lib/transaction/types";
 import type { SigningDecision, SimulationSummary, TechnicalIssue, TechnicalValidation, UserChoice } from "./types";
 
@@ -10,7 +11,7 @@ import type { SigningDecision, SimulationSummary, TechnicalIssue, TechnicalValid
  *   machine gate (unchanged)          human decision
  *   CRITICAL / HIGH  → block          valid → user may override after ONE explicit confirmation
  *   MEDIUM / UNKNOWN → human review   valid → user may continue
- *   LOW / SAFE       → no known risk  valid → user may sign
+ *   LOW / SAFE       → no known risk  valid → user may sign (continue, if some checks did not run)
  *   anything         → (as above)     UNVERIFIABLE / INVALID → stop, no "sign anyway"
  *
  * Presign advises; the user decides — but only about a request Presign could
@@ -26,10 +27,14 @@ export function technicalValidationOf(issues: TechnicalIssue[]): TechnicalValida
   return "VALID";
 }
 
-/** The single choice the approval endpoint accepts for a VALID request at this risk level. */
-export function expectedChoiceFor(level: RiskVerdict): UserChoice {
+/**
+ * The single choice the approval endpoint accepts for a VALID request at this
+ * risk level. A LOW (or SAFE) result from an incomplete analysis is a
+ * "continue", not a plain "sign": the checks that did not run may hold the risk.
+ */
+export function expectedChoiceFor(level: RiskVerdict, status: AnalysisStatus): UserChoice {
   if (level === "HIGH" || level === "CRITICAL") return "OVERRIDE";
-  if (level === "MEDIUM" || level === "UNKNOWN") return "CONTINUE";
+  if (level === "MEDIUM" || level === "UNKNOWN" || status !== "COMPLETE") return "CONTINUE";
   return "SIGN";
 }
 
@@ -47,6 +52,10 @@ export function deriveDecision(risk: Pick<RiskAssessment, "level" | "score" | "s
       primaryActionLabel: null,
       headline: "Unable to safely verify this signing request.",
     };
+  }
+
+  if (risk.status !== "COMPLETE" && (risk.level === "LOW" || risk.level === "SAFE")) {
+    return { ...base, recommendedAction: "CAUTION", userCanOverride: true, requiredConfirmation: "ACKNOWLEDGE", expectedChoice: "CONTINUE", primaryActionLabel: "Continue anyway", headline: "Only low-risk signals found, but some checks could not run. Incomplete is not safe." };
   }
 
   switch (risk.level) {
