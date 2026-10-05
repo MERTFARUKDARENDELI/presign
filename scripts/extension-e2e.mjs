@@ -7,10 +7,11 @@
 // is a real ed25519 signature; a funded devnet account pays the fee in the SIMULATION only (it never
 // signs anything). Nothing is broadcast.
 //
-// Requirements: `npm run build:extension`, Presign running on http://localhost:3000 (devnet), Chrome.
+// Requirements: `npm run build:extension`, Chrome, and Presign on http://localhost:3000 (devnet) unless E2E_INSTANCE=production.
 // Usage: node scripts/extension-e2e.mjs [--headed]
 //   E2E_RPC        devnet RPC used for a current blockhash (default: OnFinality public devnet)
 //   E2E_FEE_PAYER  funded devnet system account used as fee payer in the simulation
+//   E2E_INSTANCE   "local" (default, http://localhost:3000) or "production" (devnet requests → presign-devnet.vercel.app)
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -25,6 +26,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CHROME = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const DAPP_PORT = 5174;
 const headed = process.argv.includes("--headed");
+const INSTANCE = process.env.E2E_INSTANCE === "production" ? "production" : "local";
 
 // ---------------------------------------------------------------- requests
 const TEST_SEED = new Uint8Array(32).fill(77); // throwaway test key, devnet only
@@ -163,7 +165,7 @@ try {
   // Point the extension at the local Presign server.
   const sw = await until(async () => (await cdp("Target.getTargets")).targetInfos.find((t) => t.type === "service_worker" && t.url.startsWith(`chrome-extension://${extId}/`)), "extension service worker");
   const swSession = await attach(sw.targetId);
-  await evaluate(swSession, `chrome.storage.local.set({ settings: { enabled: true, instance: "local", skipSites: [] } }).then(() => true)`);
+  await evaluate(swSession, `chrome.storage.local.set({ settings: { enabled: true, instance: ${JSON.stringify(INSTANCE)}, skipSites: [] } }).then(() => true)`);
 
   const { targetId: dappTarget } = await cdp("Target.createTarget", { url: `http://localhost:${DAPP_PORT}/` });
   const dapp = await attach(dappTarget);
@@ -179,7 +181,7 @@ try {
   const text = (s) => evaluate(s, "document.body.innerText");
   const clickButton = (s, re) => evaluate(s, `(() => { const b = [...document.querySelectorAll("button")].find((x) => ${re}.test(x.textContent) && !x.disabled); if (!b) return null; b.click(); return b.textContent.trim(); })()`);
   // The "Risk" field of the review header (not the domain chip or a signal badge).
-  const riskOf = (page) => (page.match(/\nRisk\n(SAFE|LOW|MEDIUM|HIGH|CRITICAL|UNRATED)\b/) ?? [])[1] ?? "?";
+  const riskOf = (page) => (page.match(/\nRisk\n(No risk found|LOW|MEDIUM|HIGH|CRITICAL|Unrated)\b/i) ?? [])[1] ?? "?";
   // The decision button's labels (lib/presign/decision.ts).
   const PRIMARY = /^\s*(Sign|Sign with wallet|Continue anyway|I understand the (critical )?risk — sign anyway)\s*$/;
   const analyzed = (s, what) =>
@@ -240,6 +242,8 @@ try {
   const r3 = await reviewWindow();
   await analyzed(r3.session, "message analysis");
   check(/Sign in to test dApp/.test(await text(r3.session)), "review shows the exact message text");
+  // A message has no chain: production reviews it on the mainnet site, a separate session there.
+  if (/Verify that you own/i.test(await text(r3.session))) check(await proveOwnership(r3.session), `ownership proven once for the ${new URL(r3.target.url).host} session`);
   await until(() => clickButton(r3.session, PRIMARY), "message primary action");
   await sleep(500);
   await clickButton(r3.session, /I understand — continue/);
