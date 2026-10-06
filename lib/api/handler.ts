@@ -47,10 +47,31 @@ export function withApi(
   };
 }
 
+/**
+ * Reads at most maxBytes of the body: a declared Content-Length above the limit
+ * is refused before anything is read, and a body without one (or lying about
+ * it) is cut off as soon as it passes the limit, never buffered whole.
+ */
 export async function readJsonBody(request: Request, maxBytes = 256_000): Promise<unknown> {
-  const text = await request.text();
-  if (text.length > maxBytes) {
-    throw new AppError("INVALID_INPUT", "Request body is too large.");
+  const tooLarge = () => new AppError("INVALID_INPUT", "Request body is too large.");
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) throw tooLarge();
+  let text = "";
+  if (request.body) {
+    const reader = request.body.getReader();
+    const decoder = new TextDecoder();
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw tooLarge();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
   }
   try {
     return JSON.parse(text);
