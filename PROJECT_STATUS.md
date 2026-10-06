@@ -1,6 +1,6 @@
 # Project Status — Presign
 
-Last updated: 2026-10-03. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
+Last updated: 2026-10-06. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
 
 "VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready".
 
@@ -8,13 +8,31 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 
 ## Presign (2026-09-27 →)
 
+### Release candidate status (2026-10-06, local `main`, not pushed)
+
+| Item | Status |
+|---|---|
+| Security findings of the 2026-10-05 audit | P0 0 · P1 0 · P2 0 · P3 0 open, each closed with code, test and (where possible) behavior evidence. Historical baseline (f379d7c, 2026-10-05): 3 P0 / 6 P1 / 9 P2 / 10 P3, readiness 48/100 — kept in the audit report as history, not current |
+| Tests / rules | 724 Vitest tests in 56 files pass; 111 catalogued rules |
+| Typecheck · lint · production build · extension build | pass |
+| Extension in real Chrome (fake wallet, local Presign) | 29/29 checks, twice — including a made-up approval that never reaches the wallet and a handshake probe that hears no secret |
+| Approval confirmation (P2-8) | the extension's one request: `POST /api/presign/signing/verify-approval` on the allowed Presign origin, no cookies, no redirects; bound to payload hash, type, wallet and site, single use |
+| CSP | every script of 11 pages carries the response's nonce on a production build (local) |
+| Build artifacts | no secret from `.env.local` and no key pattern in `.next/` or `extension/dist/`; no source maps in client bundles |
+| Presign Guard | `cargo build-sbf` and `cargo test -p presign-guard` (11/11) pass in WSL (Rust 1.89.0, Agave 3.1.10); program code unchanged since the audit; mainnet prerequisites in `guard/DESIGN.md` |
+| Production e2e (`E2E_INSTANCE=production`) | NOT VERIFIED — the fixes are not deployed, and `*.vercel.app` is unreachable from the network used |
+| `PRESIGN_SESSION_SECRET` on Vercel (mainnet, devnet; production and preview) | NOT VERIFIED — the stored Vercel CLI token is no longer authorized |
+| Real wallets (Phantom, Solflare, Backpack) | NOT VERIFIED |
+| CI with the new workflow | NOT VERIFIED — never ran on GitHub (last runs: 2026-10-05, success, before these commits) |
+| Branch | local `main` has the fix commits; `origin/main` has two commits not here (a `CLAUDE.md` update merged as PR #1). Integrate them before pushing; only `CLAUDE.md` differs |
+
 ### Verification baseline
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
-| `npm test` | **719 tests / 55 files** pass (no network; RPC mocked at the edge) |
+| `npm test` | **724 tests / 56 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
 | CI | GitHub Actions: typecheck, lint, test, build and extension build on every push, plus an informational `npm audit` of production dependencies (`.github/workflows/ci.yml`); actions pinned to commit SHAs; the Guard job installs Agave from the release archive checked against its published SHA-256. The workflow changes of 2026-10-06 have not run on GitHub yet (not pushed) |
 | Observability | Structured, redacting JSON logs on stdout (Vercel keeps them; a log drain can forward them). Optional operator alerts since 2026-10-06: with `PRESIGN_ALERT_WEBHOOK_URL` (Slack/Discord-compatible, https) every error and three outages (upstream 5xx, shared store down, an AI explanation contradicting the verdict) are posted, at most once per event per 10 minutes per instance; `/api/health` reports whether it is set. No metrics or tracing |
