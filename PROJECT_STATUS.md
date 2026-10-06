@@ -16,7 +16,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | `npm run lint` (app, components, lib, tests, watchtower, mcp, scripts) | 0 errors / 0 warnings |
 | `npm test` | **677 tests / 51 files** pass (no network; RPC mocked at the edge) |
 | `npm run build` | pass (new since the rename: `/verify`, `/case/drift`, `/docs`, `/rules`, `/api/multisig/inspect`, `/api/guard/prepare`) |
-| CI | GitHub Actions: typecheck, lint, test, build on every push (`.github/workflows/ci.yml`) |
+| CI | GitHub Actions: typecheck, lint, test, build and extension build on every push, plus an informational `npm audit` of production dependencies (`.github/workflows/ci.yml`); actions pinned to commit SHAs; the Guard job installs Agave from the release archive checked against its published SHA-256. The workflow changes of 2026-10-06 have not run on GitHub yet (not pushed) |
 | Client bundle secret scan | 0 hits for server-only values (re-run 2026-09-28) |
 | Live mainnet (read-only) | see below |
 
