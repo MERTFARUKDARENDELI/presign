@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { countHit, sharedStoreConfig } from "./shared-store";
+import { trustedProxyHops } from "./trusted-proxy";
 
 /**
  * Rate limiter keyed by client + route. With a shared store configured
@@ -67,17 +68,23 @@ export async function checkRateLimitShared(key: string, limit: number, windowMs:
 
 /**
  * The client's address. On Vercel the platform sets it itself (a client cannot
- * spoof those headers there); elsewhere the first X-Forwarded-For hop, which is
- * only as trustworthy as the proxy in front of the app.
+ * spoof those headers there). Behind PRESIGN_TRUSTED_PROXY_HOPS proxies, the
+ * address the outermost trusted proxy appended to X-Forwarded-For (entries
+ * before it are whatever the client sent). Otherwise nothing in the request
+ * can be trusted, so every client shares one bucket.
  */
 export function clientKey(request: Request): string {
   if (process.env.VERCEL) {
     const platform = request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim();
     if (platform) return platform;
   }
-  const forwarded = request.headers.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
-  return ip;
+  const hops = trustedProxyHops();
+  if (hops > 0) {
+    const chain = (request.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const ip = chain[chain.length - hops];
+    if (ip) return ip;
+  }
+  return "direct";
 }
 
 export function resetRateLimits(): void {

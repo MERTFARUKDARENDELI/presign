@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { AppError } from "@/lib/api/errors";
+import { canonicalOrigin, forwardedHeadersTrusted } from "@/lib/api/trusted-proxy";
 
 /**
  * Sealed, session-bound tokens for the secure connect and pre-sign flow.
@@ -167,7 +168,10 @@ export function sessionIdFrom(request: Request): string | null {
 }
 
 export function isSecureRequest(request: Request): boolean {
-  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const canonical = canonicalOrigin();
+  if (canonical) return canonical.protocol === "https:";
+  // X-Forwarded-Proto only from a trusted proxy (lib/api/trusted-proxy.ts).
+  const proto = forwardedHeadersTrusted() ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() : undefined;
   if (proto) return proto === "https";
   try {
     return new URL(request.url).protocol === "https:";
@@ -190,9 +194,15 @@ export function ensureSession(request: Request): { sid: string; setCookie: strin
   return { sid, setCookie: cookieHeader(request, SESSION_COOKIE, sid, SESSION_TTL_S) };
 }
 
-/** The host this Presign instance is served on (used in ownership messages). */
+/**
+ * The host this Presign instance is served on (used in ownership messages):
+ * PRESIGN_CANONICAL_ORIGIN when set, else X-Forwarded-Host from a trusted
+ * proxy, else the Host header.
+ */
 export function presignHost(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const canonical = canonicalOrigin();
+  if (canonical) return canonical.host;
+  const forwarded = forwardedHeadersTrusted() ? request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() : undefined;
   const host = forwarded || request.headers.get("host") || "";
   if (host && /^[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) return host.toLowerCase();
   try {

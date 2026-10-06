@@ -12,5 +12,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Route tests stand in for one trusted proxy: each request's X-Forwarded-For is its client address.
+    env: { PRESIGN_TRUSTED_PROXY_HOPS: "1" },
   },
 });

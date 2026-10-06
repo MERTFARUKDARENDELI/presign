@@ -1,6 +1,7 @@
 import { getAiStatus } from "@/lib/ai/status";
 import { withApi } from "@/lib/api/handler";
 import { ok } from "@/lib/api/response";
+import { canonicalOrigin, proxyTrust } from "@/lib/api/trusted-proxy";
 import { sessionSecretConfigured } from "@/lib/presign/tokens";
 import { getCluster, isHeliusConfigured } from "@/lib/solana/config";
 
@@ -15,5 +16,8 @@ export const GET = withApi({ name: "health", limit: 60, windowMs: 60_000 }, asyn
     ai: getAiStatus(),
     // Secure connect and the pre-sign review need it in production.
     presignSessionSecret: sessionSecretConfigured(),
+    // Where client addresses and the served host come from; the public origin this deployment redirects to, if any.
+    proxyTrust: proxyTrust(),
+    canonicalOrigin: canonicalOrigin()?.origin ?? null,
   }),
 );

@@ -110,8 +110,19 @@ describe("client address", () => {
     expect(clientKey(r)).toBe("1.2.3.4");
   });
 
-  it("elsewhere the first X-Forwarded-For hop is used, as before", () => {
+  it("behind declared proxies, the address the outermost trusted proxy appended; the client's own entries are ignored", () => {
     vi.stubEnv("VERCEL", "");
-    expect(clientKey(new Request("http://localhost/api/x", { headers: { "x-forwarded-for": "9.9.9.9, 10.0.0.1" } }))).toBe("9.9.9.9");
+    const r = new Request("http://localhost/api/x", { headers: { "x-forwarded-for": "6.6.6.6, 9.9.9.9, 10.0.0.1" } });
+    vi.stubEnv("PRESIGN_TRUSTED_PROXY_HOPS", "1");
+    expect(clientKey(r)).toBe("10.0.0.1");
+    vi.stubEnv("PRESIGN_TRUSTED_PROXY_HOPS", "2");
+    expect(clientKey(r)).toBe("9.9.9.9");
+  });
+
+  it("without a trusted proxy, X-Forwarded-For and X-Real-IP are client-controlled: everyone shares one bucket", () => {
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("PRESIGN_TRUSTED_PROXY_HOPS", "");
+    expect(clientKey(new Request("http://localhost/api/x", { headers: { "x-forwarded-for": "9.9.9.9", "x-real-ip": "8.8.8.8" } }))).toBe("direct");
+    expect(clientKey(new Request("http://localhost/api/x", { headers: { "x-forwarded-for": "7.7.7.7" } }))).toBe("direct");
   });
 });
