@@ -111,6 +111,8 @@ export const signedTransactionSchema = z.object({
   expectedMessageHash: z.string().regex(/^[0-9a-f]{64}$/),
   /** Present when the transaction was signed through Presign's pre-sign review: binds it to that approval. */
   approvalToken: z.string().min(20).max(8_000).optional(),
+  /** Present for a transaction Presign prepared (Guard veto / execute): binds it to that exact message. */
+  preparedToken: z.string().min(20).max(8_000).optional(),
 });
 
 export const urlSchema = z

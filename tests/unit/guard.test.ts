@@ -204,6 +204,10 @@ describe("veto / execute preparation", () => {
     expect(d.instructions.map((i) => i.type)).toEqual(["guard:veto"]);
     expect(d.signaturesPresent).toBe(0);
     expect(await messageHashOfTx(bytes)).toBe(p.messageHash);
+    // The submit endpoint relays it only with the prepared token, and only for this exact message.
+    const { verifyPreparedForSubmit } = await import("@/lib/guard/prepare");
+    expect(() => verifyPreparedForSubmit(p.preparedToken, p.messageHash)).not.toThrow();
+    expect(() => verifyPreparedForSubmit(p.preparedToken, "f".repeat(64))).toThrow(/differs from the one Presign prepared/);
   });
 
   it("refuses a veto from a non-guardian, an early execute, and anything on a finished action", async () => {

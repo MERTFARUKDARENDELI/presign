@@ -6,11 +6,13 @@ import { DEMO } from "@/lib/demo/scenario";
 import { sendSignedAndConfirm, type SendResult } from "@/lib/solana/send";
 import { messageHashOfTx, verifyTransactionSignatures } from "@/lib/wallet/signing";
 
+export const NOT_BOUND_MESSAGE = "Presign relays only a transaction it reviewed and you approved (approvalToken) or one it prepared itself (preparedToken). It was not submitted.";
+
 /**
- * Relays a user-signed, previously analyzed transaction. The client proves the
- * bytes match the analysis and the user's confirmation through the message
- * hash; the server re-checks it plus every required ed25519 signature. The RPC
- * runs a fresh preflight simulation before accepting it. Nothing is signed here.
+ * Relays a user-signed transaction whose message hash the route has already
+ * bound to a server-sealed approval or prepared token. Re-checks that the
+ * bytes hash to it and every required ed25519 signature. The RPC runs a fresh
+ * preflight simulation before accepting it. Nothing is signed here.
  */
 export async function submitAnalyzedTransaction(signedBase64: string, expectedMessageHash: string): Promise<SendResult> {
   let bytes: Uint8Array;

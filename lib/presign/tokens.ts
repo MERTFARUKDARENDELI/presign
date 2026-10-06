@@ -11,7 +11,7 @@ import { AppError } from "@/lib/api/errors";
  * a public wallet address. Single use is enforced separately (replay.ts).
  */
 
-export type TokenKind = "connect" | "own" | "wallet" | "analysis" | "findings" | "approval";
+export type TokenKind = "connect" | "own" | "wallet" | "analysis" | "findings" | "approval" | "prepared";
 
 export type OpenFailure = "MALFORMED" | "BAD_SEAL" | "WRONG_KIND" | "EXPIRED";
 

@@ -35,7 +35,7 @@ export function GuardActionButtons({ action, guardians, pending, executable, onD
       const signedBytes = signed.serialize();
       if ((await messageHashOfTx(signedBytes)) !== prepared.messageHash) throw new Error("The wallet changed the transaction. It was not sent.");
       setPhase({ kind: "working", step: "Sending…" });
-      const result = await api<SendResult>("/api/transaction/submit", { json: { signedTransaction: btoa(String.fromCharCode(...signedBytes)), expectedMessageHash: prepared.messageHash } });
+      const result = await api<SendResult>("/api/transaction/submit", { json: { signedTransaction: btoa(String.fromCharCode(...signedBytes)), expectedMessageHash: prepared.messageHash, preparedToken: prepared.preparedToken } });
       setPhase({ kind: "done", result });
       if (result.status === "confirmed") onDone();
     } catch (e) {

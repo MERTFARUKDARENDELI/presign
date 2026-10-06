@@ -8,6 +8,7 @@ import { resetAiStatus } from "@/lib/ai/status";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { buildCleanupInstructions, messageHashOf, type CleanupIntent } from "@/lib/cleanup/intent";
 import { DEMO } from "@/lib/demo/scenario";
+import { sealToken } from "@/lib/presign/tokens";
 import { getParsedAccounts } from "@/lib/solana/accounts";
 import { rpcCall } from "@/lib/solana/client";
 import { TOKEN_PROGRAM_ID } from "@/lib/solana/constants";
@@ -109,6 +110,45 @@ describe("POST /api/cleanup/submit", () => {
 
 describe("POST /api/transaction/submit", () => {
   const transfer = () => [SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 1 })];
+  /** What /api/guard/prepare hands out for a transaction it built. */
+  const prepared = (messageHash: string, now = Date.now()) => sealToken("prepared", { mh: messageHash, s: W, k: "veto" }, 300_000, now);
+
+  it("409 NOT_BOUND: a validly signed transaction without an approval or prepared token is not relayed", async () => {
+    const tx = signed(transfer());
+    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: tx.b64, expectedMessageHash: await messageHashOf(tx.bytes) })));
+    expect(r.status).toBe(409);
+    expect(r.body.error?.message).toMatch(/relays only a transaction it reviewed and you approved/);
+    networkUntouched();
+  });
+
+  it("409 for a forged, expired, mismatched or wrong-kind prepared token", async () => {
+    const tx = signed(transfer());
+    const hash = await messageHashOf(tx.bytes);
+    const otherHash = await messageHashOf(buildTx([SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 2 })]).bytes);
+    const cases: Array<[string, RegExp]> = [
+      ["x".repeat(40), /token is invalid/],
+      [prepared(hash, Date.now() - 600_000), /expired/],
+      [prepared(otherHash), /differs from the one Presign prepared/],
+      [sealToken("approval", { mh: hash }, 300_000), /token is invalid/],
+    ];
+    for (const [preparedToken, message] of cases) {
+      const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: tx.b64, expectedMessageHash: hash, preparedToken })));
+      expect(r.status).toBe(409);
+      expect(r.body.error?.message).toMatch(message);
+    }
+    networkUntouched();
+  });
+
+  it("a transaction Presign prepared, validly signed, is relayed", async () => {
+    const tx = signed(transfer());
+    const hash = await messageHashOf(tx.bytes);
+    rpc.mockImplementation(async (method: string) => (method === "sendTransaction" ? { result: "sig-1" } : { result: { value: [{ err: null, confirmationStatus: "confirmed" }] } }) as never);
+    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: tx.b64, expectedMessageHash: hash, preparedToken: prepared(hash) })));
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ signature: "sig-1", status: "confirmed" });
+    expect(rpc.mock.calls[0][0]).toBe("sendTransaction");
+    expect(rpc.mock.calls[0][1]).toEqual([tx.b64, expect.objectContaining({ skipPreflight: false })]);
+  });
 
   it("400 on schema violations", async () => {
     expect((await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: "***", expectedMessageHash: "a".repeat(64) }))).status).toBe(400);
@@ -117,7 +157,7 @@ describe("POST /api/transaction/submit", () => {
   });
 
   it("400 INVALID_TRANSACTION for unparseable bytes", async () => {
-    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: "AAAA", expectedMessageHash: "a".repeat(64) })));
+    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: "AAAA", expectedMessageHash: "a".repeat(64), preparedToken: prepared("a".repeat(64)) })));
     expect(r.status).toBe(400);
     expect(r.body.error?.code).toBe("INVALID_TRANSACTION");
     networkUntouched();
@@ -126,14 +166,15 @@ describe("POST /api/transaction/submit", () => {
   it("409 when the signed bytes differ from the analyzed hash", async () => {
     const analyzedHash = await messageHashOf(buildTx(transfer()).bytes);
     const changed = signed([SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 999 })]);
-    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: changed.b64, expectedMessageHash: analyzedHash })));
+    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: changed.b64, expectedMessageHash: analyzedHash, preparedToken: prepared(analyzedHash) })));
     expect(r.status).toBe(409);
     networkUntouched();
   });
 
   it("409 for an unsigned transaction even with a matching hash", async () => {
     const { base64, bytes } = buildTx(transfer());
-    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: base64, expectedMessageHash: await messageHashOf(bytes) })));
+    const hash = await messageHashOf(bytes);
+    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: base64, expectedMessageHash: hash, preparedToken: prepared(hash) })));
     expect(r.status).toBe(409);
     expect(r.body.error?.message).toMatch(/signatures/);
     networkUntouched();
@@ -143,7 +184,8 @@ describe("POST /api/transaction/submit", () => {
     // The demo check runs before signature verification, so no demo key is needed (and none exists here).
     const { tx, bytes } = buildTx([SystemProgram.transfer({ fromPubkey: DEMO.wallet, toPubkey: ATTACKER, lamports: 1 })], DEMO.wallet);
     const b64 = bytesToBase64(new Uint8Array(tx.serialize({ requireAllSignatures: false, verifySignatures: false })));
-    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: b64, expectedMessageHash: await messageHashOf(bytes) })));
+    const hash = await messageHashOf(bytes);
+    const r = await json(await txSubmitRoute(post("/api/transaction/submit", { signedTransaction: b64, expectedMessageHash: hash, preparedToken: prepared(hash) })));
     expect(r.status).toBe(409);
     expect(r.body.error?.message).toMatch(/Demo/);
     networkUntouched();

@@ -1,6 +1,7 @@
 import "server-only";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { AppError } from "@/lib/api/errors";
+import { openToken, sealToken } from "@/lib/presign/tokens";
 import { rpcCall } from "@/lib/solana/client";
 import { messageHashOfTx } from "@/lib/wallet/signing";
 import { bytesToBase64 } from "@/lib/transaction/input";
@@ -12,7 +13,8 @@ import { guardProgramId } from "./constants";
  * Builds the unsigned veto or execute transaction for a Guard action. The
  * server checks the preconditions the program will enforce anyway (so the
  * user is not asked to sign something that will fail), never signs, and
- * returns the message hash the submit endpoint re-checks.
+ * returns the message hash plus a sealed "prepared" token: the submit endpoint
+ * relays the signed transaction only if its message is the one prepared here.
  */
 
 export interface PreparedGuardTransaction {
@@ -20,6 +22,27 @@ export interface PreparedGuardTransaction {
   transaction: string;
   messageHash: string;
   summary: string;
+  /** Server-sealed proof that Presign prepared exactly this message; required by /api/transaction/submit. */
+  preparedToken: string;
+}
+
+export const PREPARED_TTL_MS = 5 * 60_000;
+
+interface SealedPrepared {
+  mh: string;
+  s: string;
+  k: "veto" | "execute";
+}
+
+/** Submission check for a Guard transaction: the token must be genuine, unexpired and for this exact message. */
+export function verifyPreparedForSubmit(preparedToken: string, expectedMessageHash: string, now: number = Date.now()): void {
+  const opened = openToken<SealedPrepared>("prepared", preparedToken, now);
+  if (!opened.ok) {
+    throw new AppError("SECURITY_BLOCK", opened.reason === "EXPIRED" ? "The prepared transaction expired. Prepare it again; it was not submitted." : "The prepared-transaction token is invalid. It was not submitted.", { reason: opened.reason === "EXPIRED" ? "REQUEST_EXPIRED" : "REQUEST_INVALID" });
+  }
+  if (opened.data.mh !== expectedMessageHash) {
+    throw new AppError("SECURITY_BLOCK", "The transaction differs from the one Presign prepared. It was not submitted.", { reason: "PAYLOAD_MISMATCH" });
+  }
 }
 
 /**
@@ -81,5 +104,7 @@ export async function prepareGuardTransaction(kind: "veto" | "execute", actionAd
     // One transaction holds about 30 distinct accounts; the program accepts actions that reference more.
     throw new AppError("INVALID_INPUT", "This action references more accounts than fit in one transaction, so it cannot be executed from here.");
   }
-  return { kind, transaction: bytesToBase64(bytes), messageHash: await messageHashOfTx(bytes), summary };
+  const messageHash = await messageHashOfTx(bytes);
+  const preparedToken = sealToken<SealedPrepared>("prepared", { mh: messageHash, s: signer, k: kind }, PREPARED_TTL_MS);
+  return { kind, transaction: bytesToBase64(bytes), messageHash, summary, preparedToken };
 }
