@@ -99,6 +99,7 @@ Stablecoin issuer controls (USDC, USDT) are reported as documented issuer contro
 |---|---|---|
 | Bytes swapped between review and signing | Covered | Approval bound to the sha256 of the exact message bytes; the client signs only bytes with that hash (`tests/security/presign-signing.test.ts`, `signing.test.ts`) |
 | Forged, modified, replayed or expired approval | Covered | HMAC-sealed tokens bound to wallet, session, target origin, payload hash and expiry; single use; submit re-checks (`presign-decision-flow.test.ts`, `submit.test.ts`) |
+| Session cookie chosen or injected by someone else | Covered | Session ids carry the server's MAC; any other value is no session and gets a fresh one. Approvals also need the separate sealed wallet cookie (`session-secret.test.ts`) |
 | Presign's relay used for transactions it never reviewed | Covered | `/api/transaction/submit` requires an approval token or a Guard prepared token for the exact message; without one nothing is sent (`routes.test.ts`) |
 | Verdict lowered on the client | Covered | Server recomputes the risk on approve; the client value is ignored (`presign-signing.test.ts`) |
 | Signing through an API the hook does not wrap (extension) | Covered | Wallet Standard `signTransaction`, `signAndSendTransaction`, `signAndSendAllTransactions`, `signMessage`, `signOffchainMessage`, `signIn` and the injected equivalents are reviewed; any other `solana:` signing feature, `sign…` provider method or `request({ method: "sign…" })` is refused (`tests/extension/intercept.test.ts`) |

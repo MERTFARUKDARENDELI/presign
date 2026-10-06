@@ -131,10 +131,39 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-/** The session id must be the server-issued random value: 22+ url-safe chars. */
+const SESSION_ID = /^([A-Za-z0-9_-]{32}).([A-Za-z0-9_-]{22})$/;
+
+function sessionMac(random: string, key: Buffer): Buffer {
+  return createHmac("sha256", key).update(`presign:v1:sid:${random}`).digest().subarray(0, 16);
+}
+
+/** A new session id: 24 random bytes plus their MAC, so only ids this server issued are accepted. */
+export function newSessionId(): string {
+  const random = randomId(24);
+  return `${random}.${b64url(sessionMac(random, sessionKey().key))}`;
+}
+
+/**
+ * The session id from the cookie, only if this server issued it (MAC checked,
+ * also with the previous secret during a rotation). A value made up by anyone
+ * else — a forged or injected cookie — is no session. Without a configured key
+ * there is no session either.
+ */
 export function sessionIdFrom(request: Request): string | null {
   const sid = readCookie(request, SESSION_COOKIE);
-  return sid && /^[A-Za-z0-9_-]{22,64}$/.test(sid) ? sid : null;
+  const m = sid ? SESSION_ID.exec(sid) : null;
+  if (!m) return null;
+  try {
+    const given = Buffer.from(m[2], "base64url");
+    return openingKeys().some((key) => {
+      const expected = sessionMac(m[1], key);
+      return given.length === expected.length && timingSafeEqual(given, expected);
+    })
+      ? sid
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isSecureRequest(request: Request): boolean {
@@ -157,7 +186,7 @@ export function cookieHeader(request: Request, name: string, value: string, maxA
 export function ensureSession(request: Request): { sid: string; setCookie: string | null } {
   const existing = sessionIdFrom(request);
   if (existing) return { sid: existing, setCookie: null };
-  const sid = randomId(24);
+  const sid = newSessionId();
   return { sid, setCookie: cookieHeader(request, SESSION_COOKIE, sid, SESSION_TTL_S) };
 }
 

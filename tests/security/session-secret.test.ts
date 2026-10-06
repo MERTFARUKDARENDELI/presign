@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET as health } from "@/app/api/health/route";
 import { isAppError } from "@/lib/api/errors";
 import { resetRateLimits } from "@/lib/api/rate-limit";
-import { openToken, sealToken, sessionKey } from "@/lib/presign/tokens";
+import { ensureSession, newSessionId, openToken, sealToken, sessionIdFrom, sessionKey } from "@/lib/presign/tokens";
 
 const SECRET_A = "a".repeat(40);
 const SECRET_B = "b".repeat(40);
@@ -69,5 +69,41 @@ describe("session tokens in production need their own secret", () => {
     vi.stubEnv("PRESIGN_SESSION_SECRET", "");
     const off = await (await health(new Request("http://x/api/health"))).json();
     expect(off.data.presignSessionSecret).toBe(false);
+  });
+});
+
+describe("session ids are sealed: only ids this server issued are a session", () => {
+  const withCookie = (sid: string) => new Request("https://presign-app.vercel.app/api/presign/session", { headers: { cookie: `presign_sid=${sid}` } });
+
+  it("an issued id is accepted and kept; a made-up or altered one is not", () => {
+    vi.stubEnv("PRESIGN_SESSION_SECRET", SECRET_A);
+    const { sid, setCookie } = ensureSession(new Request("https://presign-app.vercel.app/api/x"));
+    expect(setCookie).toMatch(/^presign_sid=/);
+    expect(sessionIdFrom(withCookie(sid))).toBe(sid);
+    expect(ensureSession(withCookie(sid))).toEqual({ sid, setCookie: null });
+    // Accepted before: any 22+ url-safe characters chosen by whoever set the cookie.
+    expect(sessionIdFrom(withCookie("attackerChosenSessionId1234"))).toBeNull();
+    expect(sessionIdFrom(withCookie(`${"A".repeat(32)}.${"B".repeat(22)}`))).toBeNull();
+    const [random, seal] = sid.split(".");
+    expect(sessionIdFrom(withCookie(`${random.slice(0, -1)}${random.endsWith("A") ? "B" : "A"}.${seal}`))).toBeNull();
+    // A forged cookie gets a fresh session, never the forged id.
+    expect(ensureSession(withCookie("attackerChosenSessionId1234")).sid).not.toBe("attackerChosenSessionId1234");
+  });
+
+  it("ids issued before a rotation stay valid while the previous secret is configured", () => {
+    vi.stubEnv("PRESIGN_SESSION_SECRET", SECRET_A);
+    const sid = newSessionId();
+    vi.stubEnv("PRESIGN_SESSION_SECRET", SECRET_B);
+    expect(sessionIdFrom(withCookie(sid))).toBeNull();
+    vi.stubEnv("PRESIGN_SESSION_SECRET_PREVIOUS", SECRET_A);
+    expect(sessionIdFrom(withCookie(sid))).toBe(sid);
+  });
+
+  it("without a configured key in production there is no session (and no crash)", () => {
+    vi.stubEnv("PRESIGN_SESSION_SECRET", SECRET_A);
+    const sid = newSessionId();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PRESIGN_SESSION_SECRET", "");
+    expect(sessionIdFrom(withCookie(sid))).toBeNull();
   });
 });
