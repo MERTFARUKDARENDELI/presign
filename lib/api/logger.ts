@@ -38,8 +38,12 @@ export function redact(value: unknown, depth = 0): unknown {
   return value;
 }
 
+/** The line's own keys; a field with one of these names is kept as field_<name> instead of overwriting it. */
+const RESERVED = new Set(["ts", "level", "event"]);
+
 function emit(level: Level, event: string, fields?: Record<string, unknown>) {
-  const safe = fields ? (redact(fields) as Record<string, unknown>) : undefined;
+  const redacted = fields ? (redact(fields) as Record<string, unknown>) : undefined;
+  const safe = redacted ? Object.fromEntries(Object.entries(redacted).map(([k, v]) => [RESERVED.has(k) ? `field_${k}` : k, v])) : undefined;
   // Operator alerts (lib/api/alerts.ts) get the redacted fields only, and only when configured.
   queueAlert(level, event, safe);
   if (process.env.NODE_ENV === "test" && level !== "error") return;

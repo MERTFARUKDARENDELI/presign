@@ -293,7 +293,7 @@ export async function analyzeSigning(input: AnalyzeSigningInput, sid: string, no
     d.technicalValidation === "VALID" && d.expectedChoice
       ? sealToken<SealedAnalysis>("analysis", { rid: requestId, w: input.walletAddress, sid, ph: payloadHash, t: input.type, av: ANALYSIS_VERSION, lvl: d.risk.level, st: d.risk.status, gate: d.gate, tv: "VALID", uco: d.userCanOverride, choice: d.expectedChoice, fh, to: origin }, ANALYSIS_TTL_MS, now)
       : null;
-  logger.info("presign.signing_analyzed", { type: input.type, level: d.risk.level, validation: d.technicalValidation, gate: d.gate });
+  logger.info("presign.signing_analyzed", { type: input.type, risk: d.risk.level, validation: d.technicalValidation, gate: d.gate });
   return { ...review, analysisToken, findingsToken: sealToken<SealedFindings>("findings", { fh, sid }, ANALYSIS_TTL_MS, now) };
 }
 
@@ -339,7 +339,7 @@ export async function approveSigning(input: ApproveSigningInput, sid: string | n
 
   if (!(await consumeOnce("approve", a.rid, opened.exp, now))) throw block("REQUEST_REPLAYED", "This request was already approved once. Analyze it again to sign again.");
   const approval: SealedApproval = { rid: a.rid, w: a.w, sid, ph: a.ph, t: a.t, choice: input.choice, lvl: a.lvl, to: a.to };
-  logger.info("presign.signing_approved", { type: a.t, level: a.lvl, choice: input.choice });
+  logger.info("presign.signing_approved", { type: a.t, risk: a.lvl, choice: input.choice });
   return { approvalToken: sealToken("approval", approval, APPROVAL_TTL_MS, now), requestId: a.rid, userDecision: input.choice, payloadHash: a.ph, expiresAt: new Date(now + APPROVAL_TTL_MS).toISOString() };
 }
 

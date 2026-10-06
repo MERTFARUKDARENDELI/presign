@@ -80,3 +80,14 @@ describe("operator alerts (PRESIGN_ALERT_WEBHOOK_URL)", () => {
     expect(delivered).toBe(true);
   });
 });
+
+describe("log lines keep their own level", () => {
+  it("a field called level (a risk level) does not overwrite the line's level, event or time", () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: string) => void lines.push(line));
+    logger.error("tx.analyzed", { level: "CRITICAL", event: "x", ts: "y", kind: "serialized" });
+    const parsed = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(parsed).toMatchObject({ level: "error", event: "tx.analyzed", field_level: "CRITICAL", field_event: "x", field_ts: "y", kind: "serialized" });
+    expect(parsed.ts).not.toBe("y");
+  });
+});

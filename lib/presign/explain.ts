@@ -88,7 +88,7 @@ export async function explainSigningFindings(findings: SigningFindings, options:
     if (!options.createMessage) recordAiSuccess();
     if (!text) return { available: false, text: null, unavailableReason: "PROVIDER_ERROR" };
     if ((findings.riskLevel === "HIGH" || findings.riskLevel === "CRITICAL" || findings.technicalValidation !== "VALID") && CONTRADICTION.test(text)) {
-      logger.warn("presign.ai_contradiction_dropped", { level: findings.riskLevel });
+      logger.warn("presign.ai_contradiction_dropped", { risk: findings.riskLevel });
       return { available: false, text: null, unavailableReason: "CONTRADICTED_VERDICT" };
     }
     return { available: true, text, unavailableReason: null };

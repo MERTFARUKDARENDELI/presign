@@ -82,7 +82,7 @@ export async function analyzeTransaction(rawInput: string, walletAddress?: strin
   const base = evaluateTransactionRisk({ decoded, effects, wallet: perspectiveWallet, tokenAccountOwners: owners, effectsStatus, multisig });
   const risk = report ? applyPolicy(base, report) : base;
 
-  logger.info("tx.analyzed", { kind: parsed.kind, level: risk.level, status: risk.status, instructions: decoded.instructions.length, multisig: multisig !== null });
+  logger.info("tx.analyzed", { kind: parsed.kind, risk: risk.level, status: risk.status, instructions: decoded.instructions.length, multisig: multisig !== null });
 
   const brief = buildSignerBrief({ mode: parsed.kind === "signature" ? "executed" : "presign", multisig, usesDurableNonce: decoded.usesDurableNonce, messageHash });
   return {

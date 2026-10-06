@@ -69,7 +69,7 @@ export async function inspectProposal(multisig: string, index: string, signer: s
   const report = checkPolicy(policy, analysis, history);
   const base = evaluateProposalRisk(analysis, signer, history);
   const risk = report ? applyPolicy(base, report) : base;
-  logger.info("multisig.inspected", { kind: transactionKind, level: risk.level, status: risk.status, policy: report?.status ?? "none" });
+  logger.info("multisig.inspected", { kind: transactionKind, risk: risk.level, status: risk.status, policy: report?.status ?? "none" });
   const brief = buildSignerBrief({ mode: "proposal", multisig: analysis, usesDurableNonce: false, messageHash: null, proposal: { transactionIndex: index, stale, transactionKind }, history });
   return { multisig, transactionIndex: index, proposalAddress, transactionAddress, transactionKind, stale, analysis, risk, brief, gate: gateFor(risk.level, risk.status), policy: report, history, cluster: getCluster(), inspectedAt: new Date().toISOString() };
 }
