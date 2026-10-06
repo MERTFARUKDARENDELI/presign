@@ -2,13 +2,13 @@ import { ComputeBudgetProgram, SystemProgram, TransactionMessage, VersionedTrans
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as analyzeRoute } from "@/app/api/transaction/analyze/route";
 import { resetRateLimits } from "@/lib/api/rate-limit";
+import { transactionIssues } from "@/lib/presign/decision";
 import { rpcCall } from "@/lib/solana/client";
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@/lib/solana/constants";
 import { analyzeTransaction } from "@/lib/transaction/analyze";
 import { decodeTransaction, estimatePriorityFeeLamports, formatTxVersion } from "@/lib/transaction/decoder";
 import { explainTransaction } from "@/lib/transaction/explain";
 import { parseTransactionInput } from "@/lib/transaction/input";
-import { assessSignability } from "@/lib/transaction/sign-gate";
 import { simulateTransaction } from "@/lib/transaction/simulate";
 import { messageBytesOf, messageHashOfTx, signExactly, verifyTransactionSignatures } from "@/lib/wallet/signing";
 import fixtures from "../fixtures/mainnet-v1.json";
@@ -147,14 +147,14 @@ describe("malformed and unsupported v1", () => {
     for (const bad of [truncated, withGarbage, badMask, v2]) expect(parseTransactionInput(b64(bad)).kind).toBe("invalid");
   });
 
-  it("signing v1 is refused before any wallet call; the sign gate blocks it", async () => {
+  it("signing v1 is refused before any wallet call; the server-side sign checks mark it invalid", async () => {
     const sign = vi.fn();
     const r = await signExactly({ bytes: good(), confirmedHash: await messageHashOfTx(good()), signer: VersionedTransaction.deserialize(good()).message.staticAccountKeys[0].toBase58(), sign });
     expect(r).toMatchObject({ ok: false, kind: "UNSUPPORTED" });
     expect(sign).not.toHaveBeenCalled();
     serveFixture(fixtures.transactions.systemTransfer);
     const a = await analyzeTransaction(fixtures.transactions.systemTransfer.signature);
-    expect(assessSignability(a, a.decoded.feePayer, a.messageHash).blockers).toContain("v1 transactions can be analyzed but not signed in this app yet.");
+    expect(transactionIssues(a, a.decoded.feePayer).map((i) => `${i.kind}:${i.code}`)).toContain("INVALID:UNSUPPORTED_VERSION");
   });
 
   it("submitting a v1 transaction is refused before any network call", async () => {

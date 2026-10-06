@@ -12,11 +12,12 @@ import type { OwnershipChallenge, VerifiedWallet } from "@/lib/presign/types";
 
 /**
  * Presign approves a signature only for a wallet whose ownership was proven
- * in this browser session (a signature that authorizes nothing). With the
- * extension the wallet lives in the application's tab, so the proof is made
- * here once per session: your wallet extension works on this page too.
+ * in this browser session (a signature that authorizes nothing). Used where
+ * signing starts outside /connect: the extension's review window (the wallet
+ * lives in the application's tab, but the wallet extension works here too)
+ * and /transaction.
  */
-export function OwnershipGate({ wallet, onVerified }: { wallet: string; onVerified: () => void }) {
+export function OwnershipGate({ wallet, onVerified, source, note }: { wallet: string; onVerified: () => void; source: string; note?: string }) {
   const { publicKey, signMessage, disconnect } = useWallet();
   const connected = publicKey?.toBase58() ?? null;
   const [busy, setBusy] = useState(false);
@@ -37,7 +38,7 @@ export function OwnershipGate({ wallet, onVerified }: { wallet: string; onVerifi
         return;
       }
       const v = await api<VerifiedWallet>("/api/presign/connect/verify", { json: { walletAddress: wallet, message: ch.message, signature: bs58.encode(sig), nonceToken: ch.nonceToken } });
-      recordEvent("WALLET_VERIFIED", `Verified ownership of ${v.wallet} (extension review)`);
+      recordEvent("WALLET_VERIFIED", `Verified ownership of ${v.wallet} (${source})`);
       onVerified();
     } catch (e) {
       setError(e instanceof ApiClientError ? e.message : "Ownership could not be verified.");
@@ -50,7 +51,7 @@ export function OwnershipGate({ wallet, onVerified }: { wallet: string; onVerifi
     <section className="space-y-3 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 text-sm" aria-labelledby="ownership-title">
       <p id="ownership-title" className="flex items-center gap-2 font-semibold text-zinc-100"><KeyRound className="size-4 text-violet-300" aria-hidden /> Verify that you own {short} (once per session)</p>
       <p className="text-zinc-400">
-        Presign signs nothing and holds no keys; it only approves requests for a wallet you have proven is yours. Your wallet will show a message that says it does not authorize any transfer. The review below is already complete — the decision unlocks after this step.
+        Presign signs nothing and holds no keys; it only approves requests for a wallet you have proven is yours. Your wallet will show a message that says it does not authorize any transfer.{note ? ` ${note}` : ""}
       </p>
       {connected === null && <WalletPicker />}
       {connected !== null && connected !== wallet && (

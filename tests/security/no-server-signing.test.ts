@@ -64,8 +64,9 @@ describe("server never signs on the user's behalf", () => {
   it("wallet signing goes only through the connected wallet adapter in client components", () => {
     const signers = all.filter((f) => /signTransaction/.test(readFileSync(f, "utf8"))).map(rel).sort();
     // Every new signing site is reviewed here: Guard veto / execute signs prepared bytes after a hash check;
-    // the pre-sign review signs only after server approval of the exact payload hash (lib/presign/controller.ts).
-    expect(signers).toEqual(["components/cleanup/CleanupDialog.tsx", "components/guard/GuardActionButtons.tsx", "components/presign/SigningReview.tsx", "components/transaction/SignPanel.tsx"]);
+    // the pre-sign review signs only after server approval of the exact payload hash (lib/presign/controller.ts),
+    // and /transaction (SignPanel) signs through that same review.
+    expect(signers).toEqual(["components/cleanup/CleanupDialog.tsx", "components/guard/GuardActionButtons.tsx", "components/presign/SigningReview.tsx"]);
     for (const f of signers) expect(readFileSync(path.join(ROOT, f), "utf8")).toMatch(/^"use client";/);
   });
 });

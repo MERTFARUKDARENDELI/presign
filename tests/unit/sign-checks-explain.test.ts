@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDemoTransaction } from "@/lib/demo/scenario";
+import { transactionIssues } from "@/lib/presign/decision";
 import { explainTransaction } from "@/lib/transaction/explain";
-import { assessSignability, MAX_ANALYSIS_AGE_MS } from "@/lib/transaction/sign-gate";
 import type { TransactionAnalysis, TransactionEffects } from "@/lib/transaction/types";
 
 const NOW = Date.parse("2026-09-24T12:00:00.000Z");
@@ -24,54 +24,42 @@ function liveAnalysis(patch: { effects?: Partial<TransactionEffects> | null; ana
   };
 }
 
-const wallet = (a: TransactionAnalysis) => a.perspectiveWallet;
-const gate = (a: TransactionAnalysis, hash: string | null = HASH, w: string | null = wallet(a)) => assessSignability(a, w, hash, NOW);
+/** The server-side checks every signing path goes through (/transaction included), as issue codes. */
+const codes = (a: TransactionAnalysis, w: string = a.perspectiveWallet!) => transactionIssues(a, w).map((i) => `${i.kind}:${i.code}`);
 
-describe("sign gate", () => {
-  it("allows a fresh, successfully simulated analysis of the exact bytes (typed confirmation for HIGH/CRITICAL)", () => {
-    const a = liveAnalysis();
-    const g = gate(a);
-    expect(g.blockers).toEqual([]);
-    expect(g.allowed).toBe(true);
-    expect(g.requiresTypedConfirmation).toBe(a.risk.level === "HIGH" || a.risk.level === "CRITICAL");
+describe("server-side sign checks (transactionIssues)", () => {
+  it("a fresh, successfully simulated analysis of the exact bytes has no issue", () => {
+    expect(codes(liveAnalysis())).toEqual([]);
   });
 
-  it("blocks an expired blockhash", () => {
-    const g = gate(liveAnalysis({ effects: { blockhashValid: false } }));
-    expect(g.allowed).toBe(false);
-    expect(g.blockers.join(" ")).toMatch(/blockhash has expired/);
+  it("an expired blockhash is invalid", () => {
+    expect(codes(liveAnalysis({ effects: { blockhashValid: false } }))).toContain("INVALID:BLOCKHASH_EXPIRED");
   });
 
-  it("blocks a failed simulation", () => {
-    const g = gate(liveAnalysis({ effects: { success: false, error: "InstructionError" } }));
-    expect(g.allowed).toBe(false);
-    expect(g.blockers.join(" ")).toMatch(/Simulation failed/);
+  it("a failed simulation cannot be verified", () => {
+    expect(codes(liveAnalysis({ effects: { success: false, error: "InstructionError" } }))).toContain("UNVERIFIABLE:SIMULATION_FAILED");
   });
 
-  it("blocks when no simulation exists, or it is stale, or it is not a pre-sign simulation", () => {
-    expect(gate(liveAnalysis({ effects: null })).allowed).toBe(false);
-    expect(gate(liveAnalysis({ effects: { stale: true } })).allowed).toBe(false);
-    expect(gate(liveAnalysis({ effects: { source: "EXECUTED" } })).allowed).toBe(false);
+  it("no simulation, a stale one, or one that is not a pre-sign simulation cannot be verified", () => {
+    expect(codes(liveAnalysis({ effects: null }))).toContain("UNVERIFIABLE:SIMULATION_UNAVAILABLE");
+    expect(codes(liveAnalysis({ effects: { stale: true } }))).toContain("UNVERIFIABLE:SIMULATION_STALE");
+    expect(codes(liveAnalysis({ effects: { source: "EXECUTED" } }))).toContain("UNVERIFIABLE:SIMULATION_UNAVAILABLE");
   });
 
-  it("blocks when the bytes to sign differ from the analyzed bytes (tampering)", () => {
-    expect(gate(liveAnalysis(), "b".repeat(64)).blockers.join(" ")).toMatch(/SECURITY BLOCK/);
-    expect(gate(liveAnalysis(), null).allowed).toBe(false);
+  it("an analysis not bound to the exact bytes is invalid", () => {
+    expect(codes(liveAnalysis({ analysis: { messageHash: null } }))).toContain("INVALID:NO_PAYLOAD_HASH");
   });
 
-  it("blocks a wrong or missing signer", () => {
-    const a = liveAnalysis();
-    expect(gate(a, HASH, null).allowed).toBe(false);
-    const g = gate(a, HASH, "11111111111111111111111111111111");
-    expect(g.blockers.join(" ")).toMatch(/not a required signer/);
+  it("a wallet that is not a required signer, or another wallet's perspective, is invalid", () => {
+    const other = "11111111111111111111111111111111";
+    expect(codes(liveAnalysis(), other)).toEqual(expect.arrayContaining(["INVALID:WALLET_NOT_SIGNER", "INVALID:PERSPECTIVE_MISMATCH"]));
   });
 
-  it("blocks demo data, executed signatures, incomplete risk and old analyses", () => {
-    expect(gate(liveAnalysis({ analysis: { demo: true } })).allowed).toBe(false);
-    expect(gate(liveAnalysis({ analysis: { inputKind: "signature" } })).allowed).toBe(false);
+  it("demo data and executed signatures are invalid; incomplete risk cannot be verified", () => {
+    expect(codes(liveAnalysis({ analysis: { demo: true } }))).toContain("INVALID:DEMO_TRANSACTION");
+    expect(codes(liveAnalysis({ analysis: { inputKind: "signature" } }))).toContain("INVALID:ALREADY_EXECUTED");
     const base = liveAnalysis();
-    expect(gate({ ...base, risk: { ...base.risk, status: "INSUFFICIENT_DATA" } }).allowed).toBe(false);
-    expect(gate({ ...base, risk: { ...base.risk, analyzedAt: new Date(NOW - MAX_ANALYSIS_AGE_MS - 1).toISOString() } }).allowed).toBe(false);
+    expect(codes({ ...base, risk: { ...base.risk, status: "INSUFFICIENT_DATA" } })).toContain("UNVERIFIABLE:RISK_INCOMPLETE");
   });
 });
 

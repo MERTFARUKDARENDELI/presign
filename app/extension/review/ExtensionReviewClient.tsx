@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, CircleHelp, Loader2, Puzzle, X } from "lucide-rea
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { OwnershipGate } from "@/components/presign/OwnershipGate";
 import { SigningReview } from "@/components/presign/SigningReview";
 import { CLIENT_CLUSTER } from "@/components/providers/WalletProviders";
 import { REVIEW_METHOD_LABEL, type ReviewTicket } from "@/extension/src/lib/protocol";
@@ -12,7 +13,6 @@ import { fetchSession, recordEvent } from "@/lib/presign/client";
 import { cancelInExtension, closeReview, EXTENSION_ID_PATTERN, extensionAvailable, forwardToExtension, getTicket } from "@/lib/presign/extension-bridge";
 import type { ConnectionContext, SigningReview as Review } from "@/lib/presign/types";
 import { cn } from "@/lib/utils";
-import { OwnershipGate } from "./OwnershipGate";
 
 type Phase =
   | { kind: "loading"; step: number }
@@ -166,7 +166,7 @@ export default function ExtensionReviewClient() {
       )}
 
       {phase.kind === "review" && verifiedWallet !== undefined && verifiedWallet !== phase.ticket.request.walletAddress && phase.review.decision.technicalValidation === "VALID" && (
-        <OwnershipGate wallet={phase.ticket.request.walletAddress!} onVerified={() => window.dispatchEvent(new Event("presign-session"))} />
+        <OwnershipGate wallet={phase.ticket.request.walletAddress!} onVerified={() => window.dispatchEvent(new Event("presign-session"))} source="extension review" note="The review below is already complete — the decision unlocks after this step." />
       )}
 
       {phase.kind === "review" && (
