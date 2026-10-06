@@ -306,6 +306,16 @@ describe("messages and Sign-In With Solana", () => {
     expect(new TextDecoder().decode(Uint8Array.from(atob(r.payload!), (c) => c.charCodeAt(0)))).toBe(`dapp.example wants you to sign in with your Solana account:\n${W}\n\nWelcome\n\nNonce: abc12345`);
   });
 
+  it("a sign-in the site asked for one account but the wallet signed for another is withheld from the site", async () => {
+    const other = ATTACKER.toBase58();
+    approveAll();
+    const named = choosingWallet((t) => t, other);
+    await expect(named.wallet.features["solana:signIn"].signIn({ address: W, statement: "Welcome" })).rejects.toBeInstanceOf(PresignRejection);
+    // Reviewed for the account the site named; the wallet's signature for another account never reaches the site.
+    expect(reviewed()[0]).toMatchObject({ method: "signIn", walletAddress: W });
+    expect(named.calls).toEqual(["wallet:signIn"]);
+  });
+
   it("cancelling that review withholds the signature; a wallet that signed other text is refused before any review", async () => {
     const chosen = choosingWallet();
     cancelAll();

@@ -1,6 +1,6 @@
+import { createReviewer } from "./lib/channel";
 import { ed25519Verifier } from "./lib/ed25519";
 import { installInterceptor, type HookWindow } from "./lib/intercept";
-import type { Decision, ReviewRequest } from "./lib/protocol";
 
 /**
  * Runs in the page's own JavaScript world (MAIN) at document_start, before any
@@ -50,7 +50,8 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
   const TO_PAGE = `presign:${secret}:to-page`;
   let ready = false;
   let seq = 0;
-  const waiting = new Map<string, (d: Decision & { id?: string }) => void>();
+  const startTimer = setTimeout;
+  const stopTimer = clearTimeout;
 
   const send = (msg: unknown) => dispatch.call(doc, new NativeCustomEvent(TO_CONTENT, { detail: stringify(msg) }));
 
@@ -69,18 +70,21 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
     ready = true;
     dropChannel();
   });
+  // Fails closed (lib/channel.ts): no channel → refused at once; no decision in time → refused.
+  const reviewer = createReviewer({
+    ready: () => ready,
+    send,
+    newId: () => `${Date.now().toString(36)}-${++seq}-${Math.random().toString(36).slice(2, 10)}`,
+    timeoutMs: REVIEW_TIMEOUT_MS,
+    setTimer: (fn, ms) => startTimer(fn, ms),
+    clearTimer: (t) => stopTimer(t as ReturnType<typeof setTimeout>),
+  });
   listen.call(doc, TO_PAGE, (e: Event) => {
-    let m: { kind?: string; id?: string; approved?: boolean; reason?: string; rid?: string } | null = null;
     try {
-      m = parse(detailOf.call(e) as string);
+      reviewer.settle(parse(detailOf.call(e) as string));
     } catch {
-      return;
+      // not a message from the content script
     }
-    if (m?.kind !== "decision" || typeof m.id !== "string") return;
-    const resolve = waiting.get(m.id);
-    if (!resolve) return;
-    waiting.delete(m.id);
-    resolve(m.approved === true ? { approved: true, id: m.rid } : { approved: false, reason: typeof m.reason === "string" ? m.reason : "the request was cancelled after the security review." });
   });
 
   // "Look now": carries nothing. The content script may already be listening (it reads the
@@ -101,26 +105,10 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
     dropChannel();
   }, 0);
 
-  function review(request: ReviewRequest): Promise<Decision & { id?: string }> {
-    // Protection on never fails open: without the channel to Presign, the request is refused.
-    if (!ready) {
-      return Promise.resolve({ approved: false, reason: "the Presign extension is not connected on this page, so the request was not sent to your wallet. Reload the page, or turn Presign off for this site in the extension's menu." });
-    }
-    const id = `${Date.now().toString(36)}-${++seq}-${Math.random().toString(36).slice(2, 10)}`;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (waiting.delete(id)) resolve({ approved: false, reason: "the security review timed out." });
-      }, REVIEW_TIMEOUT_MS);
-      waiting.set(id, (d) => {
-        clearTimeout(timer);
-        resolve(d);
-      });
-      send({ kind: "review", id, request });
-    });
-  }
+
 
   const hook = installInterceptor(w, {
-    review,
+    review: reviewer.review,
     report: (rid, outcome) => {
       if (ready) send({ kind: "outcome", rid: rid ?? null, outcome });
     },
