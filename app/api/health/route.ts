@@ -1,5 +1,6 @@
 import { getAiStatus } from "@/lib/ai/status";
 import { withApi } from "@/lib/api/handler";
+import { alertWebhook } from "@/lib/api/alerts";
 import { ok } from "@/lib/api/response";
 import { canonicalOrigin, proxyTrust } from "@/lib/api/trusted-proxy";
 import { sessionSecretConfigured } from "@/lib/presign/tokens";
@@ -19,5 +20,7 @@ export const GET = withApi({ name: "health", limit: 60, windowMs: 60_000 }, asyn
     // Where client addresses and the served host come from; the public origin this deployment redirects to, if any.
     proxyTrust: proxyTrust(),
     canonicalOrigin: canonicalOrigin()?.origin ?? null,
+    // Errors and outages are posted to an operator webhook (PRESIGN_ALERT_WEBHOOK_URL).
+    alertWebhook: alertWebhook() !== null,
   }),
 );

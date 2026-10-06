@@ -1,5 +1,6 @@
 import "server-only";
 import { ZodError } from "zod";
+import { flushAlerts } from "./alerts";
 import { AppError, isAppError } from "./errors";
 import { logger } from "./logger";
 import { checkRateLimitShared, clientKey } from "./rate-limit";
@@ -38,10 +39,15 @@ export function withApi(
         });
       }
       if (isAppError(error)) {
-        if (error.status >= 500) logger.warn("api.upstream_error", { route: options.name, code: error.code, error });
+        if (error.status >= 500) {
+          logger.warn("api.upstream_error", { route: options.name, code: error.code, error });
+          await flushAlerts();
+        }
         return fail(error.code, error.message, error.status, error.details);
       }
       logger.error("api.unhandled_error", { route: options.name, error });
+      // A serverless function may stop once it has answered: let a queued alert leave first.
+      await flushAlerts();
       return fail("UNKNOWN_ERROR", "An unexpected error occurred.", 500);
     }
   };

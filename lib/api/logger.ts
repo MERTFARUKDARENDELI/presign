@@ -3,6 +3,8 @@
  * full provider URLs. Wallet addresses should be passed through maskAddress().
  */
 
+import { queueAlert } from "./alerts";
+
 type Level = "debug" | "info" | "warn" | "error";
 
 const SENSITIVE_KEY = /(api[-_]?key|secret|private[-_]?key|seed|mnemonic|password|authorization|access[-_]?token|bearer)/i;
@@ -37,12 +39,15 @@ export function redact(value: unknown, depth = 0): unknown {
 }
 
 function emit(level: Level, event: string, fields?: Record<string, unknown>) {
+  const safe = fields ? (redact(fields) as Record<string, unknown>) : undefined;
+  // Operator alerts (lib/api/alerts.ts) get the redacted fields only, and only when configured.
+  queueAlert(level, event, safe);
   if (process.env.NODE_ENV === "test" && level !== "error") return;
   const line = JSON.stringify({
     ts: new Date().toISOString(),
     level,
     event,
-    ...(fields ? (redact(fields) as Record<string, unknown>) : {}),
+    ...(safe ?? {}),
   });
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
