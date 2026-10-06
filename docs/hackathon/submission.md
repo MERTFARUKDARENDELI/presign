@@ -58,7 +58,7 @@ Drift made this problem visible, and several teams now work on it. We list them 
 
 ## Tech stack
 
-Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (713 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
+Next.js 16 / React 19 / TypeScript, @solana/web3.js, @solana/spl-token, zod, Vitest (719 tests, no network), Anchor 1.x with LiteSVM (11 program tests), GitHub Actions CI. Node services for Watchtower and the MCP server. Optional explanations through Claude. Apache-2.0.
 
 ## Links
 
