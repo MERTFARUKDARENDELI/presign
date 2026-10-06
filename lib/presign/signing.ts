@@ -344,7 +344,7 @@ export async function approveSigning(input: ApproveSigningInput, sid: string | n
 }
 
 export type ApprovalConfirmation =
-  | { valid: true; requestId: string; type: SigningRequestType; payloadHash: string; choice: UserChoice; riskLevel: RiskVerdict; expiresAt: string }
+  | { valid: true; requestId: string; type: SigningRequestType; payloadHash: string; walletAddress: string; targetOrigin: string | null; choice: UserChoice; riskLevel: RiskVerdict; expiresAt: string }
   | { valid: false; reason: "INVALID" | "EXPIRED" | "PAYLOAD_MISMATCH" | "ALREADY_USED" };
 
 /**
@@ -361,7 +361,7 @@ export async function confirmApprovalForExtension(approvalToken: string, payload
   if (a.ph !== payloadHash) return { valid: false, reason: "PAYLOAD_MISMATCH" };
   if (!(await consumeOnce("extension-approval", a.rid, opened.exp, now))) return { valid: false, reason: "ALREADY_USED" };
   logger.info("presign.extension_approval_confirmed", { type: a.t, risk: a.lvl, choice: a.choice });
-  return { valid: true, requestId: a.rid, type: a.t, payloadHash: a.ph, choice: a.choice, riskLevel: a.lvl, expiresAt: new Date(opened.exp).toISOString() };
+  return { valid: true, requestId: a.rid, type: a.t, payloadHash: a.ph, walletAddress: a.w, targetOrigin: a.to, choice: a.choice, riskLevel: a.lvl, expiresAt: new Date(opened.exp).toISOString() };
 }
 
 /**

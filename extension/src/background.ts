@@ -111,7 +111,7 @@ chrome.runtime.onMessageExternal.addListener((msg: ExternalMessage, sender: chro
       // The one request the extension makes: is this approval genuine and for exactly these bytes?
       await persist();
       const r = result.effect.review;
-      const confirmation = await confirmApproval(r.presignOrigin, r.request, result.effect.approvalToken, {
+      const confirmation = await confirmApproval(r.presignOrigin, r.origin, r.request, result.effect.approvalToken, {
         fetch: (url, init) => fetch(url, init),
         digest: (bytes) => crypto.subtle.digest("SHA-256", bytes as BufferSource),
       });
@@ -123,7 +123,7 @@ chrome.runtime.onMessageExternal.addListener((msg: ExternalMessage, sender: chro
       if (effect.approved) await focusTab(effect.review.tabId);
       else {
         await log(logEntryOf(effect.review));
-        closeWindow(effect.review);
+        if (!effect.keepWindow) closeWindow(effect.review);
       }
       await persist();
     } else if (effect?.kind === "close") {

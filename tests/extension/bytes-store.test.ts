@@ -124,7 +124,8 @@ describe("background decisions", () => {
     handleExternal(approve(), PRESIGN_ORIGINS.mainnet, reviews, NOW);
     const refused = applyConfirmation(r, { ok: false, reason: "the approval was not confirmed (Presign's server did not issue it), so nothing was sent to your wallet." });
     expect(refused.reply).toMatchObject({ ok: false, error: "APPROVAL_UNCONFIRMED" });
-    expect(refused.effect).toMatchObject({ kind: "forward", approved: false });
+    // Refused towards the site, while the review window stays open to show why.
+    expect(refused.effect).toMatchObject({ kind: "forward", approved: false, keepWindow: true });
     expect(r.state).toBe("blocked");
     expect(r.detail).toMatch(/not confirmed/);
   });

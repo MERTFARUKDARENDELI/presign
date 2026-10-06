@@ -46,7 +46,7 @@ export function modeFor(origin: string, settings: Settings): { mode: "review" } 
 
 export type ExternalResult =
   | { reply: unknown; effect?: undefined }
-  | { reply: unknown; effect: { kind: "forward"; approved: boolean; reason?: string; review: PendingReview } }
+  | { reply: unknown; effect: { kind: "forward"; approved: boolean; reason?: string; review: PendingReview; keepWindow?: boolean } }
   | { reply: unknown; effect: { kind: "confirm"; approvalToken: string; review: PendingReview } }
   | { reply: unknown; effect: { kind: "close"; review: PendingReview } };
 
@@ -111,7 +111,8 @@ export function applyConfirmation(r: PendingReview, confirmation: { ok: true } |
   }
   r.state = "blocked";
   r.detail = `Presign: ${confirmation.reason}`.slice(0, 200);
-  return { reply: { ok: false, error: "APPROVAL_UNCONFIRMED", detail: r.detail }, effect: { kind: "forward", approved: false, reason: confirmation.reason, review: r } };
+  // The review window stays open: the user reads there why nothing was signed.
+  return { reply: { ok: false, error: "APPROVAL_UNCONFIRMED", detail: r.detail }, effect: { kind: "forward", approved: false, reason: confirmation.reason, review: r, keepWindow: true } };
 }
 
 export function ticketOf(r: PendingReview): ReviewTicket {

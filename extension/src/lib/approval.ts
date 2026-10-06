@@ -12,9 +12,11 @@ import { isAllowedPresignOrigin, type ReviewRequest } from "./protocol";
  *      server binds approvals (SHA-256 of the message bytes, or of the
  *      transaction message the signatures cover);
  *   2. the server opens its sealed approval and answers valid only if it is
- *      genuine, unexpired, for that hash, and not confirmed before.
+ *      genuine, unexpired, for that hash, and not confirmed before;
+ *   3. the approval's type, wallet and site must be this review's: the wallet
+ *      the request names and the site origin the browser reported.
  *
- * Without a "valid" for this hash and type, nothing is sent to the wallet.
+ * Without a "valid" for this hash, type, wallet and site, nothing is sent to the wallet.
  */
 
 export const CONFIRM_PATH = "/api/presign/signing/verify-approval";
@@ -37,12 +39,12 @@ export async function payloadHashOfRequest(request: ReviewRequest, digest: Confi
   return covered ? hex(await digest(covered)) : null;
 }
 
-export async function confirmApproval(presignOrigin: string, request: ReviewRequest, approvalToken: string, deps: ConfirmDeps): Promise<Confirmation> {
+export async function confirmApproval(presignOrigin: string, siteOrigin: string, request: ReviewRequest, approvalToken: string, deps: ConfirmDeps): Promise<Confirmation> {
   // Only ever to a Presign origin this build allows — the same one the review was opened on.
   if (!isAllowedPresignOrigin(presignOrigin)) return { ok: false, reason: "the approval came from a page that is not Presign." };
   const payloadHash = await payloadHashOfRequest(request, deps.digest);
   if (!payloadHash) return { ok: false, reason: "Presign could not read this request, so it cannot be approved." };
-  let body: { success?: unknown; data?: { valid?: unknown; reason?: unknown; payloadHash?: unknown; type?: unknown } | null } | null = null;
+  let body: { success?: unknown; data?: { valid?: unknown; reason?: unknown; payloadHash?: unknown; type?: unknown; walletAddress?: unknown; targetOrigin?: unknown } | null } | null = null;
   try {
     const res = await deps.fetch(`${presignOrigin}${CONFIRM_PATH}`, {
       method: "POST",
@@ -64,5 +66,7 @@ export async function confirmApproval(presignOrigin: string, request: ReviewRequ
     return { ok: false, reason: `the approval was not confirmed (${why}), so nothing was sent to your wallet.` };
   }
   if (d.payloadHash !== payloadHash || d.type !== request.type) return { ok: false, reason: "the approval is for a different request, so nothing was sent to your wallet." };
+  if (request.walletAddress !== null && d.walletAddress !== request.walletAddress) return { ok: false, reason: "the approval is for another wallet, so nothing was sent to your wallet." };
+  if (d.targetOrigin !== siteOrigin) return { ok: false, reason: "the approval is for another site, so nothing was sent to your wallet." };
   return { ok: true };
 }
