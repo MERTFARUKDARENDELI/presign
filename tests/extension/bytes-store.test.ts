@@ -2,7 +2,7 @@ import { SystemProgram, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { describe, expect, it } from "vitest";
 import { asTransactionBytes, base58ToBytes, base64ToBytes, bytesToBase64, isSerializedTransaction, onlySignaturesChanged, requestKey } from "@/extension/src/lib/bytes";
-import { presignBaseFor, PRESIGN_ORIGINS, REVIEW_TTL_MS, validateReviewRequest, type ReviewRequest } from "@/extension/src/lib/protocol";
+import { isAllowedPresignOrigin, presignBaseFor, PRESIGN_ORIGINS, REVIEW_TTL_MS, validateReviewRequest, type ReviewRequest } from "@/extension/src/lib/protocol";
 import { applyOutcome, DEFAULT_SETTINGS, handleExternal, modeFor, newPending, type PendingReview } from "@/extension/src/lib/store";
 import { messageBytesOf } from "@/lib/wallet/signing";
 import { ATTACKER, buildTx, WALLET } from "../helpers/fixtures";
@@ -75,7 +75,13 @@ describe("request validation (data from web pages is untrusted)", () => {
     expect(presignBaseFor("solana:devnet", "production")).toBe(PRESIGN_ORIGINS.devnet);
     expect(presignBaseFor("solana:mainnet", "production")).toBe(PRESIGN_ORIGINS.mainnet);
     expect(presignBaseFor(null, "production")).toBe(PRESIGN_ORIGINS.mainnet);
-    expect(presignBaseFor("solana:devnet", "local")).toBe(PRESIGN_ORIGINS.local);
+    expect(presignBaseFor("solana:devnet", "local", true)).toBe(PRESIGN_ORIGINS.local);
+    // A production build never sends a review to localhost, even if the stored setting says "local".
+    expect(presignBaseFor("solana:devnet", "local", false)).toBe(PRESIGN_ORIGINS.devnet);
+    expect(presignBaseFor("solana:devnet", "local")).toBe(PRESIGN_ORIGINS.devnet);
+    expect(isAllowedPresignOrigin(PRESIGN_ORIGINS.local)).toBe(false);
+    expect(isAllowedPresignOrigin(PRESIGN_ORIGINS.local, true)).toBe(true);
+    expect(isAllowedPresignOrigin(PRESIGN_ORIGINS.mainnet)).toBe(true);
   });
 });
 

@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "./lib/protocol";
 import { DEFAULT_SETTINGS, type LogEntry, type Settings } from "./lib/store";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -51,6 +52,8 @@ async function main() {
   const enabled = $<HTMLInputElement>("enabled");
   const site = $<HTMLInputElement>("site");
   const instance = $<HTMLSelectElement>("instance");
+  // The local instance exists only in a development build.
+  if (!DEV_BUILD) instance.querySelector('option[value="local"]')?.remove();
   const status = $("status");
   const statusText = $("status-text");
 
@@ -65,7 +68,7 @@ async function main() {
 
   const render = (x: Settings) => {
     enabled.checked = x.enabled;
-    instance.value = x.instance;
+    instance.value = DEV_BUILD ? x.instance : "production";
     site.disabled = !origin || !x.enabled;
     site.checked = !!origin && !x.skipSites.includes(origin);
     $("site-host").textContent = origin ? new URL(origin).host : "Not a website";

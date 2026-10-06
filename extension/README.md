@@ -10,7 +10,7 @@ npm run build:extension
 
 Chrome / Edge / Brave → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `extension/dist`.
 
-The toolbar menu turns protection on or off, turns it off for the current site, picks the Presign instance (production picks mainnet or devnet by the request's chain; "local" uses `http://localhost:3000`), and lists recent decisions.
+The toolbar menu turns protection on or off, turns it off for the current site, picks the Presign instance (production picks mainnet or devnet by the request's chain), and lists recent decisions. A development build (`npm run build:extension:dev`) also offers "local" (`http://localhost:3000`); the production build does not list localhost in `externally_connectable` and never sends a review there, since any other local project could be listening on that port.
 
 ## How it works
 

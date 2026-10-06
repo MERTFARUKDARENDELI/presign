@@ -10,6 +10,7 @@
     "lint": "eslint app components lib tests watchtower mcp scripts extension/src",
     "typecheck": "next typegen && tsc --noEmit",
     "build:extension": "node scripts/build-extension.mjs",
+    "build:extension:dev": "node scripts/build-extension.mjs --dev",
     "test": "vitest run",
     "watchtower": "node --env-file-if-exists=.env.local watchtower/main.ts",
     "mcp": "node mcp/server.ts",

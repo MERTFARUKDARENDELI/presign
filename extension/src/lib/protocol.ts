@@ -70,20 +70,31 @@ export type ExternalMessage =
 
 export const REVIEW_TTL_MS = 15 * 60_000;
 
-/** Presign instances allowed to drive the extension (must match `externally_connectable` in the manifest). */
+declare const __PRESIGN_DEV__: boolean | undefined;
+
+/**
+ * Development build (npm run build:extension:dev, which sets __PRESIGN_DEV__):
+ * also works with a Presign on localhost:3000. A production build never does —
+ * any other local project could be listening there.
+ */
+export const DEV_BUILD = typeof __PRESIGN_DEV__ !== "undefined" && __PRESIGN_DEV__ === true;
+
+/** Presign instances (must match `externally_connectable`: the build adds localhost only with --dev). */
 export const PRESIGN_ORIGINS = {
   mainnet: "https://presign-app.vercel.app",
   devnet: "https://presign-devnet.vercel.app",
   local: "http://localhost:3000",
 } as const;
 
-export const ALLOWED_PRESIGN_ORIGINS: readonly string[] = Object.values(PRESIGN_ORIGINS);
+export function allowedPresignOrigins(dev: boolean = DEV_BUILD): readonly string[] {
+  return dev ? Object.values(PRESIGN_ORIGINS) : [PRESIGN_ORIGINS.mainnet, PRESIGN_ORIGINS.devnet];
+}
 
 export type Instance = "production" | "local";
 
-/** Which Presign instance reviews a request: by its chain, so a devnet request is simulated on devnet. */
-export function presignBaseFor(chain: string | null, instance: Instance): string {
-  if (instance === "local") return PRESIGN_ORIGINS.local;
+/** Which Presign instance reviews a request: by its chain, so a devnet request is simulated on devnet. "local" counts only in a development build. */
+export function presignBaseFor(chain: string | null, instance: Instance, dev: boolean = DEV_BUILD): string {
+  if (instance === "local" && dev) return PRESIGN_ORIGINS.local;
   return chain === "solana:devnet" ? PRESIGN_ORIGINS.devnet : PRESIGN_ORIGINS.mainnet;
 }
 
@@ -180,6 +191,6 @@ export function answerFor(res: { ok?: boolean; mode?: string; error?: string } |
   return { kind: "deny", reason: `Presign could not review this request${res?.error ? ` (${res.error.slice(0, 80)})` : ""}, so it was not sent to your wallet. ${TURN_OFF_HINT}` };
 }
 
-export function isAllowedPresignOrigin(origin: string | undefined | null): boolean {
-  return typeof origin === "string" && ALLOWED_PRESIGN_ORIGINS.includes(origin);
+export function isAllowedPresignOrigin(origin: string | undefined | null, dev: boolean = DEV_BUILD): boolean {
+  return typeof origin === "string" && allowedPresignOrigins(dev).includes(origin);
 }

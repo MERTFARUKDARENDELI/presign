@@ -7,7 +7,8 @@
 // is a real ed25519 signature; a funded devnet account pays the fee in the SIMULATION only (it never
 // signs anything). Nothing is broadcast.
 //
-// Requirements: `npm run build:extension`, Chrome, and Presign on http://localhost:3000 (devnet) unless E2E_INSTANCE=production.
+// Requirements: Chrome, and either Presign on http://localhost:3000 (devnet) with a development build
+// (`npm run build:extension:dev`), or E2E_INSTANCE=production with `npm run build:extension`.
 // Usage: node scripts/extension-e2e.mjs [--headed]
 //   E2E_RPC        devnet RPC used for a current blockhash (default: OnFinality public devnet)
 //   E2E_FEE_PAYER  funded devnet system account used as fee payer in the simulation

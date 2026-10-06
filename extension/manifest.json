@@ -41,6 +41,6 @@
     }
   ],
   "externally_connectable": {
-    "matches": ["https://presign-app.vercel.app/*", "https://presign-devnet.vercel.app/*", "http://localhost:3000/*"]
+    "matches": ["https://presign-app.vercel.app/*", "https://presign-devnet.vercel.app/*"]
   }
 }
