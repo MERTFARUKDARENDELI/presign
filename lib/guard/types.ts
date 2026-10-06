@@ -35,6 +35,11 @@ export interface GuardOverview {
   account: GuardAccountData;
   posture: RiskAssessment;
   actions: GuardActionSummary[];
+  /**
+   * Indexes (newest first, within the scanned range) of actions whose accounts no longer exist:
+   * the program lets anyone close a finished action. Their outcome is only in the transaction history.
+   */
+  closedActions: string[];
   cluster: "mainnet-beta" | "devnet";
   inspectedAt: string;
 }

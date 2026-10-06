@@ -24,19 +24,22 @@ export async function inspectGuard(guard: string): Promise<GuardOverview> {
   for (let i = count - 1n; i >= 0n && indexes.length < GUARD_OVERVIEW_LIMIT; i--) indexes.push(i);
   const addresses = indexes.map((i) => actionPda(programId, guard, i));
   const actions: GuardActionSummary[] = [];
+  const closedActions: string[] = [];
   if (addresses.length) {
     const res = await rpcCall<{ value: Array<{ data: [string, string]; owner: string } | null> }>("getMultipleAccounts", [addresses, { encoding: "base64", commitment: "confirmed" }]);
     res.result.value.forEach((v, i) => {
-      if (!v || v.owner !== programId) return;
+      // No account at an index below action_count: the action finished and someone closed it (close_action).
+      if (!v) return void closedActions.push(indexes[i].toString());
+      if (v.owner !== programId) return;
       try {
         const a = decodeActionAccount(Uint8Array.from(Buffer.from(v.data[0], "base64")));
         actions.push({ address: addresses[i], index: a.index, status: a.status, scheduledAt: a.scheduledAt, eta: a.eta, memo: a.memo, vetoedBy: a.vetoedBy, instructions: a.instructions.length });
       } catch {
-        // closed or unreadable actions are simply not listed
+        // unreadable actions are not listed
       }
     });
   }
-  return { programId, guard, guardSigner: guardSignerPda(programId, guard), account: loaded.account, posture: evaluateGuardPosture(guard, loaded.account), actions, cluster: getCluster(), inspectedAt: new Date().toISOString() };
+  return { programId, guard, guardSigner: guardSignerPda(programId, guard), account: loaded.account, posture: evaluateGuardPosture(guard, loaded.account), actions, closedActions, cluster: getCluster(), inspectedAt: new Date().toISOString() };
 }
 
 export async function inspectGuardAction(address: string, data?: Uint8Array): Promise<GuardActionInspection> {

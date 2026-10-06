@@ -106,8 +106,13 @@ export function GuardOverviewView({ overview, onInspect }: { overview: GuardOver
         <RiskDetails risk={overview.posture} compact />
       </div>
       <Card title="Scheduled actions">
+        {(overview.closedActions ?? []).length > 0 && (
+          <p className="mb-2 text-xs text-zinc-500">
+            {overview.closedActions.length} finished action(s) ({overview.closedActions.map((i) => `#${i}`).join(", ")}) were closed after they ended — the program lets anyone close a finished action to return its rent. Whether each executed or was vetoed is now only in the transaction history.
+          </p>
+        )}
         {overview.actions.length === 0 ? (
-          <p className="text-sm text-zinc-500">Nothing has been scheduled yet.</p>
+          <p className="text-sm text-zinc-500">{(overview.closedActions ?? []).length > 0 ? "No open action." : "Nothing has been scheduled yet."}</p>
         ) : (
           <ul className="divide-y divide-zinc-800">
             {overview.actions.map((a) => (

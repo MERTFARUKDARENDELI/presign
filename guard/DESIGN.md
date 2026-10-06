@@ -84,3 +84,10 @@ Implemented in `programs/presign-guard/tests/guard.rs` (LiteSVM); each is a prop
 - Execution happens with chain state at execution time; the delay is the review window, not a snapshot.
 - A guardian set of one is allowed but only one veto key then protects the protocol; the UI warns about it.
 - Unaudited hackathon code. Devnet only until audited.
+
+## Before mainnet
+
+The deployed devnet program is built from this source, so the items below are recorded here rather than changed in place: each needs a new program version (rebuild, tests, upgrade) and is a deliberate decision, not a hot fix.
+
+- **Raise the delay floor.** `MIN_DELAY_SECONDS` is 60 s so the devnet demo can show schedule → veto → refusal in minutes. For admin, upgrade and mint authorities a short delay is little time to notice and veto; a mainnet build should enforce at least one hour (24 hours is recommended, as `create_guard` already says). Until then Presign flags any guard under one hour (`GUARD_SHORT_DELAY`, MEDIUM) on the guard view and on proposals that hand an authority to it.
+- **Keep the outcome after `close_action`.** Anyone may close a finished (executed, vetoed or cancelled) action; the rent goes back to whoever paid it, and the account — with its status and `vetoed_by` — is gone. The outcome then lives only in the transaction history and the program's events. Presign lists closed action indexes as closed instead of hiding them. Options: let only the rent payer or a guardian close, or keep a compact outcome record per index.

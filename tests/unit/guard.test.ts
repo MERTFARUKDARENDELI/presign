@@ -242,6 +242,14 @@ describe("Guard inspection", () => {
     expect(r.overview.posture.signals.map((s) => s.code)).toEqual(expect.arrayContaining(["GUARD_SINGLE_GUARDIAN", "GUARD_SHORT_DELAY"]));
   });
 
+  it("actions closed after they finished are reported as closed, not as 'nothing scheduled'", async () => {
+    serve(new Map<string, ChainAccount>([[GUARD, { data: guardBytes({ actionCount: 3n }), owner: PROGRAM }], [actionPda(PROGRAM, GUARD, 2), { data: actionBytes({ eta: future, instructions: [setMintAuthority(OUTSIDER)] }), owner: PROGRAM }]]));
+    const r = await inspect(GUARD);
+    if (r.kind !== "guard") throw new Error("expected guard");
+    expect(r.overview.actions).toHaveLength(1);
+    expect(r.overview.closedActions).toEqual(["1", "0"]);
+  });
+
   it("a pending action that hands an authority outside is CRITICAL for guardians, with time left to veto", async () => {
     const address = actionPda(PROGRAM, GUARD, 0);
     serve(new Map([[GUARD, { data: guardBytes(), owner: PROGRAM }], [address, { data: actionBytes({ eta: future, instructions: [setMintAuthority(OUTSIDER)] }), owner: PROGRAM }]]));
