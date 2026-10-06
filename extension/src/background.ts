@@ -1,5 +1,5 @@
 import { presignBaseFor, reviewableRequest, type ExternalMessage } from "./lib/protocol";
-import { applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryOf, modeFor, newPending, type LogEntry, type PendingReview, type Settings } from "./lib/store";
+import { applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, logEntryOf, modeFor, newPending, type LogEntry, type PendingReview, type Settings } from "./lib/store";
 
 /**
  * Service worker: opens a Presign review for every signing request a page
@@ -87,10 +87,8 @@ chrome.runtime.onMessage.addListener((msg: { kind?: string; id?: string; request
     if (msg?.kind === "presign:outcome") {
       const r = typeof msg.rid === "string" ? reviews.get(msg.rid) : undefined;
       if (!r || r.tabId !== tabId) {
-        if (msg.outcome && origin) {
-          const o = msg.outcome as { status?: string; detail?: string };
-          if (o.status === "PASSED") await log({ at: Date.now(), origin, method: "signIn", type: "MESSAGE", state: "passed", riskLevel: null, detail: o.detail ?? null });
-        }
+        const entry = origin ? logEntryForUnreviewed(origin, msg.outcome, Date.now()) : null;
+        if (entry) await log(entry);
         return sendResponse({ ok: false });
       }
       if (applyOutcome(r, msg.outcome)) {

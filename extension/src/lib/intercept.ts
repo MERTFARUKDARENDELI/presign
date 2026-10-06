@@ -28,8 +28,11 @@ import { createSignInMessageText, type SignInInput } from "./siws";
  */
 
 export interface ReviewOutcome {
-  status: "SIGNED" | "REJECTED" | "BLOCKED" | "PASSED";
+  /** UNPROTECTED: a wallet method the hook could not wrap (the wallet locked it); requests through it are not reviewed. */
+  status: "SIGNED" | "REJECTED" | "BLOCKED" | "PASSED" | "UNPROTECTED";
   detail: string;
+  /** For outcomes without a review (UNPROTECTED, a refused sign-in): the method concerned. */
+  method?: string;
 }
 
 export interface InterceptorDeps {
@@ -254,7 +257,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     const texts = valid ? list.map((i, k) => new TextEncoder().encode(createSignInMessageText({ ...i, domain: i?.domain ?? deps.host(), address: addresses[k]! }))) : [];
     const problem = valid ? await messageResultsProblem(res, texts, addresses, "signedMessage") : MSG_CHANGED;
     if (problem) {
-      deps.report?.(undefined, { status: "BLOCKED", detail: `Sign-in signed in the wallet, withheld from the site: ${problem}` });
+      deps.report?.(undefined, { status: "BLOCKED", method: "signIn", detail: `Sign-in signed in the wallet, withheld from the site: ${problem}` });
       throw new PresignRejection(problem);
     }
     return reviewed(
@@ -640,21 +643,24 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
   }
 
   /** Replaces `method` where it is defined (own property or prototype), if the wallet allows it. */
-  function hook(provider: Record<string, unknown>, method: string, make: (orig: Fn) => Fn): boolean {
+  /** "failed": the method exists but the wallet made it impossible to replace (not writable, not configurable, or a setter that ignores us). */
+  function hook(provider: Record<string, unknown>, method: string, make: (orig: Fn) => Fn): "patched" | "absent" | "failed" {
     let owner: object | null = provider;
     while (owner && !Object.prototype.hasOwnProperty.call(owner, method)) owner = Object.getPrototypeOf(owner);
-    if (!owner || owner === Object.prototype) return false;
+    if (!owner || owner === Object.prototype) return "absent";
     const desc = Object.getOwnPropertyDescriptor(owner, method);
-    if (!desc || typeof desc.value !== "function" || patched.has(desc.value)) return false;
+    if (!desc) return "absent";
+    if (patched.has(desc.value)) return "patched";
+    if (typeof desc.value !== "function") return typeof desc.get === "function" ? "failed" : "absent";
     const replacement = make(desc.value as Fn);
     patched.add(replacement);
     try {
       if (desc.configurable) Object.defineProperty(owner, method, { ...desc, value: replacement });
       else if (desc.writable) (owner as Record<string, unknown>)[method] = replacement;
-      else return false;
-      return (owner as Record<string, unknown>)[method] === replacement;
+      else return "failed";
+      return (owner as Record<string, unknown>)[method] === replacement ? "patched" : "failed";
     } catch {
-      return false;
+      return "failed";
     }
   }
 
@@ -663,17 +669,22 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     const p = provider as Record<string, unknown>;
     if (typeof p.signTransaction !== "function" && typeof p.signMessage !== "function") return false;
     patched.add(provider);
+    // Methods the wallet locked against replacement: reported, never silently left unreviewed.
+    const unwrapped: string[] = [];
+    const wrap = (method: string, make: (orig: Fn) => Fn) => {
+      if (hook(p, method, make) === "failed") unwrapped.push(method);
+    };
 
     // Every wallet call below gets the captured copy (or a sealed view), also when a wallet's
     // own approved call re-enters the hook: the caller's object is never handed on.
-    hook(p, "signTransaction", (orig) => function (this: unknown, tx: unknown, ...rest: unknown[]) {
+    wrap("signTransaction", (orig) => function (this: unknown, tx: unknown, ...rest: unknown[]) {
       const s = sealTx(tx);
       const key = keyOf("TRANSACTION", s.bytes);
       const call = async () => siteObject(await (orig.call(this, s.forWallet, ...rest) as Promise<unknown>));
       if (allInFlight([key])) return call();
       return reviewed([req("TRANSACTION", s.bytes, "signTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, s.forWallet, ...rest) as Promise<unknown>, (out) => (isView(out) || signedTxMatches(s.bytes, serializeTx(out)) ? null : CHANGED), siteObject);
     });
-    hook(p, "signAllTransactions", (orig) => function (this: unknown, txs: unknown, ...rest: unknown[]) {
+    wrap("signAllTransactions", (orig) => function (this: unknown, txs: unknown, ...rest: unknown[]) {
       const sealed = (Array.isArray(txs) ? txs : []).map(sealTx);
       const keys = sealed.map((s) => keyOf("TRANSACTION", s.bytes));
       const forWallet = sealed.map((s) => s.forWallet);
@@ -687,13 +698,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         back,
       );
     });
-    hook(p, "signAndSendTransaction", (orig) => function (this: unknown, tx: unknown, ...rest: unknown[]) {
+    wrap("signAndSendTransaction", (orig) => function (this: unknown, tx: unknown, ...rest: unknown[]) {
       const s = sealTx(tx);
       const key = keyOf("TRANSACTION", s.bytes);
       if (allInFlight([key])) return orig.call(this, s.forWallet, ...rest);
       return reviewed([req("TRANSACTION", s.bytes, "signAndSendTransaction", providerAddress(p), null, label, 1, 1)], [key], () => orig.call(this, s.forWallet, ...rest) as Promise<unknown>);
     });
-    hook(p, "signAndSendAllTransactions", (orig) => function (this: unknown, txs: unknown, ...rest: unknown[]) {
+    wrap("signAndSendAllTransactions", (orig) => function (this: unknown, txs: unknown, ...rest: unknown[]) {
       const sealed = (Array.isArray(txs) ? txs : []).map(sealTx);
       const keys = sealed.map((s) => keyOf("TRANSACTION", s.bytes));
       const forWallet = sealed.map((s) => s.forWallet);
@@ -706,7 +717,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         () => orig.call(this, forWallet, ...rest) as Promise<unknown>,
       );
     });
-    hook(p, "signMessage", (orig) => function (this: unknown, message: unknown, ...rest: unknown[]) {
+    wrap("signMessage", (orig) => function (this: unknown, message: unknown, ...rest: unknown[]) {
       const bytes = copyBytes(message);
       const address = providerAddress(p);
       const forWallet = bytes ? Uint8Array.from(bytes) : message;
@@ -715,7 +726,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       return reviewed([req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)], [key], () => orig.call(this, forWallet, ...rest) as Promise<unknown>, (out) => signatureProblem(bytes!, (out as { signature?: unknown } | null)?.signature, address));
     });
     // Sign-In With Solana on the injected provider: same rules as the Wallet Standard feature.
-    hook(p, "signIn", (orig) => function (this: unknown, input?: unknown, ...rest: unknown[]) {
+    wrap("signIn", (orig) => function (this: unknown, input?: unknown, ...rest: unknown[]) {
       const given = input && typeof input === "object" ? (input as SignInInput) : null;
       const i: SignInInput = given ? { ...given, ...(Array.isArray(given.resources) ? { resources: [...given.resources] } : {}) } : {};
       const address = i.address ?? providerAddress(p) ?? undefined;
@@ -734,7 +745,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       );
     });
     // Generic RPC-style entry point some sites (and wallets internally) use: { method, params: { message: base58 } }.
-    hook(p, "request", (orig) => function (this: unknown, args: unknown, ...rest: unknown[]) {
+    wrap("request", (orig) => function (this: unknown, args: unknown, ...rest: unknown[]) {
       const a = args as { method?: unknown; params?: { message?: unknown; messages?: unknown } } | null;
       const method = typeof a?.method === "string" ? a.method : "";
       const params = a?.params && typeof a.params === "object" ? a.params : {};
@@ -797,7 +808,14 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
 
     // Default deny: any other signing method on the provider (own or inherited) is refused, never handed through.
     for (const m of methodNames(p)) {
-      if (/^sign/i.test(m) && !REVIEWED_METHODS.has(m)) hook(p, m, () => () => Promise.reject(refusal(`${label}.${m}()`)));
+      if (/^sign/i.test(m) && !REVIEWED_METHODS.has(m)) wrap(m, () => () => Promise.reject(refusal(`${label}.${m}()`)));
+    }
+    if (unwrapped.length > 0) {
+      deps.report?.(undefined, {
+        status: "UNPROTECTED",
+        method: unwrapped[0],
+        detail: `${label}: ${unwrapped.join(", ")} could not be wrapped (the wallet locked ${unwrapped.length === 1 ? "it" : "them"}), so requests through ${unwrapped.length === 1 ? "it" : "them"} reach the wallet without Presign's review.`,
+      });
     }
     return true;
   }

@@ -667,6 +667,19 @@ describe("every signing entry point is reviewed or refused", () => {
     await expect(provider.signIn({ statement: "tamper", nonce: "abc12345" })).rejects.toBeInstanceOf(PresignRejection);
   });
 
+  it("a signing method the wallet locked against replacement is reported as not protected, never silently skipped", async () => {
+    const calls: string[] = [];
+    const provider: Record<string, unknown> = { publicKey: { toBase58: () => W } };
+    Object.defineProperty(provider, "signTransaction", { value: async (tx: unknown) => (calls.push("signTransaction"), tx), writable: false, configurable: false, enumerable: true });
+    provider.signMessage = async (m: Uint8Array) => (calls.push("signMessage"), { signature: new Uint8Array(64), publicKey: W, m });
+    hook.patchProvider(provider, "Locked");
+    expect(deps.report).toHaveBeenCalledWith(undefined, expect.objectContaining({ status: "UNPROTECTED", method: "signTransaction", detail: expect.stringMatching(/Locked: signTransaction could not be wrapped/) }));
+    // What could be wrapped still is: the message is reviewed before the wallet sees it.
+    cancelAll();
+    await expect((provider.signMessage as (m: Uint8Array) => Promise<unknown>)(new TextEncoder().encode("hello"))).rejects.toBeInstanceOf(PresignRejection);
+    expect(calls).toEqual([]);
+  });
+
   it("an unknown injected signing method, and an unknown signing method through request(), are refused", async () => {
     const provider = injected();
     hook.patchProvider(provider, "Newer");

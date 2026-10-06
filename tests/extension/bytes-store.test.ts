@@ -3,7 +3,7 @@ import bs58 from "bs58";
 import { describe, expect, it } from "vitest";
 import { asTransactionBytes, base58ToBytes, base64ToBytes, bytesToBase64, isSerializedTransaction, onlySignaturesChanged, requestKey } from "@/extension/src/lib/bytes";
 import { isAllowedPresignOrigin, presignBaseFor, PRESIGN_ORIGINS, REVIEW_TTL_MS, validateReviewRequest, type ReviewRequest } from "@/extension/src/lib/protocol";
-import { applyOutcome, DEFAULT_SETTINGS, handleExternal, modeFor, newPending, type PendingReview } from "@/extension/src/lib/store";
+import { applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, modeFor, newPending, type PendingReview } from "@/extension/src/lib/store";
 import { messageBytesOf } from "@/lib/wallet/signing";
 import { ATTACKER, buildTx, WALLET } from "../helpers/fixtures";
 
@@ -142,5 +142,16 @@ describe("background decisions", () => {
     expect(modeFor("https://dapp.example", { ...DEFAULT_SETTINGS, enabled: false })).toMatchObject({ mode: "pass" });
     expect(modeFor("https://dapp.example", { ...DEFAULT_SETTINGS, skipSites: ["https://dapp.example"] })).toMatchObject({ mode: "pass" });
     expect(modeFor("https://dapp.example", DEFAULT_SETTINGS)).toEqual({ mode: "review" });
+  });
+});
+
+describe("log entries for hook outcomes that belong to no review", () => {
+  it("a wallet method that could not be wrapped is logged as not protected; unknown outcomes are not logged", () => {
+    const e = logEntryForUnreviewed("https://dapp.example", { status: "UNPROTECTED", method: "signTransaction", detail: "Phantom: signTransaction could not be wrapped\u0007" }, 5);
+    expect(e).toEqual({ at: 5, origin: "https://dapp.example", method: "signTransaction", type: "PROVIDER", state: "unprotected", riskLevel: null, detail: "Phantom: signTransaction could not be wrapped" });
+    expect(logEntryForUnreviewed("https://dapp.example", { status: "BLOCKED", method: "signIn", detail: "x" }, 5)?.state).toBe("blocked");
+    expect(logEntryForUnreviewed("https://dapp.example", { status: "SIGNED" }, 5)).toBeNull();
+    expect(logEntryForUnreviewed("https://dapp.example", { status: "UNPROTECTED", method: "<script>" }, 5)?.method).toBe("signIn");
+    expect(logEntryForUnreviewed("https://dapp.example", null, 5)).toBeNull();
   });
 });

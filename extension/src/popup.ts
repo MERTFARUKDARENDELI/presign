@@ -12,7 +12,7 @@ async function saveSettings(s: Settings) {
   await chrome.storage.local.set({ settings: s });
 }
 
-const LABEL: Record<string, string> = { signed: "SIGNED", cancelled: "CANCELLED", rejected: "REJECTED IN WALLET", blocked: "BLOCKED", passed: "NOT REVIEWED", expired: "EXPIRED", pending: "PENDING", forwarded: "IN WALLET" };
+const LABEL: Record<string, string> = { signed: "SIGNED", cancelled: "CANCELLED", rejected: "REJECTED IN WALLET", blocked: "BLOCKED", passed: "NOT REVIEWED", unprotected: "NOT PROTECTED", expired: "EXPIRED", pending: "PENDING", forwarded: "IN WALLET" };
 
 function renderLog(list: LogEntry[]) {
   const ul = $("log");

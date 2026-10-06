@@ -31,7 +31,7 @@ export interface LogEntry {
   origin: string;
   method: string;
   type: string;
-  state: ReviewState | "passed";
+  state: ReviewState | "passed" | "unprotected";
   riskLevel: string | null;
   detail: string | null;
 }
@@ -114,6 +114,19 @@ export function applyOutcome(r: PendingReview, outcome: unknown): boolean {
 
 export function newPending(input: { rid: string; origin: string; request: ReviewRequest; tabId: number; frameId: number; hookId: string; presignOrigin: string; now: number }): PendingReview {
   return { rid: input.rid, origin: input.origin, request: input.request, state: "pending", detail: null, createdAt: input.now, tabId: input.tabId, frameId: input.frameId, hookId: input.hookId, presignOrigin: input.presignOrigin, windowId: null, riskLevel: null };
+}
+
+/**
+ * A hook outcome that belongs to no review (a wallet method that could not be
+ * wrapped, a sign-in withheld before its review, a request passed unreviewed):
+ * the log entry it becomes, or null if it is not one of those.
+ */
+export function logEntryForUnreviewed(origin: string, outcome: unknown, now: number): LogEntry | null {
+  const o = outcome && typeof outcome === "object" ? (outcome as { status?: unknown; detail?: unknown; method?: unknown }) : null;
+  const state = o?.status === "UNPROTECTED" ? "unprotected" : o?.status === "BLOCKED" ? "blocked" : o?.status === "PASSED" ? "passed" : null;
+  if (!state) return null;
+  const method = typeof o?.method === "string" && /^[A-Za-z]{1,40}$/.test(o.method) ? o.method : "signIn";
+  return { at: now, origin, method, type: state === "unprotected" ? "PROVIDER" : "MESSAGE", state, riskLevel: null, detail: typeof o?.detail === "string" ? o.detail.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 200) : null };
 }
 
 export function logEntryOf(r: PendingReview): LogEntry {
