@@ -48,7 +48,7 @@ describe("server never signs on the user's behalf", () => {
     }
   });
 
-  it("the browser extension never creates a signature, loads a private key or talks to the network", () => {
+  it("the browser extension never creates a signature or loads a private key; its only request is the approval confirmation", () => {
     const ext = sourceFiles(path.join(ROOT, "extension", "src"));
     expect(ext.length).toBeGreaterThan(5);
     for (const f of ext) {

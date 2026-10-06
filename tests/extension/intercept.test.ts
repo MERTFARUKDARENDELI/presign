@@ -422,6 +422,25 @@ describe("a site cannot change a request after Presign reviewed it", () => {
     expect(transactionMessage(out[0].signedTransaction)).toEqual(transactionMessage(benign()));
   });
 
+  it("a typed view into a larger buffer, changed through another view after the call, does not change what the wallet signs", async () => {
+    const raw = new FakeWallet();
+    const w = connectedWallet(raw) as unknown as Std;
+    approveAll();
+    const tx = benign();
+    const backing = new ArrayBuffer(tx.length + 32);
+    const view = new Uint8Array(backing, 16, tx.length);
+    view.set(tx);
+    const p = w.features["solana:signTransaction"].signTransaction({ transaction: view, account: { address: W } }) as Promise<Array<{ signedTransaction: Uint8Array }>>;
+    new Uint8Array(backing).set(drainer(), 16); // the site writes through its own, different view
+    new DataView(backing).setUint8(15, 0xff); // and outside the request's range
+    const out = await p;
+    expect(reviewed()[0].payload).toBe(bytesToBase64(benign()));
+    const given = (raw.calls[0][1] as TxIn).transaction;
+    expect(given).toEqual(benign());
+    expect(given.buffer).not.toBe(backing);
+    expect(transactionMessage(out[0].signedTransaction)).toEqual(transactionMessage(benign()));
+  });
+
   it("Wallet Standard signAndSendTransaction: the wallet broadcasts the reviewed bytes", async () => {
     const raw = new FakeWallet();
     const w = connectedWallet(raw) as unknown as Std;

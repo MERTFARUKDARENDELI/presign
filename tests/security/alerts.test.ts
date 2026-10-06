@@ -91,3 +91,18 @@ describe("log lines keep their own level", () => {
     expect(parsed.ts).not.toBe("y");
   });
 });
+
+describe("log level and risk level stay independent, in the line and in alerts", () => {
+  it("INFO + CRITICAL risk, WARN + LOW risk, ERROR + HIGH risk", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PRESIGN_ALERT_WEBHOOK_URL", HOOK);
+    const lines: string[] = [];
+    for (const method of ["log", "warn", "error"] as const) vi.spyOn(console, method).mockImplementation((line: string) => void lines.push(line));
+    logger.info("presign.signing_analyzed", { risk: "CRITICAL", level: "CRITICAL" });
+    logger.warn("api.upstream_error", { risk: "LOW", route: "tx-analyze" });
+    logger.error("api.unhandled_error", { risk: "HIGH", route: "presign-approve" });
+    expect(lines.map((l) => JSON.parse(l) as Record<string, unknown>).map((l) => [l.level, l.risk])).toEqual([["info", "CRITICAL"], ["warn", "LOW"], ["error", "HIGH"]]);
+    // Alerts follow the line's level only: the CRITICAL-risk info line does not alert.
+    expect(posts.map((p) => p.body.text.split(" · ")[0])).toEqual(["Presign WARN: api.upstream_error", "Presign ERROR: api.unhandled_error"]);
+  });
+});

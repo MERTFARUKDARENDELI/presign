@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "@/lib/api/errors";
 import { enrichWithAnchorIdl } from "@/lib/anchor/source";
 import { resetReplayRegistry } from "@/lib/presign/replay";
-import { analyzeSigning, approveSigning, PAYLOAD_CHANGED_MESSAGE, verifyApprovalForSubmit, type AnalyzeSigningInput } from "@/lib/presign/signing";
+import { analyzeSigning, approveSigning, confirmApprovalForExtension, PAYLOAD_CHANGED_MESSAGE, verifyApprovalForSubmit, type AnalyzeSigningInput } from "@/lib/presign/signing";
 import type { SigningReview } from "@/lib/presign/types";
 import { MEMO_PROGRAM_ID } from "@/lib/solana/constants";
 import { U64_MAX } from "@/lib/transaction/decoder";
@@ -305,6 +305,20 @@ describe("submission bound to the approval", () => {
     const s = signed(built.tx);
     await expect(verifyApprovalForSubmit(a.approvalToken, SID, s, a.payloadHash)).resolves.toBeUndefined();
     await expect(verifyApprovalForSubmit(a.approvalToken, SID, s, a.payloadHash)).rejects.toMatchObject({ details: { reason: "REQUEST_REPLAYED" } });
+  });
+
+  it("the extension's confirmation and the final submission are separate single uses: approve → confirm → sign → submit, each once", async () => {
+    const { built, a } = await approved();
+    // A confirmation for other bytes is refused and spends nothing.
+    expect(await confirmApprovalForExtension(a.approvalToken, "0".repeat(64))).toEqual({ valid: false, reason: "PAYLOAD_MISMATCH" });
+    expect(await confirmApprovalForExtension(a.approvalToken, a.payloadHash)).toMatchObject({ valid: true, payloadHash: a.payloadHash, walletAddress: W, type: "TRANSACTION" });
+    // Asking again — however often — never re-confirms the same approval …
+    for (let i = 0; i < 3; i++) expect(await confirmApprovalForExtension(a.approvalToken, a.payloadHash)).toEqual({ valid: false, reason: "ALREADY_USED" });
+    // … and does not touch the submission's own single use: the signed transaction is accepted exactly once.
+    const s = signed(built.tx);
+    await expect(verifyApprovalForSubmit(a.approvalToken, SID, s, a.payloadHash)).resolves.toBeUndefined();
+    await expect(verifyApprovalForSubmit(a.approvalToken, SID, s, a.payloadHash)).rejects.toMatchObject({ details: { reason: "REQUEST_REPLAYED" } });
+    expect(await confirmApprovalForExtension(a.approvalToken, a.payloadHash)).toEqual({ valid: false, reason: "ALREADY_USED" });
   });
 
   it("rejects a different transaction signed under the same approval", async () => {
