@@ -24,7 +24,7 @@ The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** 
 | `PRESIGN_SESSION_SECRET` on Vercel (mainnet, devnet; production and preview) | NOT VERIFIED — the stored Vercel CLI token is no longer authorized |
 | Real wallets (Phantom, Solflare, Backpack) | NOT VERIFIED |
 | CI with the new workflow | NOT VERIFIED — never ran on GitHub (last runs: 2026-10-05, success, before these commits) |
-| Branch | `origin/main` (Tarık's `CLAUDE.md` update, PR #1) is merged into local `main` (merge, no rewritten SHA): local `main` is ahead only, so a push is a fast-forward. The committed `CLAUDE.md` is the remote version; the maintainer's own `CLAUDE.md` stays uncommitted in the working tree until they choose which to keep |
+| Branch | `origin/main` (Tarık's `CLAUDE.md` update, PR #1) is merged into local `main` (merge, no rewritten SHA): local `main` is ahead only, so a push is a fast-forward. `CLAUDE.md` combines both versions with nothing lost (`@AGENTS.md`, Tarık's core invariants, the full pre-sign spec) |
 
 ### Verification baseline
 
