@@ -224,6 +224,46 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     return null;
   }
 
+  /** The account a sign-in result names: Wallet Standard { account: { address } } or an injected provider's { address }. */
+  function signInAccount(r: unknown): string | null {
+    const o = r && typeof r === "object" ? (r as { account?: { address?: unknown }; address?: unknown }) : null;
+    let a: unknown = o?.account && typeof o.account === "object" ? o.account.address : o?.address;
+    if (a && typeof a === "object" && typeof (a as { toBase58?: unknown }).toBase58 === "function") {
+      try {
+        a = (a as { toBase58: () => unknown }).toBase58();
+      } catch {
+        return null;
+      }
+    }
+    return typeof a === "string" && base58ToBytes(a)?.length === 32 ? a : null;
+  }
+
+  /**
+   * Sign-In With Solana when the account is chosen in the wallet: the exact text
+   * is not known until the wallet picks the account, so the wallet signs first.
+   * Presign then rebuilds the text for the returned account, requires the wallet
+   * to have signed exactly that (signature checked), and reviews it; the site
+   * receives the signature only after the user approves. Cancel, a failed review
+   * or any mismatch withholds it.
+   */
+  async function signInSignedFirst<T>(list: SignInInput[], walletName: string | null, call: () => Promise<T>, results: (out: T) => unknown[] | null): Promise<T> {
+    const out = await call();
+    const res = results(out);
+    const addresses = res ? res.map(signInAccount) : [];
+    const valid = res !== null && res.length === list.length && addresses.every((a, k) => a !== null && (!list[k]?.address || list[k].address === a));
+    const texts = valid ? list.map((i, k) => new TextEncoder().encode(createSignInMessageText({ ...i, domain: i?.domain ?? deps.host(), address: addresses[k]! }))) : [];
+    const problem = valid ? await messageResultsProblem(res, texts, addresses, "signedMessage") : MSG_CHANGED;
+    if (problem) {
+      deps.report?.(undefined, { status: "BLOCKED", detail: `Sign-in signed in the wallet, withheld from the site: ${problem}` });
+      throw new PresignRejection(problem);
+    }
+    return reviewed(
+      list.map((_, k) => req("MESSAGE", texts[k], "signIn", addresses[k], null, walletName, k + 1, list.length, { reconstructed: true, signedFirst: true })),
+      [],
+      () => Promise.resolve(out),
+    );
+  }
+
   const req = (type: ReviewRequest["type"], payload: Uint8Array | null, method: ReviewMethod, wallet: string | null, chain: string | null, walletName: string | null, index: number, total: number, extra: Partial<ReviewRequest> = {}): ReviewRequest => ({
     type: payload || type === "UNREADABLE" ? type : "UNREADABLE",
     payload: payload ? bytesToBase64(payload) : null,
@@ -357,11 +397,10 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
             const address = addressFor(i);
             return address ? createSignInMessageText({ ...i, domain: i?.domain ?? deps.host(), address }) : null;
           });
-          // Without a known account the wallet chooses it while signing, so the exact text cannot be
-          // reviewed in advance. A sign-in cannot move funds and wallets verify its domain themselves.
+          // Without a known account the wallet chooses it while signing: it signs first, and the
+          // site gets the signature only after Presign reviewed the exact signed text.
           if (texts.some((t) => t === null)) {
-            deps.report?.(undefined, { status: "PASSED", detail: "Sign-in passed to the wallet unreviewed: the account is chosen in the wallet, so the exact text is not known in advance." });
-            return orig(...inputs);
+            return signInSignedFirst(list, name, () => orig(...(inputs.length ? list : inputs)) as Promise<unknown>, (res) => (Array.isArray(res) ? res : null));
           }
           const bytes = texts.map((t) => new TextEncoder().encode(t!));
           return reviewed(
@@ -681,8 +720,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       const i: SignInInput = given ? { ...given, ...(Array.isArray(given.resources) ? { resources: [...given.resources] } : {}) } : {};
       const address = i.address ?? providerAddress(p) ?? undefined;
       if (!address) {
-        deps.report?.(undefined, { status: "PASSED", detail: "Sign-in passed to the wallet unreviewed: the account is chosen in the wallet, so the exact text is not known in advance." });
-        return orig.call(this, input, ...rest);
+        return signInSignedFirst([i], label, () => orig.call(this, input === undefined ? undefined : i, ...rest) as Promise<unknown>, (out) => (out && typeof out === "object" ? [out] : null));
       }
       const bytes = new TextEncoder().encode(createSignInMessageText({ ...i, domain: i.domain ?? deps.host(), address }));
       const key = keyOf("MESSAGE", bytes);

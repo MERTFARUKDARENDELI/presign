@@ -38,6 +38,11 @@ export interface ReviewRequest {
   total: number;
   /** The sign-in text was rebuilt from the request fields (SIWS standard). */
   reconstructed?: boolean;
+  /**
+   * Sign-in whose account was chosen in the wallet: the wallet has already signed
+   * this exact text, and the site receives the signature only if the user approves.
+   */
+  signedFirst?: boolean;
   /** Why the request is UNREADABLE. */
   reason?: string;
 }
@@ -112,6 +117,7 @@ export function validateReviewRequest(raw: unknown): ReviewRequest | null {
     index,
     total,
     ...(r.reconstructed === true ? { reconstructed: true } : {}),
+    ...(r.signedFirst === true && r.method === "signIn" ? { signedFirst: true } : {}),
     ...(r.type === "UNREADABLE" ? { reason: text(r.reason, 200) ?? "Presign could not read this request." } : {}),
   };
 }

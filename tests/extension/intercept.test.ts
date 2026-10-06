@@ -274,12 +274,51 @@ describe("messages and Sign-In With Solana", () => {
     await expect(tamper.features["solana:signIn"].signIn(input)).rejects.toBeInstanceOf(PresignRejection);
   });
 
-  it("a sign-in whose account is chosen in the wallet goes to the wallet unreviewed, and says so", async () => {
-    const raw = new FakeWallet([]);
-    const w = connectedWallet(raw) as unknown as { features: Record<string, { signIn: (...i: unknown[]) => Promise<unknown> }> };
-    await w.features["solana:signIn"].signIn({ statement: "hi" }).catch(() => undefined);
+  /** A wallet with no account exposed yet: signIn lets the user pick one (W) inside the wallet. */
+  const choosingWallet = (sign: (text: string) => string = (t) => t, account = W) => {
+    const calls: string[] = [];
+    const wallet = {
+      version: "1.0.0", name: "Chooser", icon: "data:image/svg+xml;base64,", chains: ["solana:devnet"], accounts: [] as Array<{ address: string }>,
+      features: {
+        "solana:signIn": {
+          version: "1.0.0",
+          signIn: async (...inputs: Array<Record<string, string>>) => {
+            calls.push("wallet:signIn");
+            return inputs.map((i) => ({ account: { address: account }, signedMessage: new TextEncoder().encode(sign(createSignInMessageText({ ...i, domain: i.domain ?? "dapp.example", address: account }))), signature: new Uint8Array(64) }));
+          },
+        },
+      },
+    };
+    return { calls, wallet: connectedWallet(wallet) as unknown as { features: Record<string, { signIn: (...i: unknown[]) => Promise<unknown> }> } };
+  };
+
+  it("a sign-in whose account is chosen in the wallet: signed first, then reviewed; the site gets it only after approval", async () => {
+    const { calls, wallet } = choosingWallet();
+    deps.review.mockImplementation(async () => {
+      calls.push("review");
+      return { approved: true, id: "rid-1" };
+    });
+    const out = (await wallet.features["solana:signIn"].signIn({ statement: "Welcome", nonce: "abc12345" })) as Array<{ account: { address: string } }>;
+    expect(calls).toEqual(["wallet:signIn", "review"]);
+    expect(out[0].account.address).toBe(W);
+    const r = reviewed()[0];
+    expect(r).toMatchObject({ type: "MESSAGE", method: "signIn", reconstructed: true, signedFirst: true, walletAddress: W });
+    expect(new TextDecoder().decode(Uint8Array.from(atob(r.payload!), (c) => c.charCodeAt(0)))).toBe(`dapp.example wants you to sign in with your Solana account:\n${W}\n\nWelcome\n\nNonce: abc12345`);
+  });
+
+  it("cancelling that review withholds the signature; a wallet that signed other text is refused before any review", async () => {
+    const chosen = choosingWallet();
+    cancelAll();
+    await expect(chosen.wallet.features["solana:signIn"].signIn({ statement: "Welcome" })).rejects.toBeInstanceOf(PresignRejection);
+    expect(chosen.calls).toEqual(["wallet:signIn"]);
+
+    deps.review.mockReset();
+    win = new EventTarget() as HookWindow;
+    hook = installInterceptor(win, deps);
+    const tamper = choosingWallet((t) => `${t}\nResources:\n- https://evil.example`);
+    await expect(tamper.wallet.features["solana:signIn"].signIn({ statement: "Welcome" })).rejects.toBeInstanceOf(PresignRejection);
     expect(deps.review).not.toHaveBeenCalled();
-    expect(deps.report).toHaveBeenCalledWith(undefined, expect.objectContaining({ status: "PASSED" }));
+    expect(deps.report).toHaveBeenCalledWith(undefined, expect.objectContaining({ status: "BLOCKED" }));
   });
 });
 
@@ -605,6 +644,18 @@ describe("every signing entry point is reviewed or refused", () => {
     approveAll();
     await provider.signAndSendAllTransactions([tx as never]);
     expect(provider.calls).toEqual([`signAndSendAll:${reviewed()[1].payload}`]);
+  });
+
+  it("injected signIn without a connected account: the wallet signs first, the site gets it only after the review", async () => {
+    const provider = injected();
+    (provider as unknown as { publicKey: unknown }).publicKey = null;
+    hook.patchProvider(provider, "Newer");
+    cancelAll();
+    await expect(provider.signIn({ statement: "Welcome", nonce: "abc12345" })).rejects.toBeInstanceOf(PresignRejection);
+    expect(provider.calls).toEqual(["signIn"]);
+    expect(reviewed()[0]).toMatchObject({ method: "signIn", signedFirst: true, walletAddress: W });
+    approveAll();
+    await expect(provider.signIn({ statement: "Welcome", nonce: "abc12345" })).resolves.toMatchObject({ address: W });
   });
 
   it("injected signIn is reviewed like the Wallet Standard one; a wallet that signs other text is blocked", async () => {
