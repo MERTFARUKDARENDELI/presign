@@ -6,12 +6,18 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
  * Runs in the page's own JavaScript world (MAIN) at document_start, before any
  * site script.
  *
- * Channel to the extension: a random secret is exchanged with the content
- * script SYNCHRONOUSLY during start-up (no site script can run in between),
- * and all later messages travel as DOM events whose type contains that
- * secret. A site cannot listen for or forge an event type it does not know,
- * and every DOM / JSON function used here is captured before site scripts can
- * replace it.
+ * Channel to the extension: a random secret, and all messages travel as DOM
+ * events whose type contains it. A site cannot listen for or forge an event
+ * type it does not know, and every DOM / JSON function used here is captured
+ * before site scripts can replace it.
+ *
+ * Hand-off of the secret: it is never put in an event. It sits in a CLOSED
+ * shadow root of a hidden element, which page scripts cannot read; the
+ * content script reads it with chrome.dom.openOrClosedShadowRoot (an
+ * extension-only API) and answers with an ack event named with the secret.
+ * "presign:hook-ready" / "presign:content-ready" only say "look now", so a
+ * site that fires them learns nothing. The element is removed once the
+ * content script has answered, or when start-up ends.
  */
 
 (() => {
@@ -28,6 +34,12 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
   const stringify = JSON.stringify;
   const parse = JSON.parse;
   const doc = document;
+  const createElement = Document.prototype.createElement;
+  const attachShadow = Element.prototype.attachShadow;
+  const appendChild = Node.prototype.appendChild;
+  const removeElement = Element.prototype.remove;
+  const setAttribute = Element.prototype.setAttribute;
+  const setText = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!.set!;
   // Web Crypto exists only on secure pages; elsewhere message signatures cannot be checked.
   const subtle = globalThis.crypto?.subtle;
   const verifySignature = subtle ? ed25519Verifier(subtle) : undefined;
@@ -42,8 +54,20 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
 
   const send = (msg: unknown) => dispatch.call(doc, new NativeCustomEvent(TO_CONTENT, { detail: stringify(msg) }));
 
+  // The secret's hiding place: a closed shadow root page scripts cannot open.
+  const channel = createElement.call(doc, "presign-channel") as HTMLElement;
+  setAttribute.call(channel, "hidden", "");
+  setAttribute.call(channel, "aria-hidden", "true");
+  setText.call(attachShadow.call(channel, { mode: "closed" }), secret);
+  let channelPlaced = false;
+  const dropChannel = () => {
+    if (channelPlaced) removeElement.call(channel);
+    channelPlaced = false;
+  };
+
   listen.call(doc, `presign:${secret}:ack`, () => {
     ready = true;
+    dropChannel();
   });
   listen.call(doc, TO_PAGE, (e: Event) => {
     let m: { kind?: string; id?: string; approved?: boolean; reason?: string; rid?: string } | null = null;
@@ -59,15 +83,23 @@ import type { Decision, ReviewRequest } from "./lib/protocol";
     resolve(m.approved === true ? { approved: true, id: m.rid } : { approved: false, reason: typeof m.reason === "string" ? m.reason : "the request was cancelled after the security review." });
   });
 
-  const hello = () => dispatch.call(doc, new NativeCustomEvent("presign:hello", { detail: secret }));
-  // The content script may start after this script: it announces itself and gets the hello then.
+  // "Look now": carries nothing. The content script may already be listening (it reads the
+  // secret synchronously inside this dispatch) or start later (it looks on its own, and asks).
+  const announce = () => dispatch.call(doc, new NativeCustomEvent("presign:hook-ready"));
   const onContentReady = () => {
-    if (!ready) hello();
+    if (!ready) announce();
   };
+  if (doc.documentElement) {
+    appendChild.call(doc.documentElement, channel);
+    channelPlaced = true;
+  }
   listen.call(doc, "presign:content-ready", onContentReady);
-  hello();
-  // Only during start-up: once site scripts run, nobody may (re)start the handshake.
-  setTimeout(() => unlisten.call(doc, "presign:content-ready", onContentReady), 0);
+  announce();
+  // Only during start-up: afterwards nobody may (re)start the handshake, and the element goes.
+  setTimeout(() => {
+    unlisten.call(doc, "presign:content-ready", onContentReady);
+    dropChannel();
+  }, 0);
 
   function review(request: ReviewRequest): Promise<Decision & { id?: string }> {
     // Protection on never fails open: without the channel to Presign, the request is refused.

@@ -22,6 +22,10 @@ declare namespace chrome {
     const onMessage: Event<(message: never, sender: MessageSender, sendResponse: (response: unknown) => void) => boolean | void>;
     const onMessageExternal: Event<(message: never, sender: MessageSender, sendResponse: (response: unknown) => void) => boolean | void>;
   }
+  namespace dom {
+    /** Content scripts only: the element's shadow root, open or closed. */
+    function openOrClosedShadowRoot(element: HTMLElement): ShadowRoot | null;
+  }
   namespace storage {
     interface Area {
       get(keys: string | string[] | null): Promise<Record<string, unknown>>;

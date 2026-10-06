@@ -37,7 +37,17 @@ const TEST_PKCS8 = [...Buffer.from("302e020100300506032b657004220420", "hex"), .
 const feePayer = new PublicKey(process.env.E2E_FEE_PAYER ?? "6a1wxRdkWZKPHqSJvEEwcd9KywCEtrSnmswHDhNsBNqd");
 const RPC = process.env.E2E_RPC ?? "https://solana-devnet.api.onfinality.io/public";
 // Built when the dApp asks, with a current blockhash, like a real dApp (an expired one is — correctly — unverifiable).
-const latestBlockhash = async () => (await (await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestBlockhash", params: [{ commitment: "confirmed" }] }) })).json()).result.value.blockhash;
+// A few tries: a public RPC that drops one request would otherwise hand the dApp an empty transaction.
+const latestBlockhash = async () => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return (await (await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestBlockhash", params: [{ commitment: "confirmed" }] }), signal: AbortSignal.timeout(10_000) })).json()).result.value.blockhash;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      await new Promise((r) => setTimeout(r, 750 * attempt));
+    }
+  }
+};
 const serialize = (t) => Buffer.from(t.serialize({ requireAllSignatures: false, verifySignatures: false })).toString("base64");
 const memo = new TransactionInstruction({ programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"), keys: [{ pubkey: wallet, isSigner: true, isWritable: false }], data: Buffer.from("presign e2e") });
 const served = {};
@@ -49,7 +59,13 @@ async function buildTx(kind) {
 }
 
 // ---------------------------------------------------------------- test dApp
-const dappHtml = `<!doctype html><meta charset="utf-8"><title>Test dApp</title><body><h1>Test dApp</h1><script>
+const dappHtml = `<!doctype html><meta charset="utf-8"><title>Test dApp</title><script>
+// The first site script: tries to (re)start Presign's handshake and listens for anything that carries a secret.
+window.__probe = [];
+for (const t of ["presign:hello", "presign:hook-ready"]) document.addEventListener(t, (e) => window.__probe.push(String(e.detail ?? "")));
+document.dispatchEvent(new CustomEvent("presign:content-ready"));
+window.__channelSeen = document.querySelector("presign-channel") ? (document.querySelector("presign-channel").shadowRoot === null ? "closed" : "open") : "gone";
+</script><body><h1>Test dApp</h1><script>
 class RegisterWalletEvent extends Event {
   #d; get detail() { return this.#d; }
   constructor(cb) { super("wallet-standard:register-wallet", { bubbles: false, cancelable: false, composed: false }); this.#d = cb; }
@@ -176,6 +192,8 @@ try {
   const dapp = await attach(dappTarget);
   await until(() => evaluate(dapp, `document.readyState === "complete" && typeof window.run === "function"`), "test dApp");
   check((await evaluate(dapp, "window.__wrapped")) === true, "the site received the wallet only wrapped by Presign");
+  check((await evaluate(dapp, "window.__probe.every((d) => !/^[0-9a-f]{32}$/.test(d))")) === true, "a site script that restarts the handshake hears no secret");
+  check((await evaluate(dapp, "window.__channelSeen !== 'open' && document.querySelector('presign-channel') === null")) === true, "the secret's element is closed to the page and gone after the handshake");
 
   const seen = new Set();
   async function reviewWindow() {
