@@ -37,14 +37,14 @@ const TEST_PKCS8 = [...Buffer.from("302e020100300506032b657004220420", "hex"), .
 const feePayer = new PublicKey(process.env.E2E_FEE_PAYER ?? "6a1wxRdkWZKPHqSJvEEwcd9KywCEtrSnmswHDhNsBNqd");
 const RPC = process.env.E2E_RPC ?? "https://solana-devnet.api.onfinality.io/public";
 // Built when the dApp asks, with a current blockhash, like a real dApp (an expired one is — correctly — unverifiable).
-// A few tries: a public RPC that drops one request would otherwise hand the dApp an empty transaction.
+// Retries with back-off: a public RPC answers 429 under load, which would otherwise hand the dApp an empty transaction.
 const latestBlockhash = async () => {
   for (let attempt = 1; ; attempt++) {
     try {
       return (await (await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestBlockhash", params: [{ commitment: "confirmed" }] }), signal: AbortSignal.timeout(10_000) })).json()).result.value.blockhash;
     } catch (error) {
-      if (attempt >= 4) throw error;
-      await new Promise((r) => setTimeout(r, 750 * attempt));
+      if (attempt >= 8) throw error;
+      await new Promise((r) => setTimeout(r, 1_500 * attempt));
     }
   }
 };
@@ -222,7 +222,7 @@ try {
     await evaluate(s, `window.dispatchEvent(new Event("presign-session")), true`);
     return v?.data?.wallet === wallet.toBase58();
   }
-  const pace = () => sleep(4_000); // public RPC rate limits
+  const pace = () => sleep(Number(process.env.E2E_PACE_MS ?? 8_000)); // public RPC rate limits
 
   // ---- 1. Transaction, approved (first time: ownership gate)
   await evaluate(dapp, `window.run("transaction"), true`);
@@ -303,7 +303,26 @@ try {
   check(res5.ok === false && res5.code === 4001, `closing the review window → rejected (${JSON.stringify(res5)})`);
   check((await evaluate(dapp, "window.__walletCalls.length")) === callsBefore, "closing → the wallet was never asked");
 
-  // ---- 6. The extension's own log
+  // ---- 6. A made-up approval sent from the Presign page (as script running there could) never reaches the wallet:
+  //          the extension confirms every approval with the Presign server first.
+  await pace();
+  await evaluate(dapp, `window.run("transaction"), true`);
+  const r6 = await reviewWindow();
+  await analyzed(r6.session, "analysis for the made-up approval");
+  const callsBefore6 = await evaluate(dapp, "window.__walletCalls.length");
+  const forged = await evaluate(r6.session, `(async () => {
+    const q = new URL(location.href).searchParams;
+    const ext = q.get("ext"), rid = q.get("rid");
+    const send = (m) => Promise.race([new Promise((resolve) => chrome.runtime.sendMessage(ext, m, resolve)), new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 30_000))]);
+    const t = await send({ kind: "presign:get", rid });
+    return send({ kind: "presign:approve", rid, payload: t.ticket.request.payload, payloadHash: "ab".repeat(32), approvalToken: "made-up-".repeat(6), riskLevel: "SAFE", choice: "SIGN" });
+  })()`);
+  check(forged?.ok === false && forged.error === "APPROVAL_UNCONFIRMED", `a made-up approval is refused by the extension after asking Presign (${JSON.stringify(forged)})`);
+  const res6 = await until(() => evaluate(dapp, "window.__result"), "made-up approval result", 30_000);
+  check(res6.ok === false, `made-up approval → the site got a refusal (${JSON.stringify(res6)})`);
+  check((await evaluate(dapp, "window.__walletCalls.length")) === callsBefore6, "made-up approval → the wallet was never asked");
+
+  // ---- 7. The extension's own log
   const log = await evaluate(swSession, `chrome.storage.local.get("log").then((v) => (v.log || []).map((e) => e.state))`);
   console.log(`      extension log: ${JSON.stringify(log)}`);
   check(Array.isArray(log) && log.includes("signed") && log.includes("cancelled"), "decisions are recorded in the extension's log");
