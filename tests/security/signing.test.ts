@@ -1,6 +1,6 @@
-import { SystemProgram, Transaction, TransactionMessage, VersionedTransaction, type Keypair } from "@solana/web3.js";
+import { ComputeBudgetProgram, SystemProgram, Transaction, TransactionMessage, VersionedTransaction, type Keypair } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
-import { messageHashOfTx, signExactly, verifyTransactionSignatures, type SignRequest } from "@/lib/wallet/signing";
+import { messageHashOfTx, onlyComputeBudgetChanged, signExactly, verifyTransactionSignatures, WALLET_CHANGED_FEE_REASON, type SignRequest } from "@/lib/wallet/signing";
 import { ATTACKER, BLOCKHASH, buildTx, keypair, WALLET } from "../helpers/fixtures";
 
 type Signable = Transaction | VersionedTransaction;
@@ -113,6 +113,41 @@ describe("signExactly — verifies what the wallet returns", () => {
     );
     expect(out).toMatchObject({ ok: false, kind: "SECURITY_BLOCK" });
     if (!out.ok) expect(out.reason).toMatch(/different transaction/);
+  });
+
+  it("a wallet that only adds a priority fee is still blocked, with an explanation of why (legacy and v0)", async () => {
+    const legacy = await signExactly(
+      await request(legacyTx(), {
+        sign: walletThat((tx) => {
+          const t = tx as Transaction;
+          t.instructions.unshift(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
+          signWith(OWNER, t);
+        }),
+      }),
+    );
+    expect(legacy).toMatchObject({ ok: false, kind: "SECURITY_BLOCK", reason: WALLET_CHANGED_FEE_REASON });
+
+    const withFee = new VersionedTransaction(
+      new TransactionMessage({ payerKey: WALLET, recentBlockhash: BLOCKHASH, instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 20_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }), transfer()] }).compileToV0Message(),
+    );
+    const v0 = await signExactly(
+      await request(v0Tx(), {
+        sign: (async () => {
+          withFee.sign([OWNER]);
+          return withFee;
+        }) as WalletSign,
+      }),
+    );
+    expect(v0).toMatchObject({ ok: false, kind: "SECURITY_BLOCK", reason: WALLET_CHANGED_FEE_REASON });
+  });
+
+  it("onlyComputeBudgetChanged is false as soon as anything else changes", () => {
+    const fee = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 });
+    const base = buildTx([transfer()]).bytes;
+    expect(onlyComputeBudgetChanged(base, buildTx([fee, transfer()]).bytes)).toBe(true);
+    expect(onlyComputeBudgetChanged(base, buildTx([fee, transfer(2)]).bytes)).toBe(false);
+    expect(onlyComputeBudgetChanged(base, buildTx([fee, transfer(), SystemProgram.transfer({ fromPubkey: WALLET, toPubkey: ATTACKER, lamports: 1 })]).bytes)).toBe(false);
+    expect(onlyComputeBudgetChanged(base, new Uint8Array([1, 2, 3]))).toBe(false);
   });
 
   it("blocks a wallet that returns a different v0 message", async () => {

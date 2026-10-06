@@ -121,7 +121,7 @@ Stablecoin issuer controls (USDC, USDT) are reported as documented issuer contro
 7. **Address poisoning** is checked for direct transfers only, within the last 1,000 transactions of the wallet and the recipient. Presign does not compare lookalike characters with past counterparties.
 8. **Token impersonation** needs metadata: Helius DAS (when configured) or Token-2022 on-chain metadata.
 9. **Shared state is optional.** With a shared store configured (Upstash Redis REST / Vercel KV: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`), single use and rate limits hold across every server instance. Without one — or if it does not answer — they are per instance; approvals still expire within minutes and a signed transaction stops being valid when its blockhash expires (unless it uses a durable nonce, which is flagged). Under memory pressure nothing live is dropped: a full single-use registry refuses new work, and the rate limiter evicts only the least recently seen clients (`tests/security/shared-state.test.ts`).
-10. **Not yet exercised with a real wallet extension** end to end (connect → sign → submit). The Presign Guard program is deployed on devnet and unaudited.
+10. **Not yet exercised with a real wallet extension** end to end (connect → sign → submit). The Presign Guard program is deployed on devnet and unaudited. A wallet that changes the transaction before signing (for example by adding a priority fee) gets its signature withheld, with an explanation; whether Phantom, Solflare or Backpack do that by default is untested.
 
 ## How to verify
 

@@ -65,6 +65,43 @@ export function verifyTransactionSignatures(bytes: Uint8Array, only?: string[]):
 
 type Signable = Transaction | VersionedTransaction;
 
+const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
+
+const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** The parts of a message a wallet must not change, with Compute Budget instructions left out. */
+function shapeWithoutComputeBudget(bytes: Uint8Array): string {
+  const m = VersionedTransaction.deserialize(bytes).message;
+  const keys = m.staticAccountKeys.map((k) => k.toBase58());
+  const account = (i: number) => `${i < keys.length ? keys[i] : `lookup:${i - keys.length}`}${m.isAccountWritable(i) ? ":w" : ""}`;
+  return JSON.stringify({
+    version: m.version,
+    blockhash: m.recentBlockhash,
+    payer: keys[0],
+    signers: keys.slice(0, m.header.numRequiredSignatures),
+    instructions: m.compiledInstructions.filter((ix) => keys[ix.programIdIndex] !== COMPUTE_BUDGET_PROGRAM).map((ix) => [keys[ix.programIdIndex], ix.accountKeyIndexes.map(account), hex(ix.data)]),
+    lookups: m.addressTableLookups.map((l) => [l.accountKey.toBase58(), [...l.writableIndexes], [...l.readonlyIndexes]]),
+  });
+}
+
+/**
+ * True when two transactions differ only in their Compute Budget instructions
+ * (priority fee, compute limit) — what a wallet that adjusts fees on its own
+ * does. Used only to explain the refusal; the signature is withheld either way.
+ */
+export function onlyComputeBudgetChanged(original: Uint8Array, changed: Uint8Array): boolean {
+  try {
+    return shapeWithoutComputeBudget(original) === shapeWithoutComputeBudget(changed);
+  } catch {
+    return false;
+  }
+}
+
+export const WALLET_CHANGED_FEE_REASON =
+  "Your wallet changed the transaction's priority fee or compute limit after Presign reviewed it. Presign does not pass on a signature for a transaction it did not review, so nothing was submitted. If your wallet adjusts priority fees automatically, turn that off for this request and try again, or ask the application to set the fee.";
+export const WALLET_CHANGED_REASON =
+  "The wallet returned a different transaction than the one you reviewed (instructions or accounts changed). Presign does not pass on a signature for a transaction it did not review; it was NOT submitted.";
+
 export type SignOutcome =
   | { ok: true; signed: Uint8Array }
   | { ok: false; kind: "SECURITY_BLOCK" | "REJECTED" | "UNSUPPORTED"; reason: string };
@@ -125,7 +162,7 @@ export async function signExactly(req: SignRequest): Promise<SignOutcome> {
     return { ok: false, kind: "SECURITY_BLOCK", reason: "The wallet returned an unreadable transaction." };
   }
   if (signedHash !== req.confirmedHash) {
-    return { ok: false, kind: "SECURITY_BLOCK", reason: "The wallet returned a different transaction than the one you confirmed. It was NOT submitted." };
+    return { ok: false, kind: "SECURITY_BLOCK", reason: onlyComputeBudgetChanged(req.bytes, signedBytes) ? WALLET_CHANGED_FEE_REASON : WALLET_CHANGED_REASON };
   }
   const sigs = verifyTransactionSignatures(signedBytes, [req.signer]);
   if (!sigs.ok) {

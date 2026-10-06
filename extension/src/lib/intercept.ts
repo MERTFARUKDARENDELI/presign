@@ -73,7 +73,7 @@ const stopAll = (e: Event) => {
   Event.prototype.stopImmediatePropagation.call(e);
 };
 
-const CHANGED = "Your wallet returned a transaction that differs from the one Presign reviewed. The signature was not given to the site.";
+const CHANGED = "Your wallet returned a transaction that differs from the one Presign reviewed (some wallets add a priority fee or other instructions before signing; if yours does, turn that off for this request). The signature was not given to the site.";
 const MSG_CHANGED = "Your wallet signed different bytes than the ones Presign reviewed. The signature was not given to the site.";
 const BAD_SIGNATURE = "Your wallet's signature does not match the message Presign reviewed and the account it was reviewed for. The signature was not given to the site.";
 const UNREADABLE_TX = "The site passed a transaction Presign cannot read.";
