@@ -39,7 +39,7 @@ export function sendToExtension<T>(extensionId: string, message: ExternalMessage
   });
 }
 
-type Reply = { ok: boolean; error?: string };
+type Reply = { ok: boolean; error?: string; detail?: string };
 
 export async function getTicket(extensionId: string, rid: string): Promise<ReviewTicket> {
   const r = await sendToExtension<Reply & { ticket?: ReviewTicket }>(extensionId, { kind: "presign:get", rid });
@@ -60,7 +60,13 @@ const WAIT_MS = 10 * 60_000;
 /** Sends the approval, then follows the request until the wallet has answered in the application's tab. */
 export async function forwardToExtension(extensionId: string, rid: string, approval: SigningApproval, payload: string, riskLevel: string, choice: string, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<ForwardOutcome> {
   const sent = await sendToExtension<Reply>(extensionId, { kind: "presign:approve", rid, payload, payloadHash: approval.payloadHash, approvalToken: approval.approvalToken, riskLevel, choice });
-  if (!sent?.ok) return { status: "BLOCKED", reason: sent?.error === "PAYLOAD_MISMATCH" ? "The request in the extension differs from the one Presign analyzed. Nothing was signed." : `The extension did not accept the approval (${sent?.error ?? "no answer"}). Nothing was signed.` };
+  if (!sent?.ok) {
+    const reason =
+      sent?.error === "PAYLOAD_MISMATCH" ? "The request in the extension differs from the one Presign analyzed. Nothing was signed."
+      : sent?.error === "APPROVAL_UNCONFIRMED" ? `${sent.detail ?? "The extension could not confirm the approval with Presign."} Nothing was signed.`
+      : `The extension did not accept the approval (${sent?.error ?? "no answer"}). Nothing was signed.`;
+    return { status: "BLOCKED", reason };
+  }
   const started = Date.now();
   while (Date.now() - started < WAIT_MS) {
     await wait(800);

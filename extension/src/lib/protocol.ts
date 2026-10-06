@@ -49,7 +49,8 @@ export interface ReviewRequest {
 
 export type Decision = { approved: true } | { approved: false; reason: string };
 
-export type ReviewState = "pending" | "forwarded" | "signed" | "rejected" | "blocked" | "cancelled" | "expired";
+/** "verifying": approved on the review page, being confirmed with the Presign server before the wallet is asked. */
+export type ReviewState = "pending" | "verifying" | "forwarded" | "signed" | "rejected" | "blocked" | "cancelled" | "expired";
 
 /** What the review page receives for a request id. `origin` is observed by the extension (the browser's sender origin), not claimed by the page. */
 export interface ReviewTicket {

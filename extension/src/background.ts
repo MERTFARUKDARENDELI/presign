@@ -1,5 +1,6 @@
+import { confirmApproval } from "./lib/approval";
 import { presignBaseFor, reviewableRequest, type ExternalMessage } from "./lib/protocol";
-import { applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, logEntryOf, modeFor, newPending, type LogEntry, type PendingReview, type Settings } from "./lib/store";
+import { applyConfirmation, applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, logEntryOf, modeFor, newPending, type LogEntry, type PendingReview, type Settings } from "./lib/store";
 
 /**
  * Service worker: opens a Presign review for every signing request a page
@@ -105,7 +106,17 @@ chrome.runtime.onMessage.addListener((msg: { kind?: string; id?: string; request
 chrome.runtime.onMessageExternal.addListener((msg: ExternalMessage, sender: chrome.runtime.MessageSender, sendResponse: (r: unknown) => void) => {
   void (async () => {
     await load();
-    const result = handleExternal(msg, sender.origin ?? (sender.url ? new URL(sender.url).origin : undefined), reviews, Date.now());
+    let result = handleExternal(msg, sender.origin ?? (sender.url ? new URL(sender.url).origin : undefined), reviews, Date.now());
+    if (result.effect?.kind === "confirm") {
+      // The one request the extension makes: is this approval genuine and for exactly these bytes?
+      await persist();
+      const r = result.effect.review;
+      const confirmation = await confirmApproval(r.presignOrigin, r.request, result.effect.approvalToken, {
+        fetch: (url, init) => fetch(url, init),
+        digest: (bytes) => crypto.subtle.digest("SHA-256", bytes as BufferSource),
+      });
+      result = applyConfirmation(r, confirmation);
+    }
     const effect = result.effect;
     if (effect?.kind === "forward") {
       relay(effect.review, effect.approved, effect.reason);

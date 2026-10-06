@@ -56,9 +56,19 @@ describe("server never signs on the user's behalf", () => {
       // It only forwards the site's own request to the wallet's own method after the user's decision. It may CHECK a
       // wallet's signature with the account's public key (Web Crypto "verify"), never make one or hold a private key.
       expect(src, rel(f)).not.toMatch(/fromSecretKey|Keypair|secretKey|nacl|bip39|mnemonic|\.(partialSign|sign)\(|generateKey|pkcs8|"jwk"|\["sign"\]/);
-      // No requests anywhere: data leaves the page only to the Presign review page the user sees.
-      expect(src, rel(f)).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/);
+      // Requests: none, except the background confirming an approval with the Presign server that issued it.
+      expect(src, rel(f)).not.toMatch(/XMLHttpRequest|WebSocket|sendBeacon|EventSource|importScripts/);
+      const fetches = src.match(/\bfetch\(/g)?.length ?? 0;
+      if (rel(f) === "extension/src/background.ts") expect(fetches, rel(f)).toBe(1);
+      else if (rel(f) !== "extension/src/lib/approval.ts") expect(fetches, rel(f)).toBe(0);
     }
+    // That one request goes only to an allowed Presign origin's confirmation endpoint, with no cookies and no redirects.
+    const approval = readFileSync(path.join(ROOT, "extension", "src", "lib", "approval.ts"), "utf8");
+    expect(approval).toMatch(/if \(!isAllowedPresignOrigin\(presignOrigin\)\) return/);
+    expect(approval).toMatch(/deps\.fetch\(`\$\{presignOrigin\}\$\{CONFIRM_PATH\}`/);
+    expect(approval).toMatch(/credentials: "omit"/);
+    expect(approval).toMatch(/redirect: "error"/);
+    expect(approval).not.toMatch(/(?<!deps\.)\bfetch\(/);
   });
 
   it("wallet signing goes only through the connected wallet adapter in client components", () => {

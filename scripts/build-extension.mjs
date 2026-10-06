@@ -25,8 +25,11 @@ for (const entry of ["inject", "content", "background", "popup"]) {
 }
 
 const manifest = JSON.parse(await readFile(path.join(src, "manifest.json"), "utf8"));
-if (manifest.externally_connectable.matches.includes(LOCAL_PRESIGN)) throw new Error(`extension/manifest.json must not list ${LOCAL_PRESIGN}; --dev adds it`);
-if (dev) manifest.externally_connectable.matches.push(LOCAL_PRESIGN);
+// host_permissions: only the Presign origins, so the background can confirm approvals there (and nowhere else).
+for (const list of [manifest.externally_connectable.matches, manifest.host_permissions]) {
+  if (list.includes(LOCAL_PRESIGN)) throw new Error(`extension/manifest.json must not list ${LOCAL_PRESIGN}; --dev adds it`);
+  if (dev) list.push(LOCAL_PRESIGN);
+}
 await writeFile(path.join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 await cp(path.join(src, "popup.html"), path.join(out, "popup.html"));
 await cp(path.join(src, "icons"), path.join(out, "icons"), { recursive: true });

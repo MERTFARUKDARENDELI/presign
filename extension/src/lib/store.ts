@@ -47,6 +47,7 @@ export function modeFor(origin: string, settings: Settings): { mode: "review" } 
 export type ExternalResult =
   | { reply: unknown; effect?: undefined }
   | { reply: unknown; effect: { kind: "forward"; approved: boolean; reason?: string; review: PendingReview } }
+  | { reply: unknown; effect: { kind: "confirm"; approvalToken: string; review: PendingReview } }
   | { reply: unknown; effect: { kind: "close"; review: PendingReview } };
 
 const terminal = (s: ReviewState) => s === "signed" || s === "rejected" || s === "blocked" || s === "cancelled" || s === "expired";
@@ -77,10 +78,11 @@ export function handleExternal(msg: ExternalMessage | null | undefined, senderOr
       if (r.request.type === "UNREADABLE" || r.request.payload === null) return { reply: { ok: false, error: "UNVERIFIABLE" } };
       if (msg.payload !== r.request.payload) return { reply: { ok: false, error: "PAYLOAD_MISMATCH" } };
       if (typeof msg.payloadHash !== "string" || !/^[0-9a-f]{64}$/.test(msg.payloadHash) || typeof msg.approvalToken !== "string" || msg.approvalToken.length < 20) return { reply: { ok: false, error: "APPROVAL_MISSING" } };
-      r.state = "forwarded";
+      // Not to the wallet yet: the approval is first confirmed with the Presign server (applyConfirmation).
+      r.state = "verifying";
       r.riskLevel = typeof msg.riskLevel === "string" ? msg.riskLevel.slice(0, 16) : null;
-      r.detail = "Sent to your wallet. Confirm or reject it in the wallet window.";
-      return { reply: { ok: true }, effect: { kind: "forward", approved: true, review: r } };
+      r.detail = "Confirming the approval with Presign…";
+      return { reply: { ok: true }, effect: { kind: "confirm", approvalToken: msg.approvalToken, review: r } };
     }
     case "presign:cancel": {
       if (r.state !== "pending") return { reply: { ok: false, error: "NOT_PENDING", state: r.state } };
@@ -94,6 +96,22 @@ export function handleExternal(msg: ExternalMessage | null | undefined, senderOr
     default:
       return { reply: { ok: false, error: "BAD_MESSAGE" } };
   }
+}
+
+/**
+ * The result of confirming an approval with the Presign server: only a confirmed
+ * approval reaches the wallet; anything else blocks the request (fail closed).
+ */
+export function applyConfirmation(r: PendingReview, confirmation: { ok: true } | { ok: false; reason: string }): ExternalResult {
+  if (r.state !== "verifying") return { reply: { ok: false, error: "NOT_VERIFYING", state: r.state } };
+  if (confirmation.ok) {
+    r.state = "forwarded";
+    r.detail = "Sent to your wallet. Confirm or reject it in the wallet window.";
+    return { reply: { ok: true }, effect: { kind: "forward", approved: true, review: r } };
+  }
+  r.state = "blocked";
+  r.detail = `Presign: ${confirmation.reason}`.slice(0, 200);
+  return { reply: { ok: false, error: "APPROVAL_UNCONFIRMED", detail: r.detail }, effect: { kind: "forward", approved: false, reason: confirmation.reason, review: r } };
 }
 
 export function ticketOf(r: PendingReview): ReviewTicket {

@@ -49,6 +49,11 @@ export const signingApproveSchema = z.object({
   targetOrigin: z.string().max(2_048).nullable().optional(),
 });
 
+export const approvalConfirmSchema = z.object({
+  approvalToken: token,
+  payloadHash: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
 export const signingExplainSchema = z.object({
   findingsToken: token,
   findings: z.record(z.string(), z.unknown()),

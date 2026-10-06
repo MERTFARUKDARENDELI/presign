@@ -343,6 +343,27 @@ export async function approveSigning(input: ApproveSigningInput, sid: string | n
   return { approvalToken: sealToken("approval", approval, APPROVAL_TTL_MS, now), requestId: a.rid, userDecision: input.choice, payloadHash: a.ph, expiresAt: new Date(now + APPROVAL_TTL_MS).toISOString() };
 }
 
+export type ApprovalConfirmation =
+  | { valid: true; requestId: string; type: SigningRequestType; payloadHash: string; choice: UserChoice; riskLevel: RiskVerdict; expiresAt: string }
+  | { valid: false; reason: "INVALID" | "EXPIRED" | "PAYLOAD_MISMATCH" | "ALREADY_USED" };
+
+/**
+ * For the browser extension, before it hands a request to the wallet: is this
+ * approval one this server issued, unexpired, for exactly this payload hash
+ * (which the extension computes itself from the bytes it captured)? An approval
+ * is confirmed once. No session is needed: the token is sealed, short-lived
+ * and was issued only through approveSigning's checks.
+ */
+export async function confirmApprovalForExtension(approvalToken: string, payloadHash: string, now: number = Date.now()): Promise<ApprovalConfirmation> {
+  const opened = openToken<SealedApproval>("approval", approvalToken, now);
+  if (!opened.ok) return { valid: false, reason: opened.reason === "EXPIRED" ? "EXPIRED" : "INVALID" };
+  const a = opened.data;
+  if (a.ph !== payloadHash) return { valid: false, reason: "PAYLOAD_MISMATCH" };
+  if (!(await consumeOnce("extension-approval", a.rid, opened.exp, now))) return { valid: false, reason: "ALREADY_USED" };
+  logger.info("presign.extension_approval_confirmed", { type: a.t, risk: a.lvl, choice: a.choice });
+  return { valid: true, requestId: a.rid, type: a.t, payloadHash: a.ph, choice: a.choice, riskLevel: a.lvl, expiresAt: new Date(opened.exp).toISOString() };
+}
+
 /**
  * Submission check for a transaction signed in the Presign flow: the approval
  * must be genuine, unexpired, from this session, for this exact message, and

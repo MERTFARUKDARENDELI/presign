@@ -23,6 +23,7 @@
     "service_worker": "background.js"
   },
   "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://presign-app.vercel.app/*", "https://presign-devnet.vercel.app/*"],
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],

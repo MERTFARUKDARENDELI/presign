@@ -3,7 +3,7 @@ import bs58 from "bs58";
 import { describe, expect, it } from "vitest";
 import { asTransactionBytes, base58ToBytes, base64ToBytes, bytesToBase64, isSerializedTransaction, onlySignaturesChanged, requestKey } from "@/extension/src/lib/bytes";
 import { isAllowedPresignOrigin, presignBaseFor, PRESIGN_ORIGINS, REVIEW_TTL_MS, validateReviewRequest, type ReviewRequest } from "@/extension/src/lib/protocol";
-import { applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, modeFor, newPending, type PendingReview } from "@/extension/src/lib/store";
+import { applyConfirmation, applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, modeFor, newPending, type PendingReview } from "@/extension/src/lib/store";
 import { messageBytesOf } from "@/lib/wallet/signing";
 import { ATTACKER, buildTx, WALLET } from "../helpers/fixtures";
 
@@ -109,9 +109,24 @@ describe("background decisions", () => {
     expect(handleExternal(approve({ approvalToken: "" }), PRESIGN_ORIGINS.mainnet, reviews, NOW).reply).toMatchObject({ ok: false, error: "APPROVAL_MISSING" });
     const ok = handleExternal(approve(), PRESIGN_ORIGINS.mainnet, reviews, NOW);
     expect(ok.reply).toEqual({ ok: true });
-    expect(ok.effect).toMatchObject({ kind: "forward", approved: true });
-    expect(r.state).toBe("forwarded");
+    // Not to the wallet yet: first confirmed with the Presign server.
+    expect(ok.effect).toMatchObject({ kind: "confirm", approvalToken: expect.any(String) });
+    expect(r.state).toBe("verifying");
     expect(handleExternal(approve(), PRESIGN_ORIGINS.mainnet, reviews, NOW).reply).toMatchObject({ ok: false, error: "NOT_PENDING" });
+    const confirmed = applyConfirmation(r, { ok: true });
+    expect(confirmed.effect).toMatchObject({ kind: "forward", approved: true });
+    expect(r.state).toBe("forwarded");
+    expect(applyConfirmation(r, { ok: true }).reply).toMatchObject({ ok: false, error: "NOT_VERIFYING" });
+  });
+
+  it("an approval the server does not confirm never reaches the wallet", () => {
+    const { r, reviews } = setup();
+    handleExternal(approve(), PRESIGN_ORIGINS.mainnet, reviews, NOW);
+    const refused = applyConfirmation(r, { ok: false, reason: "the approval was not confirmed (Presign's server did not issue it), so nothing was sent to your wallet." });
+    expect(refused.reply).toMatchObject({ ok: false, error: "APPROVAL_UNCONFIRMED" });
+    expect(refused.effect).toMatchObject({ kind: "forward", approved: false });
+    expect(r.state).toBe("blocked");
+    expect(r.detail).toMatch(/not confirmed/);
   });
 
   it("cancel relays a refusal; an expired review can no longer be approved", () => {
