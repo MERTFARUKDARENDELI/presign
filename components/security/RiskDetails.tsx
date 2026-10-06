@@ -33,7 +33,8 @@ export function RiskDetails({ risk, compact = false }: { risk: RiskAssessment; c
   const byId = new Map(risk.evidence.map((e) => [e.id, e]));
 
   return (
-    <div className="space-y-3">
+    // Signals and evidence quote full addresses; they wrap instead of widening the page on a phone.
+    <div className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center gap-2">
         <RiskBadge level={risk.level} />
         <StatusBadge status={risk.status} />

@@ -162,7 +162,7 @@ function ExplanationCard({ analysis, symbols }: { analysis: TransactionAnalysis;
   return (
     <Card title="Explanation (deterministic)">
       <p className="mb-3 text-sm font-medium text-zinc-100">{x.headline}</p>
-      <dl className="grid gap-4 md:grid-cols-2">
+      <dl className="grid gap-4 md:grid-cols-2 [overflow-wrap:anywhere] [&>*]:min-w-0">
         <ExplanationSection q="What will happen?" items={x.whatHappens} />
         <ExplanationSection q="Which assets move, and where?" items={x.assetMovements} />
         <ExplanationSection q="Which programs run?" items={x.programs} />

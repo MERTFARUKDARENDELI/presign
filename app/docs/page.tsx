@@ -50,7 +50,8 @@ const ENDPOINTS = [
 
 export default function DocsPage() {
   return (
-    <div className="max-w-4xl space-y-12">
+    // Inline code (addresses, URLs) may break anywhere, so a long one never widens the page on a phone.
+    <div className="max-w-4xl min-w-0 space-y-12 [&_span.font-mono]:break-all">
       <header>
         <h2 className="text-3xl font-bold">API, agents &amp; alerts</h2>
         <p className="mt-3 text-zinc-400">

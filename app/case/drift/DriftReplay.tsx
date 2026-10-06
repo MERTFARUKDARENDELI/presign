@@ -36,7 +36,7 @@ export function DriftReplay() {
       )}
       <div className="flex flex-col gap-2 sm:flex-row">
         {DRIFT_EXPLOIT_TXS.map((tx, i) => (
-          <Button key={tx.signature} variant={selected === i && state ? "default" : "outline"} onClick={() => run(i)} disabled={state?.loading} className={cn("justify-start", selected !== i && "border-zinc-700")}>
+          <Button key={tx.signature} variant={selected === i && state ? "default" : "outline"} onClick={() => run(i)} disabled={state?.loading} className={cn("h-auto min-h-8 justify-start whitespace-normal py-1.5 text-left", selected !== i && "border-zinc-700")}>
             {state?.loading && state.index === i ? <Loader2 className="animate-spin" /> : <Play />} {LABELS[i]}
           </Button>
         ))}
