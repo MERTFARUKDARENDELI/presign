@@ -111,7 +111,7 @@ Stablecoin issuer controls (USDC, USDT) are reported as documented issuer contro
 | AI changing the verdict, prompt injection in untrusted text | Covered | The verdict comes only from rules; AI explains server-attested findings (`ai-security.test.ts`) |
 | Script injected into Presign's own pages (the origin whose approvals the extension has confirmed) | Covered | Content-Security-Policy with a fresh nonce per response and `'strict-dynamic'`: no inline script without the nonce, no eval in production, connections only to Presign, the public Solana RPC and `ws://localhost:*` — the on-device websocket the Android Mobile Wallet Adapter uses to reach the wallet app (`proxy.ts`, `lib/security/csp.ts`, `tests/unit/csp.test.ts`; on a production build every script of 11 pages carries the response's nonce). Pages render per request because of it |
 | Open redirect, cross-site requests, cookie theft | Covered | Same-origin return paths only; HttpOnly, SameSite=Strict, Secure cookies (`presign-connect.test.ts`) |
-| Abuse of the API | Covered | Rate limit on every route; payload size limits (transaction size, 4 KB messages) |
+| Abuse of the API | Covered | Rate limit on every route; payload size limits (transaction size, 4 KB messages); at most 4 RPC requests in flight per provider per server instance, the rest queued (`lib/solana/client.ts`, `tests/integration/providers.test.ts`) |
 | Data source down | Covered | Missing data → PARTIAL / UNKNOWN, never SAFE; machine gate cannot reach `no_known_risk` |
 
 ## Known limitations
