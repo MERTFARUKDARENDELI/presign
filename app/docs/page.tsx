@@ -146,8 +146,10 @@ export default function DocsPage() {
         <Code>{`npm run build:extension
 # Chrome → chrome://extensions → Developer mode → Load unpacked → extension/dist`}</Code>
         <p className="text-sm text-zinc-400">
-          Limits: a page written specifically to evade a page-level hook can bypass it (wallet-level integration closes that); a transaction the wallet broadcasts itself
-          (sign and send) can only be checked before the wallet; a sign-in whose account is chosen inside the wallet goes to the wallet unreviewed and is logged as such.
+          Limits: the hook does not depend on built-ins a site can replace, but it cannot control a wallet&apos;s own page code — a site written for a particular wallet
+          can still reach it around Presign, so the wallet&apos;s confirmation window stays the final check (wallet-level integration closes that); a transaction the
+          wallet broadcasts itself (sign and send) can only be checked before the wallet; a sign-in whose account is chosen inside the wallet is signed there first and
+          reviewed before the site gets it.
         </p>
       </Section>
 
