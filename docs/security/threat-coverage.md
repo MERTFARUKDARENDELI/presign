@@ -70,7 +70,7 @@ Every rule cites the evidence it fires on (decoded instruction, simulated state,
 | Cannot be transferred, or arbitrary code on transfer | Covered | `TOKEN_NON_TRANSFERABLE`, `TOKEN_TRANSFER_HOOK` |
 | Fake copy of a popular token | Covered with metadata | `TOKEN_IMPERSONATION` |
 | Phishing in metadata | Covered | `TOKEN_METADATA_LINK`, `TOKEN_METADATA_LURE` |
-| Rug pull indicators | Covered (external opinion) | `TOKEN_RUGCHECK_*`, `TOKEN_LIQUIDITY_LOW`, `TOKEN_LIQUIDITY_VERY_LOW`, `TOKEN_HOLDER_CONCENTRATION`, `TOKEN_HOLDER_CONCENTRATION_HIGH`, `TOKEN_FEW_HOLDERS` |
+| Rug pull indicators | Covered (external opinion) | `TOKEN_RUGCHECK_*`, `TOKEN_LIQUIDITY_LOW`, `TOKEN_LIQUIDITY_VERY_LOW`, `TOKEN_HOLDER_CONCENTRATION`, `TOKEN_HOLDER_CONCENTRATION_HIGH`, `TOKEN_FEW_HOLDERS`. A reported $0 liquidity or 0 holders is missing data (the analysis stays PARTIAL), never a HIGH signal — also when RugCheck lists markets |
 | Brand-new token | Covered | `TOKEN_NEW`, `TOKEN_VERY_NEW`, `TOKEN_NEW_WITH_RISK_FACTORS` |
 
 Stablecoin issuer controls (USDC, USDT) are reported as documented issuer controls at a lower severity.
