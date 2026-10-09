@@ -222,6 +222,12 @@ export default function DocsPage() {
 /unwatch <address>
 /list
 /check <Squads link, proposal, or <multisig> #<n>>     (anyone)`}</Code>
+        <p className="text-sm text-zinc-400">
+          <b className="text-zinc-200">Limits</b> (the bot is public): 20 targets per chat and 500 through the bot in all; 6 <span className="font-mono">/check</span> or{" "}
+          <span className="font-mono">/watch</span> a minute per person and 60 for everyone. Each cycle polls the environment&apos;s targets first, then up to 100 bot-added
+          targets in turns, at most 4 at once — so other chats&apos; watches cannot delay the operator&apos;s own alerts. With many subscriptions a bot-added target is polled
+          less often than every cycle; alerts arrive on the next poll, not instantly.
+        </p>
         <p className="text-sm text-zinc-400"><b className="text-zinc-200">Running it:</b> one process, state in a local SQLite file. Targets can also come from the environment:</p>
         <Code>{`PRESIGN_API_URL=https://<your-presign-host> \\
 TELEGRAM_BOT_TOKEN=<bot token> \\
