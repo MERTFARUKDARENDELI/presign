@@ -119,8 +119,8 @@ export default function ExtensionReviewClient() {
             <div><dt className="text-xs text-zinc-500">Request</dt><dd className="text-zinc-100">{REVIEW_METHOD_LABEL[ticket.request.method]}{ticket.request.total > 1 ? ` · ${ticket.request.index} of ${ticket.request.total} (each is reviewed separately)` : ""}</dd>{ticket.request.walletName && <dd className="text-[11px] text-zinc-500">Wallet: {ticket.request.walletName}</dd>}</div>
           </dl>
         )}
-        {ticket?.request.reconstructed && !ticket.request.signedFirst && <p className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-100">Sign-In With Solana: your wallet builds the text from the site&apos;s fields. Presign rebuilt the same text with the standard&apos;s format; if your wallet signs anything else, Presign withholds the signature from the site.</p>}
-        {ticket?.request.signedFirst && <p className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-100">Sign-In With Solana: the site let your wallet choose the account, so your wallet has already signed this sign-in. Presign checked that it signed exactly this text. The site receives the signature only if you continue here; Cancel withholds it.</p>}
+        {ticket?.request.reconstructed && !ticket.request.signedFirst && <p className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-100">Sign-In With Solana: your wallet builds the text from the site&apos;s fields. Presign rebuilt the same text with the standard&apos;s format and does not pass on a signature for anything else — check the text in your wallet&apos;s window too.</p>}
+        {ticket?.request.signedFirst && <p className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-100">Sign-In With Solana: the site let your wallet choose the account, so your wallet has already signed this sign-in. Presign checked that it signed exactly this text. Presign passes the signature to the site only if you continue here, and Cancel keeps it back — though a site that tampers with your wallet&apos;s own code could read it earlier, so approve only a sign-in you started.</p>}
         {ticket?.request.chain && ticket.request.chain !== clusterChain && <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100" role="alert">This request is for {ticket.request.chain.replace("solana:", "")}, but this Presign instance analyzes {CLIENT_CLUSTER}. The simulation may not reflect what the request does.</p>}
         {ticket?.request.method === "signAndSendTransaction" && <p className="text-xs text-zinc-500">Your wallet will broadcast this transaction itself after you sign it.</p>}
       </header>
@@ -138,7 +138,7 @@ export default function ExtensionReviewClient() {
       {phase.kind === "no-extension" && (
         <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 text-sm">
           <p className="font-semibold text-zinc-100">The Presign extension is not connected to this page.</p>
-          <p className="text-zinc-400">This page reviews requests captured by the Presign browser extension. Open it from the extension (it opens automatically when a site asks your wallet to sign).</p>
+          <p className="text-zinc-400">This page reviews requests captured by the Presign browser extension. Open it from the extension (it opens when a site asks your wallet to sign through it).</p>
         </div>
       )}
 
