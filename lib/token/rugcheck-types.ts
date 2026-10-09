@@ -12,8 +12,10 @@ export interface RugcheckData {
   risks: RugcheckRisk[];
   scoreNormalised: number | null;
   lpLockedPct: number | null;
-  /** Only present when the full report was fetched. */
+  /** Only from the full report, with markets listed, and above $0 (CLAUDE.md rule 3: $0 is unknown, never "very low"). */
   liquidityUsd: number | null;
+  /** The full report listed markets but put their liquidity at $0: unknown, and shown as such. */
+  liquidityReportedZero?: boolean;
   totalHolders: number | null;
   rugged: boolean | null;
   topHolderPct: number | null;
@@ -55,8 +57,11 @@ export function parseRugcheck(raw: unknown, detail: "summary" | "full"): Rugchec
   if (!parsed.success) return null;
   const d = parsed.data as z.infer<typeof fullSchema>;
   // RugCheck reports 0 liquidity / 0 holders when it has NO market data for a
-  // token (e.g. USDC). Zero is then "unknown", never "very low".
+  // token (e.g. USDC), and can report $0 for markets it lists but has no data
+  // for. CLAUDE.md rule 3: zero is then "unknown" (INSUFFICIENT_DATA), never
+  // "very low" (HIGH). Only a positive amount is evidence of low liquidity.
   const hasMarkets = Array.isArray(d.markets) && d.markets.length > 0;
+  const liquidity = typeof d.totalMarketLiquidity === "number" ? d.totalMarketLiquidity : null;
   const holders = typeof d.totalHolders === "number" && d.totalHolders > 0 ? d.totalHolders : null;
   return {
     risks: (d.risks ?? []).slice(0, 30).map((r) => ({
@@ -66,7 +71,8 @@ export function parseRugcheck(raw: unknown, detail: "summary" | "full"): Rugchec
     })),
     scoreNormalised: d.score_normalised ?? null,
     lpLockedPct: d.lpLockedPct ?? null,
-    liquidityUsd: detail === "full" && hasMarkets ? (d.totalMarketLiquidity ?? null) : null,
+    liquidityUsd: detail === "full" && hasMarkets && liquidity !== null && liquidity > 0 ? liquidity : null,
+    liquidityReportedZero: detail === "full" && hasMarkets && liquidity === 0,
     totalHolders: detail === "full" ? holders : null,
     rugged: detail === "full" ? (d.rugged ?? null) : null,
     topHolderPct: detail === "full" ? (d.topHolders?.[0]?.pct ?? null) : null,

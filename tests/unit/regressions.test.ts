@@ -139,3 +139,38 @@ describe("regression: a rate limit gets a real pause before the retry", () => {
     expect(calls[1] - calls[0]).toBeGreaterThanOrEqual(1_000);
   });
 });
+
+describe("regression: CLAUDE.md rule 3 — a reported $0 liquidity is unknown even when RugCheck lists markets", () => {
+  const evaluate = (totalMarketLiquidity: number, totalHolders = 5_000) => {
+    const rc = parseRugcheck({ risks: [], markets: [{}], totalMarketLiquidity, totalHolders, rugged: false }, "full")!;
+    const m = parseMintAccount(mint, parsedMint({}))!;
+    return { rc, r: evaluateTokenRisk({ mintAddress: mint, mint: m, mintStatus: "OK", rugcheck: { ok: true, data: rc }, concentration: { top1Pct: 1, top10Pct: 5 }, concentrationStatus: "OK", metadata: null, metadataStatus: "SKIPPED" }) };
+  };
+  const codes = (r: ReturnType<typeof evaluateTokenRisk>) => r.signals.map((x) => x.code);
+
+  it("$0 with markets listed: no liquidity signal, PARTIAL and UNKNOWN, and the evidence says it was treated as unknown", () => {
+    const { rc, r } = evaluate(0);
+    expect(rc.liquidityUsd).toBeNull();
+    expect(rc.liquidityReportedZero).toBe(true);
+    expect(codes(r)).not.toContain("TOKEN_LIQUIDITY_VERY_LOW");
+    expect(codes(r)).not.toContain("TOKEN_LIQUIDITY_LOW");
+    expect(r.status).toBe("PARTIAL");
+    expect(r.level).toBe("UNKNOWN");
+    expect(r.evidence.some((e) => String(e.observed).includes("treated as unknown"))).toBe(true);
+    expect(JSON.stringify(r)).toContain("RugCheck reports $0 liquidity");
+  });
+
+  it("a positive amount below the threshold is still very low liquidity (HIGH)", () => {
+    const { rc, r } = evaluate(120);
+    expect(rc.liquidityUsd).toBe(120);
+    expect(rc.liquidityReportedZero).toBe(false);
+    expect(r.signals.find((x) => x.code === "TOKEN_LIQUIDITY_VERY_LOW")?.severity).toBe("HIGH");
+  });
+
+  it("0 holders with markets listed is unknown, not 'very few holders'", () => {
+    const { rc, r } = evaluate(1_000_000, 0);
+    expect(rc.totalHolders).toBeNull();
+    expect(codes(r)).not.toContain("TOKEN_FEW_HOLDERS");
+    expect(r.status).toBe("PARTIAL");
+  });
+});

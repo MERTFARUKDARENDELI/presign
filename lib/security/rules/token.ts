@@ -77,8 +77,11 @@ function rugcheckSignals(c: Collector, data: RugcheckData) {
     if (data.liquidityUsd < TOKEN_THRESHOLDS.liquidityHighUsd) {
       c.signal({ code: "TOKEN_LIQUIDITY_VERY_LOW", title: "Very low liquidity", description: `Reported liquidity is below $${TOKEN_THRESHOLDS.liquidityHighUsd}; the token may be impossible to sell.`, severity: "HIGH", evidenceIds: [id] });
     } else if (data.liquidityUsd < TOKEN_THRESHOLDS.liquidityMediumUsd) {
-      c.signal({ code: "TOKEN_LIQUIDITY_LOW", title: "Low liquidity", description: `Reported liquidity is below $${TOKEN_THRESHOLDS.liquidityMediumUsd}.`, severity: "MEDIUM", evidenceIds: [id] });
+      c.signal({ code: "TOKEN_LIQUIDITY_LOW", title: "Low liquidity", description: `Reported liquidity is below ${TOKEN_THRESHOLDS.liquidityMediumUsd}.`, severity: "MEDIUM", evidenceIds: [id] });
     }
+  } else if (data.liquidityReportedZero) {
+    // CLAUDE.md rule 3: a reported $0 is missing market data, not proof of a dead token — no signal, and the analysis stays PARTIAL.
+    c.ev("rugcheck.liquidity", { source: "RUGCHECK", label: "Total market liquidity (USD, RugCheck)", observed: "0 — treated as unknown", condition: "a reported $0 is not used as a signal" });
   }
 
   if (data.totalHolders !== null && data.totalHolders < TOKEN_THRESHOLDS.minHolders) {
@@ -182,7 +185,7 @@ export function evaluateTokenRisk(input: TokenRuleInput): RiskAssessment {
     // Full report with market data is required for liquidity/holder checks.
     const complete = input.rugcheck.data.detail === "full" && input.rugcheck.data.liquidityUsd !== null && input.rugcheck.data.totalHolders !== null;
     if (input.rugcheck.data.detail === "full" && !complete) {
-      sources.push({ source: "RUGCHECK", status: "FAILED", detail: "No market/holder data from RugCheck — liquidity unknown" });
+      sources.push({ source: "RUGCHECK", status: "FAILED", detail: input.rugcheck.data.liquidityReportedZero ? "RugCheck reports $0 liquidity — treated as unknown, not as very low" : "No market/holder data from RugCheck — liquidity unknown" });
     }
     statuses.push(complete ? "COMPLETE" : "PARTIAL");
   } else if (input.rugcheck.reason === "UNSUPPORTED_CLUSTER") {
