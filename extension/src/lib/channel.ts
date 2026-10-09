@@ -1,4 +1,5 @@
-import { bare, hasOwn, JSONParse, jsonText, own, promise, ReflectApply } from "./primordials";
+import { bare, hasOwn, JSONParse, jsonText, own, promise, ReflectApply, setOwn } from "./primordials";
+import { isHash } from "./sha256";
 import type { Decision, ReviewRequest } from "./protocol";
 
 /**
@@ -65,7 +66,13 @@ export function createReviewer(deps: ReviewerDeps) {
     delete waiting[id];
     const rid = own(m, "rid");
     const reason = own(m, "reason");
-    resolve(own(m, "approved") === true ? bare({ approved: true as const, id: typeof rid === "string" ? rid : undefined }) : refused(typeof reason === "string" ? reason : CANCELLED));
+    if (own(m, "approved") !== true) return resolve(refused(typeof reason === "string" ? reason : CANCELLED));
+    const approval: Settled = bare({ approved: true as const, id: typeof rid === "string" ? rid : undefined });
+    // The hash Presign's server confirmed (lib/intercept.ts compares the wallet's bytes with it), or the extension's own pass.
+    const payloadHash = own(m, "payloadHash");
+    if (isHash(payloadHash)) setOwn(approval, "payloadHash", payloadHash);
+    if (own(m, "pass") === true) setOwn(approval, "pass", true);
+    resolve(approval);
   }
 
   return { review, settle };

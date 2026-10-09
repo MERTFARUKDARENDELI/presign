@@ -46,7 +46,7 @@ export function modeFor(origin: string, settings: Settings): { mode: "review" } 
 
 export type ExternalResult =
   | { reply: unknown; effect?: undefined }
-  | { reply: unknown; effect: { kind: "forward"; approved: boolean; reason?: string; review: PendingReview; keepWindow?: boolean } }
+  | { reply: unknown; effect: { kind: "forward"; approved: boolean; reason?: string; review: PendingReview; keepWindow?: boolean; /** The payload hash Presign's server confirmed (approved only). */ payloadHash?: string } }
   | { reply: unknown; effect: { kind: "confirm"; approvalToken: string; review: PendingReview } }
   | { reply: unknown; effect: { kind: "close"; review: PendingReview } };
 
@@ -102,12 +102,13 @@ export function handleExternal(msg: ExternalMessage | null | undefined, senderOr
  * The result of confirming an approval with the Presign server: only a confirmed
  * approval reaches the wallet; anything else blocks the request (fail closed).
  */
-export function applyConfirmation(r: PendingReview, confirmation: { ok: true } | { ok: false; reason: string }): ExternalResult {
+export function applyConfirmation(r: PendingReview, confirmation: { ok: true; payloadHash: string } | { ok: false; reason: string }): ExternalResult {
   if (r.state !== "verifying") return { reply: { ok: false, error: "NOT_VERIFYING", state: r.state } };
   if (confirmation.ok) {
     r.state = "forwarded";
     r.detail = "Sent to your wallet. Confirm or reject it in the wallet window.";
-    return { reply: { ok: true }, effect: { kind: "forward", approved: true, review: r } };
+    // The confirmed hash travels with the decision: the page hook checks the wallet's bytes against it (lib/intercept.ts).
+    return { reply: { ok: true }, effect: { kind: "forward", approved: true, review: r, payloadHash: confirmation.payloadHash } };
   }
   r.state = "blocked";
   r.detail = `Presign: ${confirmation.reason}`.slice(0, 200);

@@ -38,6 +38,7 @@ import {
   weakSetHasValue,
 } from "./primordials";
 import type { Decision, ReviewMethod, ReviewRequest } from "./protocol";
+import { isHash, sha256Hex } from "./sha256";
 import { createSignInMessageText, signInSnapshot, type SignInInput } from "./siws";
 
 /**
@@ -153,6 +154,8 @@ const BAD_SIGNATURE = "Your wallet's signature does not match the message Presig
 const UNREADABLE_TX = "The site passed a transaction Presign cannot read.";
 const UNREADABLE_MSG = "The site passed a message Presign cannot read.";
 const CANCELLED = "the request was cancelled after the security review.";
+const CHANGED_AFTER_REVIEW = "the signing request changed after the security review, so it was not sent to your wallet: Presign does not let a wallet sign bytes it did not verify.";
+const UNCONFIRMED = "Presign could not confirm which bytes you approved, so nothing was sent to your wallet.";
 
 type Fn = (...args: unknown[]) => unknown;
 type Feature = Record<string, unknown> & { version?: string };
@@ -256,26 +259,76 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     for (let i = 0; i < ids.length; i++) reportFn(ids[i], outcome);
   }
 
+  interface Approval {
+    id: string | undefined;
+    /** The payload hash Presign's server confirmed for this request. */
+    payloadHash: string | undefined;
+    /** The extension's own switch (protection off, or off for this site): nothing was reviewed. */
+    pass: boolean;
+  }
+
   /** Only the decision's own `approved: true` approves. */
-  function decisionOf(d: unknown): { ok: true; id: string | undefined } | { ok: false; reason: string } {
+  function decisionOf(d: unknown): ({ ok: true } & Approval) | { ok: false; reason: string } {
     if (own(d, "approved") === true) {
       const id = own(d, "id");
-      return { ok: true, id: typeof id === "string" ? id : undefined };
+      const payloadHash = own(d, "payloadHash");
+      return { ok: true, id: typeof id === "string" ? id : undefined, payloadHash: isHash(payloadHash) ? payloadHash : undefined, pass: own(d, "pass") === true };
     }
     const reason = own(d, "reason");
     return { ok: false, reason: typeof reason === "string" ? reason : CANCELLED };
   }
 
   /**
-   * Review every request, call the wallet with the reviewed copies, check what it
-   * returned, then hand the site its result (`restore` maps a view back to the
-   * site's own object). Each step continues from the captured `then` of the
+   * The last check before the wallet is asked: for each request, the bytes the
+   * wallet is about to receive (`bound`, read from the very arguments the wallet
+   * gets) must hash to what Presign's server approved — the same transform the
+   * extension's background confirmed (the transaction message for a
+   * transaction, the bytes of a message). Approvals without a confirmed hash are
+   * not trusted, except the extension's own pass.
+   */
+  function boundProblem(requests: ReviewRequest[], approvals: Approval[], bound: () => Array<Uint8Array | null>): string | null {
+    let wallet: Array<Uint8Array | null>;
+    try {
+      wallet = bound();
+    } catch {
+      return CHANGED_AFTER_REVIEW;
+    }
+    if (wallet.length !== requests.length || approvals.length !== requests.length) return CHANGED_AFTER_REVIEW;
+    for (let k = 0; k < requests.length; k++) {
+      const a = approvals[k];
+      if (a.pass) continue;
+      if (!a.payloadHash) return UNCONFIRMED;
+      const b = wallet[k];
+      const covered = b === null ? null : requests[k].type === "TRANSACTION" ? transactionMessage(b) : b;
+      if (!covered || sha256Hex(covered) !== a.payloadHash) return CHANGED_AFTER_REVIEW;
+    }
+    return null;
+  }
+
+  interface Review<T> {
+    requests: ReviewRequest[];
+    /** Request keys held while the wallet call runs (re-entrancy, see `inFlight`). */
+    keys: Array<string | null>;
+    /** For each request, what the wallet is about to receive, in the request's own form (a whole transaction, or the message bytes). */
+    bound: () => Array<Uint8Array | null>;
+    call: () => unknown;
+    /** A problem with what the wallet returned, or null. */
+    verify?: (out: T) => unknown;
+    /** Maps a view back to the site's own object. */
+    restore?: (out: T) => unknown;
+  }
+
+  /**
+   * Review every request, check that the wallet is about to receive exactly
+   * what was approved, call the wallet, check what it returned, then hand the
+   * site its result. Each step continues from the captured `then` of the
    * previous one's promise, never from `await` / `.then`, whose lookups a site
    * could have replaced to hand the hook a decision of its own.
    */
-  function reviewed<T>(requests: ReviewRequest[], keys: Array<string | null>, call: () => unknown, verify?: (out: T) => unknown, restore?: (out: T) => unknown): Promise<T> {
+  function reviewed<T>({ requests, keys, bound, call, verify, restore }: Review<T>): Promise<T> {
     return promise<T>((resolveSite, rejectSite) => {
       const ids: Array<string | undefined> = [];
+      const approvals: Approval[] = [];
       let k = 0;
       const next = (): void => {
         if (k === requests.length) return approved();
@@ -292,6 +345,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
             const decision = decisionOf(d);
             if (!decision.ok) return rejectSite(new PresignRejection(decision.reason));
             push(ids, decision.id);
+            push(approvals, { id: decision.id, payloadHash: decision.payloadHash, pass: decision.pass });
             next();
           },
           rejectSite,
@@ -301,6 +355,11 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       const approved = (): void => {
         // Presign offers no sign path for a request it could not read; an approval for one is not trusted.
         for (let i = 0; i < requests.length; i++) if (requests[i].type === "UNREADABLE") return rejectSite(new PresignRejection("Presign could not read this request, so it cannot be sent to your wallet."));
+        const changed = boundProblem(requests, approvals, bound);
+        if (changed) {
+          report(ids, { status: "BLOCKED", detail: changed });
+          return rejectSite(new PresignRejection(changed));
+        }
         const held: string[] = [];
         for (let i = 0; i < keys.length; i++) if (keys[i] !== null) push(held, keys[i] as string);
         enter(held);
@@ -481,7 +540,8 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
                 return rejectSite(new PresignRejection(bad));
               }
               const requests = mapList(list, (_, k) => req("MESSAGE", texts[k], "signIn", addresses[k], null, walletName, k + 1, list.length, { reconstructed: true, signedFirst: true }));
-              settle<unknown>(reviewed(requests, [], () => out), resolveSite, rejectSite, true);
+              // The wallet already signed these texts; the approval must be for exactly them.
+              settle<unknown>(reviewed({ requests, keys: [], bound: () => texts, call: () => out }), resolveSite, rejectSite, true);
             },
             rejectSite,
           );
@@ -526,6 +586,9 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     return { forWallet: snap as unknown, bytes, address, chain: typeof chain === "string" ? chain : null };
   }
 
+  /** The `bytesField` of each Wallet Standard input the wallet receives, read from those very inputs. */
+  const walletBytes = (forWallet: unknown[], bytesField: "transaction" | "message") => () => mapList(forWallet, (w) => copyBytes(own(w, bytesField)));
+
   function signedTransactionsProblem(res: unknown, txs: Array<Uint8Array | null>): string | null {
     if (!ArrayIsArray(res)) return CHANGED;
     const list = copyList(res);
@@ -554,12 +617,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           const parts = mapList(inputs, (i) => standardInput(i, "transaction"));
           const txs = mapList(parts, (p) => p.bytes);
           const forWallet = mapList(parts, (p) => p.forWallet);
-          return reviewed(
-            mapList(parts, (p, k) => req("TRANSACTION", p.bytes, "signTransaction", p.address, p.chain, name, k + 1, inputs.length)),
-            mapList(txs, (t) => keyOf("TRANSACTION", t)),
-            () => ReflectApply(signTx.fn, signTx.feature, forWallet),
-            (res) => signedTransactionsProblem(res, txs),
-          );
+          return reviewed({
+            requests: mapList(parts, (p, k) => req("TRANSACTION", p.bytes, "signTransaction", p.address, p.chain, name, k + 1, inputs.length)),
+            keys: mapList(txs, (t) => keyOf("TRANSACTION", t)),
+            bound: walletBytes(forWallet, "transaction"),
+            call: () => ReflectApply(signTx.fn, signTx.feature, forWallet),
+            verify: (res) => signedTransactionsProblem(res, txs),
+          });
         },
       });
     }
@@ -571,11 +635,12 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         signAndSendTransaction: (...inputs: unknown[]) => {
           const parts = mapList(inputs, (i) => standardInput(i, "transaction"));
           const forWallet = mapList(parts, (p) => p.forWallet);
-          return reviewed(
-            mapList(parts, (p, k) => req("TRANSACTION", p.bytes, "signAndSendTransaction", p.address, p.chain, name, k + 1, inputs.length)),
-            mapList(parts, (p) => keyOf("TRANSACTION", p.bytes)),
-            () => ReflectApply(signSend.fn, signSend.feature, forWallet),
-          );
+          return reviewed({
+            requests: mapList(parts, (p, k) => req("TRANSACTION", p.bytes, "signAndSendTransaction", p.address, p.chain, name, k + 1, inputs.length)),
+            keys: mapList(parts, (p) => keyOf("TRANSACTION", p.bytes)),
+            bound: walletBytes(forWallet, "transaction"),
+            call: () => ReflectApply(signSend.fn, signSend.feature, forWallet),
+          });
         },
       });
     }
@@ -589,13 +654,14 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           const parts = mapList(copyList(inputs), (i) => standardInput(i, "transaction"));
           const forWallet = mapList(parts, (p) => p.forWallet);
           const options = mapList(rest, (o) => snapshot(o) ?? o);
-          return reviewed(
-            parts.length
+          return reviewed({
+            requests: parts.length
               ? mapList(parts, (p, k) => req("TRANSACTION", p.bytes, "signAndSendAllTransactions", p.address, p.chain, name, k + 1, parts.length))
               : [req("UNREADABLE", null, "signAndSendAllTransactions", null, null, name, 1, 1)],
-            mapList(parts, (p) => keyOf("TRANSACTION", p.bytes)),
-            () => ReflectApply(signSendAll.fn, signSendAll.feature, prepend<unknown>(forWallet, options)),
-          );
+            keys: mapList(parts, (p) => keyOf("TRANSACTION", p.bytes)),
+            bound: walletBytes(forWallet, "transaction"),
+            call: () => ReflectApply(signSendAll.fn, signSendAll.feature, prepend<unknown>(forWallet, options)),
+          });
         },
       });
     }
@@ -620,12 +686,18 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
             return typeof m === "string" ? utf8(m) : null;
           });
           const addresses = mapList(list, (s) => addressOf(own(s, "account")));
-          return reviewed(
-            mapList(list, (_, k) => req("MESSAGE", texts[k], "signOffchainMessage", addresses[k], null, name, k + 1, list.length)),
-            mapList(texts, (t) => keyOf("MESSAGE", t)),
-            () => ReflectApply(signOff.fn, signOff.feature, list),
-            (res) => messageResultsProblem(res, texts, addresses, "signedOffchainMessage"),
-          );
+          return reviewed({
+            requests: mapList(list, (_, k) => req("MESSAGE", texts[k], "signOffchainMessage", addresses[k], null, name, k + 1, list.length)),
+            keys: mapList(texts, (t) => keyOf("MESSAGE", t)),
+            // The text the wallet receives (it adds the off-chain preamble itself).
+            bound: () =>
+              mapList(list, (s) => {
+                const m = own(s, "message");
+                return typeof m === "string" ? utf8(m) : null;
+              }),
+            call: () => ReflectApply(signOff.fn, signOff.feature, list),
+            verify: (res) => messageResultsProblem(res, texts, addresses, "signedOffchainMessage"),
+          });
         },
       });
     }
@@ -639,12 +711,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           const msgs = mapList(parts, (p) => p.bytes);
           const addresses = mapList(parts, (p) => p.address);
           const forWallet = mapList(parts, (p) => p.forWallet);
-          return reviewed(
-            mapList(parts, (p, k) => req("MESSAGE", p.bytes, "signMessage", p.address, null, name, k + 1, inputs.length)),
-            mapList(msgs, (m) => keyOf("MESSAGE", m)),
-            () => ReflectApply(signMsg.fn, signMsg.feature, forWallet),
-            (res) => messageResultsProblem(res, msgs, addresses, "signedMessage"),
-          );
+          return reviewed({
+            requests: mapList(parts, (p, k) => req("MESSAGE", p.bytes, "signMessage", p.address, null, name, k + 1, inputs.length)),
+            keys: mapList(msgs, (m) => keyOf("MESSAGE", m)),
+            bound: walletBytes(forWallet, "message"),
+            call: () => ReflectApply(signMsg.fn, signMsg.feature, forWallet),
+            verify: (res) => messageResultsProblem(res, msgs, addresses, "signedMessage"),
+          });
         },
       });
     }
@@ -670,12 +743,18 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           for (let k = 0; k < texts.length; k++) if (texts[k] === null) known = false;
           if (!known) return signInSignedFirst(list, name, () => ReflectApply(signIn.fn, signIn.feature, forWallet), (res) => (ArrayIsArray(res) ? copyList(res) : null));
           const bytes = mapList(texts, (t) => utf8(t!));
-          return reviewed(
-            mapList(list, (i, k) => req("MESSAGE", bytes[k], "signIn", addressFor(i) ?? null, null, name, k + 1, list.length, { reconstructed: true })),
-            mapList(bytes, (b) => keyOf("MESSAGE", b)),
-            () => ReflectApply(signIn.fn, signIn.feature, forWallet),
-            (res) => messageResultsProblem(res, bytes, mapList(list, (i) => addressFor(i) ?? null), "signedMessage"),
-          );
+          return reviewed({
+            requests: mapList(list, (i, k) => req("MESSAGE", bytes[k], "signIn", addressFor(i) ?? null, null, name, k + 1, list.length, { reconstructed: true })),
+            keys: mapList(bytes, (b) => keyOf("MESSAGE", b)),
+            // The text the wallet builds, rebuilt from the very inputs it receives.
+            bound: () =>
+              mapList(list, (i) => {
+                const address = addressFor(i);
+                return address ? utf8(signInText(i, address)) : null;
+              }),
+            call: () => ReflectApply(signIn.fn, signIn.feature, forWallet),
+            verify: (res) => messageResultsProblem(res, bytes, mapList(list, (i) => addressFor(i) ?? null), "signedMessage"),
+          });
         },
       });
     }
@@ -942,6 +1021,23 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
     return { bytes, forWallet: bytes && tx !== null && typeof tx === "object" ? sealedView(tx, bytes) : tx };
   }
 
+  /**
+   * The transaction a wallet argument stands for, read from that very argument: a byte copy
+   * as a whole transaction, or what a sealed view serializes to. A site object whose
+   * `serialize` is locked cannot be read through its view (the Proxy invariant throws): null.
+   */
+  function walletTx(forWallet: unknown): Uint8Array | null {
+    const raw = copyBytes(forWallet);
+    if (raw) return asTransactionBytes(raw);
+    if (!isView(forWallet)) return null;
+    try {
+      const serialize = ReflectGet(forWallet as object, "serialize", forWallet);
+      return typeof serialize === "function" ? copyBytes(ReflectApply(serialize as Fn, forWallet, [])) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** A byte argument for the wallet: a string as is (immutable), bytes as a copy of their own. */
   const forWalletBytes = (m: unknown) => (typeof m === "string" ? m : (copyBytes(m) ?? m));
   const decode = (m: unknown) => (typeof m === "string" ? base58ToBytes(m) : toBytes(m));
@@ -1000,7 +1096,14 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const args = prepend(s.forWallet, rest);
         const call = () => ReflectApply(orig, this, args);
         if (allInFlight([key])) return passThrough(call, siteObject);
-        return reviewed([req("TRANSACTION", s.bytes, "signTransaction", providerAddress(p), null, label, 1, 1)], [key], call, (out) => (isView(out) || signedTxMatches(s.bytes, serializeTx(out)) ? null : CHANGED), siteObject);
+        return reviewed({
+          requests: [req("TRANSACTION", s.bytes, "signTransaction", providerAddress(p), null, label, 1, 1)],
+          keys: [key],
+          bound: () => [walletTx(s.forWallet)],
+          call,
+          verify: (out) => (isView(out) || signedTxMatches(s.bytes, serializeTx(out)) ? null : CHANGED),
+          restore: siteObject,
+        });
       },
     );
     wrap("signAllTransactions", (orig) =>
@@ -1018,13 +1121,14 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           for (let k = 0; k < list.length; k++) if (!isView(list[k]) && !signedTxMatches(sealed[k].bytes, serializeTx(list[k]))) return false;
           return true;
         };
-        return reviewed(
-          mapList(sealed, (s, k) => req("TRANSACTION", s.bytes, "signAllTransactions", providerAddress(p), null, label, k + 1, sealed.length)),
+        return reviewed({
+          requests: mapList(sealed, (s, k) => req("TRANSACTION", s.bytes, "signAllTransactions", providerAddress(p), null, label, k + 1, sealed.length)),
           keys,
+          bound: () => mapList(forWallet, walletTx),
           call,
-          (out) => (allMatch(out) ? null : CHANGED),
-          back,
-        );
+          verify: (out) => (allMatch(out) ? null : CHANGED),
+          restore: back,
+        });
       },
     );
     wrap("signAndSendTransaction", (orig) =>
@@ -1033,7 +1137,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const key = keyOf("TRANSACTION", s.bytes);
         const args = prepend(s.forWallet, rest);
         if (allInFlight([key])) return ReflectApply(orig, this, args);
-        return reviewed([req("TRANSACTION", s.bytes, "signAndSendTransaction", providerAddress(p), null, label, 1, 1)], [key], () => ReflectApply(orig, this, args));
+        return reviewed({ requests: [req("TRANSACTION", s.bytes, "signAndSendTransaction", providerAddress(p), null, label, 1, 1)], keys: [key], bound: () => [walletTx(s.forWallet)], call: () => ReflectApply(orig, this, args) });
       },
     );
     wrap("signAndSendAllTransactions", (orig) =>
@@ -1043,13 +1147,14 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const forWallet = mapList(sealed, (s) => s.forWallet);
         const args = prepend<unknown>(forWallet, rest);
         if (allInFlight(keys)) return ReflectApply(orig, this, args);
-        return reviewed(
-          sealed.length
+        return reviewed({
+          requests: sealed.length
             ? mapList(sealed, (s, k) => req("TRANSACTION", s.bytes, "signAndSendAllTransactions", providerAddress(p), null, label, k + 1, sealed.length))
             : [req("UNREADABLE", null, "signAndSendAllTransactions", providerAddress(p), null, label, 1, 1)],
           keys,
-          () => ReflectApply(orig, this, args),
-        );
+          bound: () => mapList(forWallet, walletTx),
+          call: () => ReflectApply(orig, this, args),
+        });
       },
     );
     wrap("signMessage", (orig) =>
@@ -1059,7 +1164,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const key = keyOf("MESSAGE", bytes);
         const args = prepend(bytes ? copyOf(bytes) : message, rest);
         if (allInFlight([key])) return ReflectApply(orig, this, args);
-        return reviewed([req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)], [key], () => ReflectApply(orig, this, args), (out) => signatureProblem(bytes!, field(out, "signature"), address));
+        return reviewed({
+          requests: [req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)],
+          keys: [key],
+          bound: () => [copyBytes(args[0])],
+          call: () => ReflectApply(orig, this, args),
+          verify: (out) => signatureProblem(bytes!, field(out, "signature"), address),
+        });
       },
     );
     // Sign-In With Solana on the injected provider: same rules as the Wallet Standard feature.
@@ -1072,7 +1183,14 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const bytes = utf8(signInText(i, address));
         const key = keyOf("MESSAGE", bytes);
         if (allInFlight([key])) return ReflectApply(orig, this, args);
-        return reviewed([req("MESSAGE", bytes, "signIn", address, null, label, 1, 1, { reconstructed: true })], [key], () => ReflectApply(orig, this, args), (out) => messageResultsProblem([out], [bytes], [address], "signedMessage"));
+        return reviewed({
+          requests: [req("MESSAGE", bytes, "signIn", address, null, label, 1, 1, { reconstructed: true })],
+          keys: [key],
+          // The text the wallet builds, rebuilt from the very input it receives.
+          bound: () => [utf8(signInText(i, address))],
+          call: () => ReflectApply(orig, this, args),
+          verify: (out) => messageResultsProblem([out], [bytes], [address], "signedMessage"),
+        });
       },
     );
     // Generic RPC-style entry point some sites (and wallets internally) use: { method, params: { message: base58 } }.
@@ -1095,7 +1213,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           const address = providerAddress(p);
           const call = () => ReflectApply(orig, this, prepend<unknown>(forWallet, rest));
           if (allInFlight([key])) return call();
-          return reviewed([req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)], [key], call, (out) => signatureProblem(bytes!, field(out, "signature"), address));
+          return reviewed({
+            requests: [req("MESSAGE", bytes, "signMessage", address, null, label, 1, 1)],
+            keys: [key],
+            bound: () => [decode(own(own(forWallet, "params"), "message"))],
+            call,
+            verify: (out) => signatureProblem(bytes!, field(out, "signature"), address),
+          });
         }
         const many = method === "signAllTransactions";
         const raw = mapList(many ? copyList(pin(params, "messages")) : [pin(params, "message")], forWalletBytes);
@@ -1107,11 +1231,18 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
         const keys = mapList(bytes, (b) => keyOf("TRANSACTION", b));
         const call = () => ReflectApply(orig, this, prepend<unknown>(forWallet, rest));
         if (allInFlight(keys)) return call();
-        return reviewed(
-          bytes.length ? mapList(bytes, (b, k) => req("TRANSACTION", b, method as ReviewMethod, providerAddress(p), null, label, k + 1, bytes.length)) : [req("UNREADABLE", null, method as ReviewMethod, providerAddress(p), null, label, 1, 1)],
+        // What the wallet receives, read back from the request it is given.
+        const walletParams = () => own(forWallet, "params");
+        return reviewed({
+          requests: bytes.length ? mapList(bytes, (b, k) => req("TRANSACTION", b, method as ReviewMethod, providerAddress(p), null, label, k + 1, bytes.length)) : [req("UNREADABLE", null, method as ReviewMethod, providerAddress(p), null, label, 1, 1)],
           keys,
+          bound: () =>
+            mapList(many ? copyList(own(walletParams(), "messages")) : [own(walletParams(), "message")], (m) => {
+              const b = decode(m);
+              return b ? asTransactionBytes(b) : null;
+            }),
           call,
-        );
+        });
       },
     );
 
@@ -1159,7 +1290,13 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
       }
       if (approved) return ReflectApply(orig, self, prepend<unknown>({ ...a, params: snap }, rest));
       const kind: ReviewMethod = containsWord(method, "message") || containsWord(method, "signin") || containsWord(method, "sign-in") ? "signMessage" : "signTransaction";
-      return reviewed([req("UNREADABLE", null, kind, providerAddress(p), null, label, 1, 1, { reason: `The site called "${clip(method, 40)}" through the wallet's request() API, which Presign cannot read.` })], [], () => ReflectApply(orig, self, prepend<unknown>(a, rest)));
+      // Unreadable: Cancel is the only choice, so the wallet is never called from here.
+      return reviewed({
+        requests: [req("UNREADABLE", null, kind, providerAddress(p), null, label, 1, 1, { reason: `The site called "${clip(method, 40)}" through the wallet's request() API, which Presign cannot read.` })],
+        keys: [],
+        bound: () => [],
+        call: () => ReflectApply(orig, self, prepend<unknown>(a, rest)),
+      });
     }
 
     // Default deny: any other signing method on the provider (own or inherited) is refused, never handed through.

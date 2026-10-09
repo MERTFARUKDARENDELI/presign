@@ -26,7 +26,8 @@ export interface ConfirmDeps {
   digest: (bytes: Uint8Array) => Promise<ArrayBuffer>;
 }
 
-export type Confirmation = { ok: true } | { ok: false; reason: string };
+/** `payloadHash`: the hash the server confirmed, which the page hook compares with the wallet's bytes. */
+export type Confirmation = { ok: true; payloadHash: string } | { ok: false; reason: string };
 
 const hex = (buf: ArrayBuffer) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -68,5 +69,5 @@ export async function confirmApproval(presignOrigin: string, siteOrigin: string,
   if (d.payloadHash !== payloadHash || d.type !== request.type) return { ok: false, reason: "the approval is for a different request, so nothing was sent to your wallet." };
   if (request.walletAddress !== null && d.walletAddress !== request.walletAddress) return { ok: false, reason: "the approval is for another wallet, so nothing was sent to your wallet." };
   if (d.targetOrigin !== siteOrigin) return { ok: false, reason: "the approval is for another site, so nothing was sent to your wallet." };
-  return { ok: true };
+  return { ok: true, payloadHash };
 }

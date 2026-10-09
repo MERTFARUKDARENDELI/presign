@@ -113,10 +113,11 @@ describe("background decisions", () => {
     expect(ok.effect).toMatchObject({ kind: "confirm", approvalToken: expect.any(String) });
     expect(r.state).toBe("verifying");
     expect(handleExternal(approve(), PRESIGN_ORIGINS.mainnet, reviews, NOW).reply).toMatchObject({ ok: false, error: "NOT_PENDING" });
-    const confirmed = applyConfirmation(r, { ok: true });
-    expect(confirmed.effect).toMatchObject({ kind: "forward", approved: true });
+    const confirmed = applyConfirmation(r, { ok: true, payloadHash: "ab".repeat(32) });
+    // The confirmed hash travels with the decision to the page hook.
+    expect(confirmed.effect).toMatchObject({ kind: "forward", approved: true, payloadHash: "ab".repeat(32) });
     expect(r.state).toBe("forwarded");
-    expect(applyConfirmation(r, { ok: true }).reply).toMatchObject({ ok: false, error: "NOT_VERIFYING" });
+    expect(applyConfirmation(r, { ok: true, payloadHash: "ab".repeat(32) }).reply).toMatchObject({ ok: false, error: "NOT_VERIFYING" });
   });
 
   it("an approval the server does not confirm never reaches the wallet", () => {

@@ -68,8 +68,10 @@ describe("confirming an approval with the Presign server before the wallet is as
   it("a genuine approval for exactly these bytes, wallet and site is confirmed once", async () => {
     const bytes = legacyTx();
     const req = reviewRequest("TRANSACTION", bytes);
-    const token = approvalFor((await payloadHashOf("TRANSACTION", bytes))!, "TRANSACTION");
-    expect(await confirmApproval(PRESIGN_ORIGINS.mainnet, SITE, req, token, viaRoute)).toEqual({ ok: true });
+    const ph = (await payloadHashOf("TRANSACTION", bytes))!;
+    const token = approvalFor(ph, "TRANSACTION");
+    // The confirmed hash goes on to the page hook, which sends the wallet only bytes with that hash.
+    expect(await confirmApproval(PRESIGN_ORIGINS.mainnet, SITE, req, token, viaRoute)).toEqual({ ok: true, payloadHash: ph });
     expect(calls.map((c) => c.url)).toEqual([`${PRESIGN_ORIGINS.mainnet}${CONFIRM_PATH}`]);
     const again = await confirmApproval(PRESIGN_ORIGINS.mainnet, SITE, req, token, viaRoute);
     expect(again).toMatchObject({ ok: false, reason: expect.stringMatching(/already used/) });
@@ -101,7 +103,7 @@ describe("confirming an approval with the Presign server before the wallet is as
     const lying: ConfirmDeps = { digest, fetch: async () => new Response(JSON.stringify({ success: true, data: { valid: true, payloadHash: ph, type: "MESSAGE", walletAddress: W, targetOrigin: SITE } })) };
     expect(await confirmApproval(PRESIGN_ORIGINS.mainnet, SITE, req, approvalFor(ph, "TRANSACTION", { rid: "rid-d" }), lying)).toMatchObject({ ok: false, reason: expect.stringMatching(/different request/) });
     // A refused attempt does not burn the genuine approval.
-    expect(await confirmApproval(PRESIGN_ORIGINS.mainnet, SITE, req, approvalFor(ph, "TRANSACTION", { rid: "rid-a" }), viaRoute)).toEqual({ ok: true });
+    expect(await confirmApproval(PRESIGN_ORIGINS.mainnet, SITE, req, approvalFor(ph, "TRANSACTION", { rid: "rid-a" }), viaRoute)).toEqual({ ok: true, payloadHash: ph });
   });
 
   it("an approval made for another wallet or another site is refused, even for the same bytes", async () => {

@@ -5,6 +5,7 @@ import { bytesToBase64, transactionMessage } from "@/extension/src/lib/bytes";
 import { installInterceptor, PresignRejection, type HookWindow, type InterceptorDeps } from "@/extension/src/lib/intercept";
 import type { ReviewRequest } from "@/extension/src/lib/protocol";
 import { createSignInMessageText } from "@/extension/src/lib/siws";
+import { confirmedApproval } from "../helpers/approval";
 import { ATTACKER, buildTx, WALLET } from "../helpers/fixtures";
 
 const W = WALLET.toBase58();
@@ -114,7 +115,7 @@ const txBytes = (lamports = 1) => buildTx([SystemProgram.transfer({ fromPubkey: 
 let win: HookWindow;
 let deps: InterceptorDeps & { review: ReturnType<typeof vi.fn>; report: ReturnType<typeof vi.fn> };
 let hook: ReturnType<typeof installInterceptor>;
-const approveAll = () => deps.review.mockImplementation(async () => ({ approved: true, id: "rid-1" }));
+const approveAll = () => deps.review.mockImplementation(async (r: ReviewRequest) => confirmedApproval(r));
 const cancelAll = () => deps.review.mockImplementation(async () => ({ approved: false, reason: "you cancelled the request after the security review." }));
 const reviewed = () => deps.review.mock.calls.map((c) => c[0] as ReviewRequest);
 
@@ -174,7 +175,7 @@ describe("signTransaction: review first, the wallet only after the user's decisi
   it("analysis happens BEFORE the wallet is asked, for exactly the site's bytes", async () => {
     const w = connectedWallet();
     const order: string[] = [];
-    deps.review.mockImplementation(async (r: ReviewRequest) => (order.push(`review:${r.type}`), { approved: true, id: "rid-1" }));
+    deps.review.mockImplementation(async (r: ReviewRequest) => (order.push(`review:${r.type}`), confirmedApproval(r)));
     const input = { transaction: txBytes(), account: { address: W }, chain: "solana:devnet" };
     const raw = w as unknown as { features: Record<string, { signTransaction: (...i: TxIn[]) => Promise<Array<{ signedTransaction: Uint8Array }>> }> };
     const out = await raw.features["solana:signTransaction"].signTransaction(input);
@@ -294,9 +295,9 @@ describe("messages and Sign-In With Solana", () => {
 
   it("a sign-in whose account is chosen in the wallet: signed first, then reviewed; the site gets it only after approval", async () => {
     const { calls, wallet } = choosingWallet();
-    deps.review.mockImplementation(async () => {
+    deps.review.mockImplementation(async (r: ReviewRequest) => {
       calls.push("review");
-      return { approved: true, id: "rid-1" };
+      return confirmedApproval(r);
     });
     const out = (await wallet.features["solana:signIn"].signIn({ statement: "Welcome", nonce: "abc12345" })) as Array<{ account: { address: string } }>;
     expect(calls).toEqual(["wallet:signIn", "review"]);

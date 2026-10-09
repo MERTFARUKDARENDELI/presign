@@ -4,7 +4,9 @@ import bs58 from "bs58";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ed25519Verifier } from "@/extension/src/lib/ed25519";
 import { installInterceptor, PresignRejection, type HookWindow, type InterceptorDeps } from "@/extension/src/lib/intercept";
+import type { ReviewRequest } from "@/extension/src/lib/protocol";
 import { createSignInMessageText } from "@/extension/src/lib/siws";
+import { confirmedApproval } from "../helpers/approval";
 
 // The signer's real key, so signatures are real ed25519 signatures.
 const key = Keypair.generate();
@@ -17,7 +19,7 @@ let deps: InterceptorDeps;
 let hook: ReturnType<typeof installInterceptor>;
 
 beforeEach(() => {
-  deps = { review: vi.fn(async () => ({ approved: true as const, id: "rid" })), report: vi.fn(), host: () => "dapp.example", verifySignature: ed25519Verifier(globalThis.crypto.subtle) };
+  deps = { review: vi.fn(async (r: ReviewRequest) => confirmedApproval(r, "rid")), report: vi.fn(), host: () => "dapp.example", verifySignature: ed25519Verifier(globalThis.crypto.subtle) };
   hook = installInterceptor(new EventTarget() as HookWindow, deps);
 });
 

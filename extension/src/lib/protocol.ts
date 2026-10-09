@@ -47,7 +47,12 @@ export interface ReviewRequest {
   reason?: string;
 }
 
-export type Decision = { approved: true } | { approved: false; reason: string };
+/**
+ * An approval from a review carries the payload hash Presign's server confirmed: the page hook sends the
+ * wallet only bytes with that hash. `pass` marks the extension's own switches (protection off, or off for
+ * this site), where nothing was reviewed and there is nothing to compare.
+ */
+export type Decision = { approved: true; payloadHash?: string; pass?: true } | { approved: false; reason: string };
 
 /** "verifying": approved on the review page, being confirmed with the Presign server before the wallet is asked. */
 export type ReviewState = "pending" | "verifying" | "forwarded" | "signed" | "rejected" | "blocked" | "cancelled" | "expired";

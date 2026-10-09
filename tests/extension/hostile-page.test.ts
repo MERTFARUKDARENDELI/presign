@@ -5,7 +5,9 @@ import { asTransactionBytes, transactionMessage } from "@/extension/src/lib/byte
 import { createReviewer, pageTransport } from "@/extension/src/lib/channel";
 import { installInterceptor, type HookWindow } from "@/extension/src/lib/intercept";
 import { randomHex } from "@/extension/src/lib/primordials";
+import type { ReviewRequest } from "@/extension/src/lib/protocol";
 import { createSignInMessageText } from "@/extension/src/lib/siws";
+import { payloadHashOf } from "../helpers/approval";
 import { ATTACKER, buildTx, WALLET } from "../helpers/fixtures";
 
 /**
@@ -821,7 +823,8 @@ interface Env {
   appWallets: unknown[];
   rawWallet: object;
   provider: Record<string, unknown>;
-  decide(id: string, approved: boolean): void;
+  /** The extension's answer to one review: an approval carries the payload hash the server confirmed, as the background relays it. */
+  decide(review: Record<string, unknown>, approved: boolean): void;
 }
 
 const ZEROS = () => new RealU8(64);
@@ -1009,8 +1012,11 @@ function environment(): Env {
     appWallets: [],
     rawWallet,
     provider,
-    decide(id, approved) {
-      const text = `{"kind":"decision","id":${realStringify(id)},"approved":${approved ? "true" : "false"}${approved ? `,"rid":"rid-${id}"` : `,"reason":"you cancelled"`}}`;
+    decide(review, approved) {
+      const id = review.id as string;
+      const hash = approved ? payloadHashOf(review.request as ReviewRequest) : undefined;
+      const approval = `,"rid":"rid-${id}"${hash ? `,"payloadHash":"${hash}"` : ""}`;
+      const text = `{"kind":"decision","id":${realStringify(id)},"approved":${approved ? "true" : "false"}${approved ? approval : `,"reason":"you cancelled"`}}`;
       realApply(realDispatch, doc, [new RealCustomEvent(`presign:${secret}:to-page`, nullProto({ detail: text }))]);
     },
   };
@@ -1122,7 +1128,7 @@ async function run(poison: Poison | null, entry: Entry, approve: boolean): Promi
       await tick();
       while (handled < env.reviews.length) {
         const r = env.reviews[handled++];
-        env.decide(r.id as string, approve);
+        env.decide(r, approve);
       }
     }
   } finally {
@@ -1233,7 +1239,7 @@ describe("accessors on the site's own objects cannot show Presign one request an
       let handled = 0;
       for (let i = 0; i < 20; i++) {
         await tick();
-        while (handled < env.reviews.length) env.decide(env.reviews[handled++].id as string, approve);
+        while (handled < env.reviews.length) env.decide(env.reviews[handled++], approve);
       }
       await Promise.allSettled([signing, signingIn]);
       const signed = env.log.find((l) => l.kind === "ws:signTransaction")!.value as Uint8Array;
@@ -1256,11 +1262,11 @@ describe("accessors on the site's own objects cannot show Presign one request an
     const signing = ((env.provider.signTransaction as Fn)(liar) as Promise<unknown>).catch(() => undefined);
     for (let i = 0; i < 20; i++) {
       await tick();
-      for (const r of env.reviews.splice(0)) env.decide(r.id as string, true);
+      for (const r of env.reviews.splice(0)) env.decide(r, true);
     }
-    await signing;
-    // The wallet either signed the reviewed bytes or could not read the transaction at all.
-    for (const l of env.log.filter((x) => x.kind === "in:signTransaction")) expect(hex(transactionMessage(l.value as Uint8Array)!)).toBe(hex(BENIGN_TX_MESSAGE));
+    expect(await signing).toBeUndefined();
+    // Its serialization cannot be fixed to the reviewed bytes, so the last check refuses it before the wallet is asked.
+    expect(env.log.filter((x) => x.kind === "in:signTransaction")).toEqual([]);
   });
 });
 

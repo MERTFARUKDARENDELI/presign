@@ -48,8 +48,13 @@ import { answerFor } from "./lib/protocol";
   // Only during start-up, like the hook.
   setTimeout(() => document.removeEventListener("presign:hook-ready", tryHandshake), 0);
 
-  function decide(id: string, approved: boolean, reason?: string, rid?: string) {
-    toPage({ kind: "decision", id, approved, reason, rid });
+  /**
+   * A decision for the page hook. An approval from a review carries the payload hash Presign's server
+   * confirmed (the hook sends the wallet only bytes with that hash); `pass` marks the toolbar's own
+   * switches (protection off, or off for this site), where nothing was reviewed.
+   */
+  function decide(id: string, d: { approved: boolean; reason?: string; rid?: string; payloadHash?: string; pass?: true }) {
+    toPage({ kind: "decision", id, ...d });
   }
 
   function onHookMessage(e: Event) {
@@ -64,8 +69,8 @@ import { answerFor } from "./lib/protocol";
       const id = m.id;
       // Protection on never fails open: if Presign cannot review, the request is refused (answerFor).
       const apply = (a: ReturnType<typeof answerFor>) => {
-        if (a.kind === "approve") decide(id, true);
-        else if (a.kind === "deny") decide(id, false, a.reason);
+        if (a.kind === "approve") decide(id, { approved: true, pass: true });
+        else if (a.kind === "deny") decide(id, { approved: false, reason: a.reason });
         // "wait": the decision arrives later from the background.
       };
       try {
@@ -84,8 +89,10 @@ import { answerFor } from "./lib/protocol";
     }
   }
 
-  chrome.runtime.onMessage.addListener((msg: { kind?: string; id?: string; approved?: boolean; reason?: string; rid?: string }) => {
-    if (msg?.kind === "presign:decision" && typeof msg.id === "string") decide(msg.id, msg.approved === true, msg.reason, msg.rid);
+  chrome.runtime.onMessage.addListener((msg: { kind?: string; id?: string; approved?: boolean; reason?: string; rid?: string; payloadHash?: string }) => {
+    if (msg?.kind === "presign:decision" && typeof msg.id === "string") {
+      decide(msg.id, { approved: msg.approved === true, reason: msg.reason, rid: msg.rid, payloadHash: typeof msg.payloadHash === "string" ? msg.payloadHash : undefined });
+    }
     return false;
   });
 })();

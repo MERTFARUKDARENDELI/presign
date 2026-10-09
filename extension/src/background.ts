@@ -35,8 +35,9 @@ async function log(entry: LogEntry): Promise<void> {
   await chrome.storage.local.set({ log: list });
 }
 
-function relay(r: PendingReview, approved: boolean, reason?: string) {
-  chrome.tabs.sendMessage(r.tabId, { kind: "presign:decision", id: r.hookId, approved, reason, rid: r.rid }, { frameId: r.frameId }).catch(() => {
+/** `payloadHash` (approvals): the hash Presign's server confirmed; the page hook sends the wallet only bytes with that hash. */
+function relay(r: PendingReview, approved: boolean, reason?: string, payloadHash?: string) {
+  chrome.tabs.sendMessage(r.tabId, { kind: "presign:decision", id: r.hookId, approved, reason, rid: r.rid, payloadHash }, { frameId: r.frameId }).catch(() => {
     // the tab navigated away or closed: the page hook times out on its own
   });
 }
@@ -119,7 +120,7 @@ chrome.runtime.onMessageExternal.addListener((msg: ExternalMessage, sender: chro
     }
     const effect = result.effect;
     if (effect?.kind === "forward") {
-      relay(effect.review, effect.approved, effect.reason);
+      relay(effect.review, effect.approved, effect.reason, effect.payloadHash);
       if (effect.approved) await focusTab(effect.review.tabId);
       else {
         await log(logEntryOf(effect.review));
