@@ -1,5 +1,6 @@
 import type { GuardActionInspection, GuardOverview } from "../lib/guard/types.ts";
 import type { InspectResult, MultisigOverview, ProposalInspection } from "../lib/multisig/types.ts";
+import { LIMITS } from "./limits.ts";
 
 /**
  * Watchtower core: decides which proposal changes deserve an alert and
@@ -243,6 +244,7 @@ export const HELP_TEXT = [
   "/list — what this chat watches",
   "/check &lt;Squads link, proposal, or &lt;multisig&gt; #&lt;n&gt;&gt; — one-off brief",
   "",
+  `Limits: ${LIMITS.perChat} targets per chat; ${LIMITS.perUserPerMinute} /check or /watch a minute per person.`,
   "Read-only: Presign never asks for keys and never signs.",
 ].join("\n");
 

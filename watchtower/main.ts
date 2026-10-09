@@ -5,6 +5,11 @@
  * themselves: add the bot to the signers' group and send /watch <multisig>.
  * Read-only: it never holds keys and never signs.
  *
+ * Each cycle polls the environment's targets first, then bot-added targets in
+ * turns (at most LIMITS.botPerCycle per cycle), at most LIMITS.concurrency at
+ * once; the bot limits targets per chat and in all, and inspections per person
+ * (./limits.ts), so subscriptions cannot delay the operator's own alerts.
+ *
  *   npm run watchtower               run continuously
  *   npm run watchtower -- --once     one cycle (cron / testing)
  *
@@ -26,11 +31,10 @@ import { readFileSync } from "node:fs";
 import { firstAddress, parsePolicyFile, policyFor, type PolicyJson } from "../lib/policy/file.ts";
 import { handleMessage, type IncomingMessage } from "./bot.ts";
 import { diffGuard, diffOverview, formatAlert, formatGuardAlert, type Alert } from "./core.ts";
-import { WatchStore, type TargetKind } from "./store.ts";
+import { createRateLimiter, cycleTargets, LIMITS, runLimited, type RateLimiter } from "./limits.ts";
+import { ENV_CHAT, WatchStore, type TargetKind } from "./store.ts";
 
 const BASE58_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-/** Pseudo chat for targets configured in the environment. */
-const ENV_CHAT = "env";
 
 function list(name: string): string[] {
   const items = (process.env[name] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -161,7 +165,7 @@ interface TgUpdate {
   message?: { text?: string; chat: { id: number; type: IncomingMessage["chatType"] }; from?: { id: number } };
 }
 
-async function pollBot(cfg: Config, store: WatchStore, waitSeconds: number) {
+async function pollBot(cfg: Config, store: WatchStore, limiter: RateLimiter, waitSeconds: number) {
   const offset = Number(store.getMeta("telegram_offset") ?? 0);
   const updates = (await telegram<TgUpdate[]>(cfg, "getUpdates", { offset, timeout: waitSeconds, allowed_updates: ["message"] }, (waitSeconds + 10) * 1000)) ?? [];
   for (const u of updates) {
@@ -178,6 +182,7 @@ async function pollBot(cfg: Config, store: WatchStore, waitSeconds: number) {
       },
       baseUrl: cfg.publicUrl,
       now: () => Math.floor(Date.now() / 1000),
+      limiter,
     });
     if (reply) await sendTelegram(cfg, msg.chat, reply);
     log("bot.command", { chatType: msg.chatType, handled: reply !== null });
@@ -187,6 +192,7 @@ async function pollBot(cfg: Config, store: WatchStore, waitSeconds: number) {
 async function main() {
   const cfg = config();
   const store = new WatchStore(cfg.db);
+  const limiter = createRateLimiter();
   for (const m of cfg.multisigs) store.subscribe(ENV_CHAT, m, "multisig");
   for (const g of cfg.guards) store.subscribe(ENV_CHAT, g, "guard");
   log("watchtower.start", { api: cfg.api, pollSeconds: cfg.pollMs / 1000, bot: Boolean(cfg.token), envTargets: cfg.multisigs.length + cfg.guards.length, webhook: Boolean(cfg.webhook), policies: cfg.policies.length });
@@ -197,17 +203,22 @@ async function main() {
     log("watchtower.stop");
   });
   let lastPoll = 0;
+  let cursor = 0;
   do {
     if (Date.now() - lastPoll >= cfg.pollMs || cfg.once) {
       lastPoll = Date.now();
-      for (const t of store.targets()) await pollTarget(cfg, store, t.target, t.kind);
+      const all = store.pollTargets();
+      const { batch, nextCursor } = cycleTargets(all, cursor);
+      cursor = nextCursor;
+      await runLimited(batch, LIMITS.concurrency, (t) => pollTarget(cfg, store, t.target, t.kind), (t, error) => log("poll.failed", { target: t.target, error: error instanceof Error ? error.message : "unknown" }));
+      log("cycle.done", { targets: all.length, polled: batch.length, ms: Date.now() - lastPoll });
     }
     if (cfg.once || stopping) break;
     // The bot's long poll doubles as the loop's wait; without a bot, sleep until the next poll.
-    if (cfg.token) await pollBot(cfg, store, Math.min(25, Math.ceil(cfg.pollMs / 1000)));
+    if (cfg.token) await pollBot(cfg, store, limiter, Math.min(25, Math.ceil(cfg.pollMs / 1000)));
     else await new Promise((r) => setTimeout(r, cfg.pollMs));
   } while (!stopping);
-  if (cfg.token && cfg.once) await pollBot(cfg, store, 0);
+  if (cfg.token && cfg.once) await pollBot(cfg, store, limiter, 0);
   store.close();
 }
 

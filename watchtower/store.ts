@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import type { WatchState } from "./core.ts";
+import type { PollTarget } from "./limits.ts";
 
 /**
  * Watchtower persistence (built-in SQLite): which chat watches which multisig
@@ -8,6 +9,9 @@ import type { WatchState } from "./core.ts";
  */
 
 export type TargetKind = "multisig" | "guard";
+
+/** Pseudo chat for targets configured in the environment (the operator's own). */
+export const ENV_CHAT = "env";
 
 const NONCE_PREFIX = "nonce:";
 export interface Subscription {
@@ -44,6 +48,25 @@ export class WatchStore {
 
   targets(): Array<{ target: string; kind: TargetKind }> {
     return this.db.prepare("select target, min(kind) as kind from subscriptions group by target").all() as unknown as Array<{ target: string; kind: TargetKind }>;
+  }
+
+  /** Targets polled each cycle, with whether the environment watches them: environment first, then oldest first (a stable order for turns). */
+  pollTargets(): PollTarget[] {
+    const rows = this.db.prepare("select target, min(kind) as kind, max(chat = ?) as env, min(added_at) as since from subscriptions group by target order by env desc, since, target").all(ENV_CHAT) as Array<{ target: string; kind: TargetKind; env: number }>;
+    return rows.map((r) => ({ target: r.target, kind: r.kind, env: r.env === 1 }));
+  }
+
+  countForChat(chat: string): number {
+    return Number((this.db.prepare("select count(*) as n from subscriptions where chat = ?").get(chat) as { n: number }).n);
+  }
+
+  isWatched(target: string): boolean {
+    return this.db.prepare("select 1 from subscriptions where target = ?").get(target) !== undefined;
+  }
+
+  /** Distinct targets watched only through the bot (the environment's own do not count). */
+  botTargetCount(): number {
+    return Number((this.db.prepare("select count(distinct target) as n from subscriptions where target not in (select target from subscriptions where chat = ?)").get(ENV_CHAT) as { n: number }).n);
   }
 
   chatsFor(target: string): string[] {

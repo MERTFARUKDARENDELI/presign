@@ -3,7 +3,8 @@ import type { GuardActionInspection, GuardOverview } from "@/lib/guard/types";
 import type { InspectResult, MultisigOverview, ProposalInspection, ProposalSummary } from "@/lib/multisig/types";
 import { handleMessage, type BotDeps, type IncomingMessage } from "../../watchtower/bot";
 import { diffGuard, diffOverview, emptyState, escapeHtml, formatAlert, formatGuardAlert, parseCommand, verifyLink } from "../../watchtower/core";
-import { WatchStore } from "../../watchtower/store";
+import { createRateLimiter, cycleTargets, LIMITS, runLimited } from "../../watchtower/limits";
+import { ENV_CHAT, WatchStore } from "../../watchtower/store";
 
 const MS = "2LW6PSEjp81xSEttWwXDB6Etb1eKdhYPbFEojYbyhx88";
 
@@ -133,7 +134,7 @@ describe("watchtower store", () => {
 describe("watchtower bot", () => {
   const multisigResult = { kind: "multisig", overview: overview([summary("2", "Active"), summary("1", "Executed")], "HIGH") } as unknown as InspectResult;
   const msg = (text: string, chatType: IncomingMessage["chatType"] = "group"): IncomingMessage => ({ chat: "-100", chatType, user: "7", text });
-  const deps = (over: Partial<BotDeps> = {}): BotDeps => ({ store: new WatchStore(":memory:"), inspect: vi.fn(async () => multisigResult), isAdmin: vi.fn(async () => true), baseUrl: "https://presign.example", now: () => 0, ...over });
+  const deps = (over: Partial<BotDeps> = {}): BotDeps => ({ store: new WatchStore(":memory:"), inspect: vi.fn(async () => multisigResult), isAdmin: vi.fn(async () => true), baseUrl: "https://presign.example", now: () => 0, limiter: createRateLimiter(), ...over });
 
   it("parses commands addressed to the bot and ignores chatter", () => {
     expect(parseCommand(`/watch@PresignBot  ${MS}`)).toEqual({ cmd: "watch", arg: MS });
@@ -201,5 +202,97 @@ describe("watchtower: votes signed through a durable nonce", () => {
     expect(a.text).toContain("Confirm with the member directly");
     expect(a.html).toContain("<b>durable nonce</b>");
     expect(a.text).toContain(verifyLink("https://presign.example", MS, "7"));
+  });
+});
+
+describe("watchtower limits: one chat or one person cannot slow everyone's alerts", () => {
+  const multisigAt = (address: string) => ({ kind: "multisig", overview: { ...(overview([]) as unknown as Record<string, unknown>), multisig: address } }) as unknown as InspectResult;
+  const at = (n: number) => `Target-${n}`;
+  const msg = (text: string, user = "7", chat = "-100"): IncomingMessage => ({ chat, chatType: "private", user, text });
+  const deps = (over: Partial<BotDeps> = {}): BotDeps => {
+    let n = 0;
+    return { store: new WatchStore(":memory:"), inspect: vi.fn(async () => multisigAt(at(++n))), isAdmin: vi.fn(async () => true), baseUrl: "https://presign.example", now: () => 0, limiter: createRateLimiter(1_000, 1_000), ...over };
+  };
+
+  it(`a chat watches at most ${LIMITS.perChat} targets; the next /watch is refused before any inspection`, async () => {
+    const d = deps();
+    for (let i = 0; i < LIMITS.perChat; i++) expect(await handleMessage(msg(`/watch x${i}`), d)).toContain("Watching multisig");
+    expect(await handleMessage(msg("/watch one-more"), d)).toMatch(new RegExp(`already watches ${LIMITS.perChat} targets`));
+    expect(d.inspect).toHaveBeenCalledTimes(LIMITS.perChat);
+    expect(d.store.countForChat("-100")).toBe(LIMITS.perChat);
+    expect(await handleMessage(msg(`/unwatch ${at(1)}`), d)).toContain("Stopped watching");
+    expect(await handleMessage(msg("/watch again"), d)).toContain("Watching multisig");
+  });
+
+  it(`at most ${LIMITS.botTargets} distinct targets through the bot; one already watched can still be added, and the environment's do not count`, async () => {
+    const d = deps({ inspect: vi.fn(async (input: string) => multisigAt(input)) });
+    for (let i = 0; i < LIMITS.botTargets; i++) d.store.subscribe(`chat${i % 40}`, at(i), "multisig");
+    d.store.subscribe(ENV_CHAT, "EnvTarget1111111111111111111111111111111111", "multisig");
+    expect(d.store.botTargetCount()).toBe(LIMITS.botTargets);
+    expect(await handleMessage(msg("/watch Brand-new-target"), d)).toMatch(/as many targets as it can/);
+    expect(d.store.isWatched("Brand-new-target")).toBe(false);
+    // Already polled for someone else: no extra work, so it can be added.
+    expect(await handleMessage(msg(`/watch ${at(3)}`), d)).toContain("Watching multisig");
+    // Also watched by the environment: no extra work either.
+    expect(await handleMessage(msg("/watch EnvTarget1111111111111111111111111111111111"), d)).toContain("Watching multisig");
+  });
+
+  it(`a person gets ${LIMITS.perUserPerMinute} inspections a minute and everyone together ${LIMITS.allPerMinute}; reading what a chat watches is never limited`, async () => {
+    let now = 1_000;
+    const d = deps({ now: () => now, limiter: createRateLimiter() });
+    for (let i = 0; i < LIMITS.perUserPerMinute; i++) expect(await handleMessage(msg(`/check x${i}`), d)).toContain("setup");
+    expect(await handleMessage(msg("/check again"), d)).toMatch(new RegExp(`${LIMITS.perUserPerMinute} checks in the last minute`));
+    expect(await handleMessage(msg("/watch again"), d)).toMatch(/checks in the last minute/);
+    expect(d.inspect).toHaveBeenCalledTimes(LIMITS.perUserPerMinute);
+    expect(await handleMessage(msg("/list"), d)).toMatch(/watches nothing yet/);
+    expect(await handleMessage(msg("/check other-user", "8"), d)).toContain("setup");
+    now += 61;
+    expect(await handleMessage(msg("/check after-a-minute"), d)).toContain("setup");
+
+    const busy = deps({ now: () => now, limiter: createRateLimiter() });
+    for (let i = 0; i < LIMITS.allPerMinute; i++) expect(await handleMessage(msg(`/check x${i}`, `user${i}`), busy)).toContain("setup");
+    expect(await handleMessage(msg("/check one-more", "fresh-user"), busy)).toBe("Watchtower is busy. Try again in a minute.");
+  });
+
+  it("with 1,000 subscribed targets every cycle polls the environment's target first, stays bounded, runs at most 4 at once, and gives every target its turn", async () => {
+    const store = new WatchStore(":memory:");
+    for (let i = 0; i < 1_000; i++) store.subscribe(`chat${i % 50}`, at(i), "multisig");
+    const ENV_TARGET = "EnvTarget1111111111111111111111111111111111";
+    store.subscribe(ENV_CHAT, ENV_TARGET, "guard");
+    const polled = new Map<string, number>();
+    let active = 0;
+    let maxActive = 0;
+    let cursor = 0;
+    const cycles = Math.ceil(1_000 / LIMITS.botPerCycle);
+    for (let c = 0; c < cycles; c++) {
+      const { batch, nextCursor } = cycleTargets(store.pollTargets(), cursor);
+      cursor = nextCursor;
+      expect(batch[0]).toEqual({ target: ENV_TARGET, kind: "guard", env: true });
+      expect(batch).toHaveLength(1 + LIMITS.botPerCycle);
+      const order: string[] = [];
+      await runLimited(batch, LIMITS.concurrency, async (t) => {
+        order.push(t.target);
+        maxActive = Math.max(maxActive, ++active);
+        await new Promise((r) => setImmediate(r));
+        active--;
+        if (!t.env) polled.set(t.target, (polled.get(t.target) ?? 0) + 1);
+      });
+      expect(order[0]).toBe(ENV_TARGET);
+    }
+    expect(maxActive).toBe(LIMITS.concurrency);
+    expect(polled.size).toBe(1_000);
+    expect([...polled.values()].every((n) => n === 1)).toBe(true);
+    store.close();
+  });
+
+  it("a failing poll is reported and does not stop the rest of the cycle", async () => {
+    const done: string[] = [];
+    const failed: string[] = [];
+    await runLimited(["a", "b", "c"], 2, async (t) => {
+      if (t === "b") throw new Error("RPC down");
+      done.push(t);
+    }, (t) => failed.push(t));
+    expect(done.sort()).toEqual(["a", "c"]);
+    expect(failed).toEqual(["b"]);
   });
 });

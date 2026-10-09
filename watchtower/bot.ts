@@ -1,11 +1,15 @@
 import type { InspectResult } from "../lib/multisig/types.ts";
 import { diffGuard, diffOverview, escapeHtml, formatInspectSummary, HELP_TEXT, parseCommand } from "./core.ts";
+import { LIMITS, type RateLimiter } from "./limits.ts";
 import type { WatchStore } from "./store.ts";
 
 /**
  * Telegram command handling for Watchtower. Dependencies are injected so the
  * logic is testable without Telegram or the network. In group chats only
  * administrators can change what the group watches; anyone can /check.
+ * Limits (./limits.ts): targets per chat and in all, and inspections per
+ * person and for everyone per minute — the bot is public, and every /check
+ * and /watch costs a Presign inspection.
  */
 
 export interface BotDeps {
@@ -13,7 +17,10 @@ export interface BotDeps {
   inspect: (input: string) => Promise<InspectResult>;
   isAdmin: (chat: string, user: string) => Promise<boolean>;
   baseUrl: string;
+  /** Seconds. */
   now: () => number;
+  /** Inspections (/check, /watch) per person and for everyone together. */
+  limiter: RateLimiter;
 }
 
 export interface IncomingMessage {
@@ -32,6 +39,15 @@ export async function handleMessage(msg: IncomingMessage, deps: BotDeps): Promis
   const needsAdmin = command.cmd === "watch" || command.cmd === "unwatch";
   if (needsAdmin && msg.chatType !== "private" && !(await deps.isAdmin(msg.chat, msg.user))) {
     return "Only group administrators can change what this group watches.";
+  }
+  if (command.cmd === "watch" && deps.store.countForChat(msg.chat) >= LIMITS.perChat) {
+    return `This chat already watches ${LIMITS.perChat} targets, the most Watchtower follows for one chat. Use /unwatch for one first.`;
+  }
+  // Every /check and /watch costs a Presign inspection.
+  if (command.cmd === "check" || command.cmd === "watch") {
+    const refused = deps.limiter.take(msg.user, deps.now());
+    if (refused === "user") return `You asked for ${LIMITS.perUserPerMinute} checks in the last minute, the most Watchtower runs for one person. Try again in a minute.`;
+    if (refused === "all") return "Watchtower is busy. Try again in a minute.";
   }
 
   switch (command.cmd) {
@@ -61,6 +77,10 @@ export async function handleMessage(msg: IncomingMessage, deps: BotDeps): Promis
       }
       if (r.kind !== "multisig" && r.kind !== "guard") return "Send a multisig or guard address (or a Squads multisig link) to watch. For a single proposal use /check.";
       const target = r.kind === "multisig" ? r.overview.multisig : r.overview.guard;
+      // A target nobody watches yet adds work to every cycle: within the bot's overall limit only.
+      if (!deps.store.isWatched(target) && deps.store.botTargetCount() >= LIMITS.botTargets) {
+        return "Watchtower is watching as many targets as it can right now, so it cannot add this one. Try again later.";
+      }
       deps.store.subscribe(msg.chat, target, r.kind);
       // First sight records a baseline so existing proposals do not flood the chat.
       if (!deps.store.hasBaseline(target)) {
