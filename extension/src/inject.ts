@@ -1,6 +1,7 @@
-import { createReviewer } from "./lib/channel";
+import { createReviewer, pageTransport } from "./lib/channel";
 import { ed25519Verifier } from "./lib/ed25519";
 import { installInterceptor, type HookWindow } from "./lib/intercept";
+import { randomHex, ReflectApply } from "./lib/primordials";
 
 /**
  * Runs in the page's own JavaScript world (MAIN) at document_start, before any
@@ -8,8 +9,10 @@ import { installInterceptor, type HookWindow } from "./lib/intercept";
  *
  * Channel to the extension: a random secret, and all messages travel as DOM
  * events whose type contains it. A site cannot listen for or forge an event
- * type it does not know, and every DOM / JSON function used here is captured
- * before site scripts can replace it.
+ * type it does not know. Every DOM / JSON function used here is captured
+ * before site scripts can replace it, and called through Reflect.apply — never
+ * `fn.call(...)`, since a site that replaced Function.prototype.call would
+ * receive the event, and with it the secret (lib/channel.ts pageTransport).
  *
  * Hand-off of the secret: it is never put in an event. It sits in a CLOSED
  * shadow root of a hidden element, which page scripts cannot read; the
@@ -31,8 +34,6 @@ import { installInterceptor, type HookWindow } from "./lib/intercept";
   const unlisten = EventTarget.prototype.removeEventListener;
   const NativeCustomEvent = CustomEvent;
   const detailOf = Object.getOwnPropertyDescriptor(CustomEvent.prototype, "detail")!.get!;
-  const stringify = JSON.stringify;
-  const parse = JSON.parse;
   const doc = document;
   const createElement = Document.prototype.createElement;
   const attachShadow = Element.prototype.attachShadow;
@@ -40,77 +41,71 @@ import { installInterceptor, type HookWindow } from "./lib/intercept";
   const removeElement = Element.prototype.remove;
   const setAttribute = Element.prototype.setAttribute;
   const setText = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!.set!;
+  const startTimer = setTimeout;
+  const stopTimer = clearTimeout;
+  const stopInterval = clearInterval;
   // Web Crypto exists only on secure pages; elsewhere message signatures cannot be checked.
   const subtle = globalThis.crypto?.subtle;
   const verifySignature = subtle ? ed25519Verifier(subtle) : undefined;
   const REVIEW_TIMEOUT_MS = 16 * 60_000;
 
-  const secret = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-  const TO_CONTENT = `presign:${secret}:to-content`;
-  const TO_PAGE = `presign:${secret}:to-page`;
+  const secret = randomHex(16);
   let ready = false;
   let seq = 0;
-  const startTimer = setTimeout;
-  const stopTimer = clearTimeout;
-
-  const send = (msg: unknown) => dispatch.call(doc, new NativeCustomEvent(TO_CONTENT, { detail: stringify(msg) }));
 
   // The secret's hiding place: a closed shadow root page scripts cannot open.
-  const channel = createElement.call(doc, "presign-channel") as HTMLElement;
-  setAttribute.call(channel, "hidden", "");
-  setAttribute.call(channel, "aria-hidden", "true");
-  setText.call(attachShadow.call(channel, { mode: "closed" }), secret);
+  const channel = ReflectApply(createElement, doc, ["presign-channel"]) as HTMLElement;
+  ReflectApply(setAttribute, channel, ["hidden", ""]);
+  ReflectApply(setAttribute, channel, ["aria-hidden", "true"]);
+  ReflectApply(setText, ReflectApply(attachShadow, channel, [{ mode: "closed" }]), [secret]);
   let channelPlaced = false;
   const dropChannel = () => {
-    if (channelPlaced) removeElement.call(channel);
+    if (channelPlaced) ReflectApply(removeElement, channel, []);
     channelPlaced = false;
   };
 
-  listen.call(doc, `presign:${secret}:ack`, () => {
-    ready = true;
-    dropChannel();
-  });
+  ReflectApply(listen, doc, [
+    `presign:${secret}:ack`,
+    () => {
+      ready = true;
+      dropChannel();
+    },
+  ]);
+  const transport = pageTransport({ doc, secret, dispatch, listen, CustomEvent: NativeCustomEvent, detailOf });
   // Fails closed (lib/channel.ts): no channel → refused at once; no decision in time → refused.
   const reviewer = createReviewer({
     ready: () => ready,
-    send,
-    newId: () => `${Date.now().toString(36)}-${++seq}-${Math.random().toString(36).slice(2, 10)}`,
+    send: transport.send,
+    // Unpredictable and unique: Date / Math.random / Number.prototype.toString are the site's to replace.
+    newId: () => `${++seq}-${randomHex(12)}`,
     timeoutMs: REVIEW_TIMEOUT_MS,
     setTimer: (fn, ms) => startTimer(fn, ms),
     clearTimer: (t) => stopTimer(t as ReturnType<typeof setTimeout>),
   });
-  listen.call(doc, TO_PAGE, (e: Event) => {
-    try {
-      reviewer.settle(parse(detailOf.call(e) as string));
-    } catch {
-      // not a message from the content script
-    }
-  });
+  transport.onMessage(reviewer.settle);
 
   // "Look now": carries nothing. The content script may already be listening (it reads the
   // secret synchronously inside this dispatch) or start later (it looks on its own, and asks).
-  const announce = () => dispatch.call(doc, new NativeCustomEvent("presign:hook-ready"));
+  const announce = () => ReflectApply(dispatch, doc, [new NativeCustomEvent("presign:hook-ready")]);
   const onContentReady = () => {
     if (!ready) announce();
   };
   if (doc.documentElement) {
-    appendChild.call(doc.documentElement, channel);
+    ReflectApply(appendChild, doc.documentElement, [channel]);
     channelPlaced = true;
   }
-  listen.call(doc, "presign:content-ready", onContentReady);
+  ReflectApply(listen, doc, ["presign:content-ready", onContentReady]);
   announce();
   // Only during start-up: afterwards nobody may (re)start the handshake, and the element goes.
-  setTimeout(() => {
-    unlisten.call(doc, "presign:content-ready", onContentReady);
+  startTimer(() => {
+    ReflectApply(unlisten, doc, ["presign:content-ready", onContentReady]);
     dropChannel();
   }, 0);
-
-
 
   const hook = installInterceptor(w, {
     review: reviewer.review,
     report: (rid, outcome) => {
-      if (ready) send({ kind: "outcome", rid: rid ?? null, outcome });
+      if (ready) transport.send({ kind: "outcome", rid: rid ?? null, outcome });
     },
     host: () => window.location.host,
     verifySignature,
@@ -121,7 +116,7 @@ import { installInterceptor, type HookWindow } from "./lib/intercept";
   let scans = 0;
   const timer = setInterval(() => {
     hook.scanProviders();
-    if (++scans >= 40) clearInterval(timer);
+    if (++scans >= 40) stopInterval(timer);
   }, 250);
-  window.addEventListener("load", () => hook.scanProviders(), { once: true });
+  ReflectApply(listen, w, ["load", () => hook.scanProviders(), { once: true }]);
 })();

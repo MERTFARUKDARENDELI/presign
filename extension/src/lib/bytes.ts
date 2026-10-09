@@ -1,19 +1,22 @@
+import { bare, base64, byteCount, bytesFrom, copyRange, newBytes } from "./primordials";
+
 /**
  * Byte helpers shared by the page hook and the extension. No dependencies:
- * the page hook runs inside arbitrary websites and must stay small.
+ * the page hook runs inside arbitrary websites and must stay small. Every
+ * function here only indexes typed arrays and primitive strings, with the
+ * built-ins captured in ./primordials — a site that replaces btoa,
+ * Uint8Array.from, Array.prototype methods or a typed array's `length` cannot
+ * change what they return.
  */
 
-export function bytesToBase64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
+export const bytesToBase64 = base64;
 
+/** Background / review side only (the page hook never decodes base64). */
 export function base64ToBytes(value: string): Uint8Array | null {
   if (typeof value !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 !== 0) return null;
   try {
     const bin = atob(value);
-    const out = new Uint8Array(bin.length);
+    const out = newBytes(bin.length);
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   } catch {
@@ -22,55 +25,58 @@ export function base64ToBytes(value: string): Uint8Array | null {
 }
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const B58_INDEX: Record<string, number> = bare({});
+for (let i = 0; i < B58.length; i++) B58_INDEX[B58[i]] = i;
 
 export function base58ToBytes(value: string): Uint8Array | null {
   if (typeof value !== "string" || value.length === 0 || value.length > 20_000) return null;
-  const bytes: number[] = [0];
-  for (const ch of value) {
-    let carry = B58.indexOf(ch);
-    if (carry < 0) return null;
-    for (let i = 0; i < bytes.length; i++) {
-      carry += bytes[i] * 58;
-      bytes[i] = carry & 0xff;
+  const n = value.length;
+  // Little-endian digits of the number; log(58) / log(256) < 0.733.
+  const digits = newBytes(((n * 733) / 1000 | 0) + 1);
+  let size = 0;
+  for (let i = 0; i < n; i++) {
+    let carry = B58_INDEX[value[i]];
+    if (carry === undefined) return null;
+    for (let j = 0; j < size; j++) {
+      carry += digits[j] * 58;
+      digits[j] = carry & 0xff;
       carry >>= 8;
     }
     while (carry > 0) {
-      bytes.push(carry & 0xff);
+      digits[size++] = carry & 0xff;
       carry >>= 8;
     }
   }
-  for (const ch of value) {
-    if (ch !== "1") break;
-    bytes.push(0);
-  }
-  return Uint8Array.from(bytes.reverse());
+  // Each leading "1" is a leading zero byte.
+  let zeros = 0;
+  while (zeros < n && value[zeros] === "1") zeros++;
+  const out = newBytes(zeros + size);
+  for (let i = 0; i < size; i++) out[zeros + i] = digits[size - 1 - i];
+  return out;
 }
 
 /**
  * A private copy of the bytes in `value`. The site keeps its own array and can
  * change it at any time after the call, so a review must never rely on it.
  */
-export function copyBytes(value: unknown): Uint8Array | null {
-  const b = toBytes(value);
-  return b ? Uint8Array.from(b) : null;
-}
+export const copyBytes = bytesFrom;
 
-export function toBytes(value: unknown): Uint8Array | null {
-  if (value instanceof Uint8Array) return value;
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  if (Array.isArray(value) && value.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)) return Uint8Array.from(value as number[]);
-  return null;
-}
+/** The bytes in `value`, as a private copy (typed arrays, DataView, ArrayBuffer, byte arrays). */
+export const toBytes = bytesFrom;
 
 /** True when `bytes` ends with `suffix` (an off-chain message: wallet-built preamble, then the reviewed text). */
 export function endsWithBytes(bytes: Uint8Array, suffix: Uint8Array): boolean {
-  return bytes.length >= suffix.length && sameBytes(bytes.subarray(bytes.length - suffix.length), suffix);
+  const n = byteCount(bytes);
+  const m = byteCount(suffix);
+  if (n < m) return false;
+  for (let i = 0; i < m; i++) if (bytes[n - m + i] !== suffix[i]) return false;
+  return true;
 }
 
 export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  const n = byteCount(a);
+  if (n !== byteCount(b)) return false;
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return false;
   return true;
 }
 
@@ -86,36 +92,22 @@ export function readShortVec(bytes: Uint8Array, offset: number): { value: number
   return null;
 }
 
-function shortVec(n: number): number[] {
-  const out: number[] = [];
-  let v = n;
-  for (;;) {
-    const b = v & 0x7f;
-    v >>= 7;
-    if (v === 0) {
-      out.push(b);
-      return out;
-    }
-    out.push(b | 0x80);
-  }
-}
-
 /** Signature section of a legacy / v0 transaction: [shortvec n][n × 64 bytes], followed by the message. */
-function signatureSection(tx: Uint8Array): { count: number; messageStart: number } | null {
+function signatureSection(tx: Uint8Array): { count: number; countSize: number; messageStart: number } | null {
   const n = readShortVec(tx, 0);
   if (!n || n.value === 0 || n.value > 32) return null;
   const messageStart = n.size + 64 * n.value;
-  if (messageStart + 4 > tx.length) return null;
+  if (messageStart + 4 > byteCount(tx)) return null;
   // The message header repeats the signer count: legacy [n, ...], v0 [0x80, n, ...].
   const first = tx[messageStart];
   const required = first === 0x80 ? tx[messageStart + 1] : first;
-  return required === n.value ? { count: n.value, messageStart } : null;
+  return required === n.value ? { count: n.value, countSize: n.size, messageStart } : null;
 }
 
 /** The message part of a serialized legacy / v0 transaction (what the signatures cover), or null. */
 export function transactionMessage(tx: Uint8Array): Uint8Array | null {
   const sec = signatureSection(tx);
-  return sec ? tx.slice(sec.messageStart) : null;
+  return sec ? copyRange(tx, sec.messageStart, byteCount(tx)) : null;
 }
 
 /** True when `bytes` is a whole serialized legacy / v0 transaction (signature slots included). */
@@ -130,9 +122,14 @@ export function isSerializedTransaction(bytes: Uint8Array): boolean {
  */
 export function asTransactionBytes(bytes: Uint8Array): Uint8Array | null {
   if (isSerializedTransaction(bytes)) return bytes;
+  const n = byteCount(bytes);
   const required = bytes[0] === 0x80 ? bytes[1] : bytes[0];
-  if (!required || required > 32 || bytes.length < 4) return null;
-  const out = Uint8Array.from([...shortVec(required), ...new Array(64 * required).fill(0), ...bytes]);
+  if (!required || required > 32 || n < 4) return null;
+  // [shortvec required] (one byte below 128) + required × 64 zero bytes + the message.
+  const start = 1 + 64 * required;
+  const out = newBytes(start + n);
+  out[0] = required;
+  for (let i = 0; i < n; i++) out[start + i] = bytes[i];
   return isSerializedTransaction(out) ? out : null;
 }
 
@@ -141,9 +138,9 @@ export function asTransactionBytes(bytes: Uint8Array): Uint8Array | null {
  * for a transaction (signature slots excluded), the raw bytes for a message.
  */
 export function requestKey(type: "TRANSACTION" | "MESSAGE", bytes: Uint8Array): string {
-  if (type === "MESSAGE") return `m:${bytesToBase64(bytes)}`;
+  if (type === "MESSAGE") return `m:${base64(bytes)}`;
   const sec = signatureSection(bytes);
-  return `t:${bytesToBase64(sec ? bytes.subarray(sec.messageStart) : bytes)}`;
+  return `t:${base64(sec ? copyRange(bytes, sec.messageStart, byteCount(bytes)) : bytes)}`;
 }
 
 /**
@@ -153,10 +150,11 @@ export function requestKey(type: "TRANSACTION" | "MESSAGE", bytes: Uint8Array): 
  */
 export function onlySignaturesChanged(original: Uint8Array, signed: Uint8Array): boolean {
   const sec = signatureSection(original);
-  if (!sec || signed.length !== original.length) return false;
-  for (let i = 0; i < original.length; i++) {
+  const n = byteCount(original);
+  if (!sec || byteCount(signed) !== n) return false;
+  for (let i = 0; i < n; i++) {
     if (original[i] === signed[i]) continue;
-    if (i < readShortVec(original, 0)!.size || i >= sec.messageStart) return false;
+    if (i < sec.countSize || i >= sec.messageStart) return false;
   }
   return true;
 }
