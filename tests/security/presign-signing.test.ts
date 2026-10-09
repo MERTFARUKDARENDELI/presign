@@ -1,11 +1,12 @@
 import { createApproveInstruction, createSetAuthorityInstruction, createTransferInstruction, AuthorityType } from "@solana/spl-token";
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "@/lib/api/errors";
 import { enrichWithAnchorIdl } from "@/lib/anchor/source";
 import { resetReplayRegistry } from "@/lib/presign/replay";
 import { analyzeSigning, approveSigning, confirmApprovalForExtension, PAYLOAD_CHANGED_MESSAGE, verifyApprovalForSubmit, type AnalyzeSigningInput } from "@/lib/presign/signing";
 import type { SigningReview } from "@/lib/presign/types";
+import { rpcCall } from "@/lib/solana/client";
 import { MEMO_PROGRAM_ID } from "@/lib/solana/constants";
 import { U64_MAX } from "@/lib/transaction/decoder";
 import { bytesToBase64 } from "@/lib/transaction/input";
@@ -14,9 +15,11 @@ import type { TransactionEffects } from "@/lib/transaction/types";
 import { ATTACKER, ATTACKER_ATA, buildTx, keypair, MINT, WALLET, WALLET_ATA } from "../helpers/fixtures";
 
 // The pre-sign review runs the REAL decoder, rules and decision layer; only the
-// simulation RPC edge and on-chain IDL lookups are mocked.
+// simulation RPC edge, on-chain IDL lookups and the chain reads of the
+// address-poisoning check (recipient history) are mocked.
 vi.mock("@/lib/transaction/simulate", async (importOriginal) => ({ ...(await importOriginal<object>()), simulateTransaction: vi.fn(), resolveLookupTables: vi.fn() }));
 vi.mock("@/lib/anchor/source", async (importOriginal) => ({ ...(await importOriginal<object>()), enrichWithAnchorIdl: vi.fn() }));
+vi.mock("@/lib/solana/client", async (importOriginal) => ({ ...(await importOriginal<object>()), rpcCall: vi.fn() }));
 
 const simulate = vi.mocked(simulateTransaction);
 const W = WALLET.toBase58();
@@ -40,11 +43,33 @@ async function review(base64: string, wallet = W): Promise<SigningReview> {
   return analyzeSigning(txInput(base64, wallet), SID);
 }
 
+/** Network or chain reads this file does not answer; any entry fails the test in afterEach. */
+const unexpected: string[] = [];
+
 beforeEach(() => {
   simulate.mockReset();
   vi.mocked(resolveLookupTables).mockReset().mockResolvedValue(null);
   vi.mocked(enrichWithAnchorIdl).mockReset().mockResolvedValue([]);
   resetReplayRegistry();
+  unexpected.length = 0;
+  // Recipient history: no earlier transactions for the wallet or any recipient, so the
+  // address-poisoning check runs and finds no shared contact.
+  vi.mocked(rpcCall).mockReset().mockImplementation(async (method: string) => {
+    if (method === "getSignaturesForAddress") return { result: [], source: "PUBLIC_RPC" as const, fallbackUsed: false };
+    unexpected.push(`rpcCall ${method}`);
+    throw new Error(`unexpected RPC ${method}`);
+  });
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+    unexpected.push(`fetch ${input instanceof Request ? input.url : String(input)}`);
+    throw new TypeError("network access is not allowed in this test file");
+  }));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  // Context checks fail soft (a thrown RPC error only degrades the analysis), so an
+  // unplanned read is caught here rather than by the error it throws.
+  expect(unexpected, "unexpected network / RPC access").toEqual([]);
 });
 
 describe("pre-sign review — risk levels from the real engine", () => {
