@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "@/lib/api/errors";
-import { rpcCall } from "@/lib/solana/client";
+import { RPC_CONCURRENCY, RPC_QUEUE_LIMIT, rpcCall, rpcSlotUsage } from "@/lib/solana/client";
 import { getWalletData } from "@/lib/solana/wallet";
 import { analyzeToken } from "@/lib/token/scanner";
 import { MINT, parsedMint, parsedTokenAccount, WALLET } from "../helpers/fixtures";
@@ -69,6 +69,61 @@ describe("RPC resilience & capability-aware fallback", () => {
     vi.stubEnv("SOLANA_DISABLE_PUBLIC_FALLBACK", "true");
     mockFetch(() => new Response("<html>", { status: 200 }));
     await expect(rpcCall("getBalance", ["x"], { retries: 0 })).rejects.toMatchObject({ code: "RPC_ERROR" });
+  });
+});
+
+describe(`at most ${RPC_CONCURRENCY} RPC requests in flight per provider (CLAUDE.md rule 2)`, () => {
+  /** A fetch that answers after `ms`, counting requests in flight per host. */
+  function slowFetch(ms: number, answer: (url: string) => Response | null = () => null) {
+    const inFlight: Record<string, number> = {};
+    const peak: Record<string, number> = {};
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const host = new URL(url).host;
+      inFlight[host] = (inFlight[host] ?? 0) + 1;
+      peak[host] = Math.max(peak[host] ?? 0, inFlight[host]);
+      await new Promise((r) => setTimeout(r, ms));
+      inFlight[host]--;
+      const custom = answer(url);
+      if (custom) return custom;
+      const body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: body.id }), { status: 200 });
+    }));
+    return peak;
+  }
+
+  it(`40 calls at once: never more than ${RPC_CONCURRENCY} at the provider, all answered, every slot freed`, async () => {
+    vi.stubEnv("SOLANA_DISABLE_PUBLIC_FALLBACK", "true");
+    const peak = slowFetch(5);
+    const results = await Promise.all(Array.from({ length: 40 }, () => rpcCall<number>("getSlot", [], { retries: 0 })));
+    expect(results).toHaveLength(40);
+    expect(peak["mainnet.helius-rpc.com"]).toBe(RPC_CONCURRENCY);
+    expect(rpcSlotUsage().helius).toEqual({ active: 0, waiting: 0 });
+  });
+
+  it("failed requests free their slots; Helius and the public fallback have slots of their own", async () => {
+    const peak = slowFetch(3, (url) => (url.includes("helius") ? new Response("down", { status: 503 }) : null));
+    const results = await Promise.all(Array.from({ length: 20 }, () => rpcCall<number>("getSlot", [], { retries: 0 })));
+    expect(results.every((r) => r.fallbackUsed)).toBe(true);
+    expect(peak["mainnet.helius-rpc.com"]).toBeLessThanOrEqual(RPC_CONCURRENCY);
+    expect(peak["api.mainnet-beta.solana.com"]).toBeLessThanOrEqual(RPC_CONCURRENCY);
+    expect(rpcSlotUsage()).toMatchObject({ helius: { active: 0, waiting: 0 }, fallback: { active: 0, waiting: 0 } });
+  });
+
+  it(`beyond ${RPC_QUEUE_LIMIT} waiting requests a call fails as unavailable instead of queueing without end`, async () => {
+    vi.stubEnv("SOLANA_DISABLE_PUBLIC_FALLBACK", "true");
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      await gate;
+      const body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: 1 }), { status: 200 });
+    }));
+    const queued = Array.from({ length: RPC_CONCURRENCY + RPC_QUEUE_LIMIT }, () => rpcCall("getSlot", [], { retries: 0 }));
+    await Promise.resolve();
+    await expect(rpcCall("getSlot", [], { retries: 0 })).rejects.toMatchObject({ code: "RPC_ERROR" });
+    release();
+    expect(await Promise.all(queued)).toHaveLength(RPC_CONCURRENCY + RPC_QUEUE_LIMIT);
+    expect(rpcSlotUsage().helius).toEqual({ active: 0, waiting: 0 });
   });
 });
 

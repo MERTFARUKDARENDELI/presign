@@ -37,6 +37,47 @@ export class RpcRequestError extends Error {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * At most this many requests in flight per provider in one server instance
+ * (CLAUDE.md rule 2: Helius answers 429 beyond it). Every RPC call goes through
+ * here, so callers that fan out (recipient history, multisig history, token
+ * scans, several users at once) queue instead of each needing a limit of its
+ * own. A request's timeout starts when it is sent, not while it waits; a retry
+ * waits out its back-off without holding a slot.
+ */
+export const RPC_CONCURRENCY = 4;
+/** Requests that may wait for a slot per provider; beyond that the call fails (retryable) instead of queueing without end. */
+export const RPC_QUEUE_LIMIT = 500;
+
+interface Slots {
+  active: number;
+  waiting: Array<() => void>;
+}
+const slots = new Map<RpcProvider["name"], Slots>();
+
+/** Runs `task` in one of the provider's slots. A freed slot passes straight to the next waiter, so the count never goes above the limit. */
+async function inSlot<T>(provider: RpcProvider["name"], task: () => Promise<T>): Promise<T> {
+  let s = slots.get(provider);
+  if (!s) slots.set(provider, (s = { active: 0, waiting: [] }));
+  if (s.active < RPC_CONCURRENCY) s.active++;
+  else {
+    if (s.waiting.length >= RPC_QUEUE_LIMIT) throw new RpcRequestError("RPC queue full", true);
+    await new Promise<void>((resolve) => s.waiting.push(resolve));
+  }
+  try {
+    return await task();
+  } finally {
+    const next = s.waiting.shift();
+    if (next) next();
+    else s.active--;
+  }
+}
+
+/** Requests in flight and waiting, per provider (tests and diagnostics). */
+export function rpcSlotUsage(): Record<string, { active: number; waiting: number }> {
+  return Object.fromEntries([...slots].map(([name, s]) => [name, { active: s.active, waiting: s.waiting.length }]));
+}
+
 let requestId = 0;
 
 async function callProvider<T>(
@@ -111,7 +152,7 @@ export async function rpcCall<T>(
     const provider = providers[index];
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const result = await callProvider<T>(provider, method, params, timeoutMs);
+        const result = await inSlot(provider.name, () => callProvider<T>(provider, method, params, timeoutMs));
         if (index > 0) {
           logger.warn("rpc.fallback_used", { method, provider: provider.name });
         }
