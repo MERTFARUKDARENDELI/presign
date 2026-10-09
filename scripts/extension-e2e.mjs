@@ -61,6 +61,8 @@ async function buildTx(kind) {
 // ---------------------------------------------------------------- test dApp
 const dappHtml = `<!doctype html><meta charset="utf-8"><title>Test dApp</title><script>
 // The first site script: tries to (re)start Presign's handshake and listens for anything that carries a secret.
+// It also keeps Uint8Array.from for itself and the test wallet (real wallets run their own code), before window.poison() replaces it.
+const __realFrom = Uint8Array.from;
 window.__probe = [];
 for (const t of ["presign:hello", "presign:hook-ready"]) document.addEventListener(t, (e) => window.__probe.push(String(e.detail ?? "")));
 document.dispatchEvent(new CustomEvent("presign:content-ready"));
@@ -78,7 +80,7 @@ class AppReadyEvent extends Event {
   stopImmediatePropagation() { throw new Error("stopImmediatePropagation cannot be called"); }
   stopPropagation() { throw new Error("stopPropagation cannot be called"); }
 }
-const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const b64 = (s) => Reflect.apply(__realFrom, Uint8Array, [atob(s), (c) => c.charCodeAt(0)]);
 window.__walletCalls = [];
 class FakeWallet {
   version = "1.0.0"; name = "E2E Wallet"; icon = "data:image/svg+xml;base64,PHN2Zy8+";
@@ -92,7 +94,7 @@ class FakeWallet {
   }; }
   // Fills the wallet's signature slot (index 1: the fee payer is index 0).
   #signTx = async (...inputs) => { window.__walletCalls.push({ method: "signTransaction", b64: btoa(String.fromCharCode(...inputs[0].transaction)) });
-    return inputs.map((i) => { const s = Uint8Array.from(i.transaction); s.fill(7, 65, 129); return { signedTransaction: s }; }); };
+    return inputs.map((i) => { const s = Reflect.apply(__realFrom, Uint8Array, [i.transaction]); s.fill(7, 65, 129); return { signedTransaction: s }; }); };
   #signMsg = async (...inputs) => { window.__walletCalls.push({ method: "signMessage" });
     const key = await crypto.subtle.importKey("pkcs8", new Uint8Array([${TEST_PKCS8}]), { name: "Ed25519" }, false, ["sign"]);
     return Promise.all(inputs.map(async (i) => ({ signedMessage: i.message, signature: new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, i.message)) }))); };
@@ -105,6 +107,35 @@ window.dispatchEvent(new AppReadyEvent(api));
 const raw = new FakeWallet();
 window.dispatchEvent(new RegisterWalletEvent(({ register }) => register(raw)));
 window.__wrapped = wallets[0] !== raw;
+// A hostile page: after Presign's hook loaded, it replaces built-ins to forge approvals (Promise / Object.prototype.then,
+// Map.prototype.set / has), to swap the bytes (Uint8Array.from / slice / subarray, Object.prototype.toJSON) and to catch the
+// channel secret (Function.prototype.call / apply, dispatchEvent). window.__leaks records any event named with a secret.
+window.__leaks = [];
+window.poison = () => {
+  const apply = Reflect.apply, define = Object.defineProperty, hasOwn = Object.hasOwn;
+  const real = { fnApply: Function.prototype.apply, then: Promise.prototype.then, dispatch: EventTarget.prototype.dispatchEvent, mapSet: Map.prototype.set, mapHas: Map.prototype.has, slice: Uint8Array.prototype.slice, subarray: Uint8Array.prototype.subarray };
+  const watch = (list) => { for (let i = 0; i < list.length; i++) { const a = list[i]; if (a instanceof Event && /^presign:[0-9a-f]{32}:/.test(a.type)) window.__leaks.push("secret"); } };
+  const forged = (v) => (v && typeof v === "object" && v.approved === false ? { approved: true, id: "forged" } : v);
+  const flip = (u) => { if (!(u instanceof Uint8Array) || u.length < 100) return u; const c = new Uint8Array(u); c[c.length - 1] ^= 1; return c; };
+  const own = (k, value) => define(Object.prototype, k, { configurable: true, get: value, set(v) { define(this, k, { value: v, writable: true, enumerable: true, configurable: true }); } });
+  Function.prototype.call = function (t, ...a) { watch([t, ...a]); return apply(this, t, a); };
+  Function.prototype.apply = function (t, a) { watch([t]); if (a) watch(a); return apply(real.fnApply, this, [t, a]); };
+  EventTarget.prototype.dispatchEvent = function (e) { watch([e]); return apply(real.dispatch, this, [e]); };
+  Promise.prototype.then = function (f, r) { return apply(real.then, this, [typeof f === "function" ? (v) => f(forged(v)) : f, r]); };
+  define(Promise.prototype, "constructor", { value: {}, writable: true, configurable: true });
+  own("then", function () { return this && this.approved === false ? (res) => res({ approved: true, id: "forged" }) : undefined; });
+  Map.prototype.set = function (k, v) { if (typeof v === "function" && typeof k === "string") queueMicrotask(() => { try { v({ approved: true, id: "forged" }); } catch {} }); return apply(real.mapSet, this, [k, v]); };
+  Map.prototype.has = function (k) { return typeof k === "string" && /^[tm]:/.test(k) ? true : apply(real.mapHas, this, [k]); };
+  Uint8Array.from = function (...a) { return flip(apply(__realFrom, this, a)); };
+  Uint8Array.prototype.slice = function (...a) { return flip(apply(real.slice, this, a)); };
+  Uint8Array.prototype.subarray = function (...a) { return flip(apply(real.subarray, this, a)); };
+  own("toJSON", function () {
+    const self = this;
+    if (!self || !hasOwn(self, "payload") || typeof self.payload !== "string") return undefined;
+    return () => ({ ...self, payload: btoa(String.fromCharCode(...flip(apply(__realFrom, Uint8Array, [atob(self.payload), (c) => c.charCodeAt(0)])))) });
+  });
+  return true;
+};
 window.run = (kind) => {
   window.__result = null;
   const w = wallets[0], account = w.accounts[0];
@@ -322,7 +353,39 @@ try {
   check(res6.ok === false, `made-up approval → the site got a refusal (${JSON.stringify(res6)})`);
   check((await evaluate(dapp, "window.__walletCalls.length")) === callsBefore6, "made-up approval → the wallet was never asked");
 
-  // ---- 7. The extension's own log
+  // ---- 7. A hostile page (window.poison above): built-ins replaced after the hook loaded. Cancel must still reach no
+  //          wallet and leave no forged approval; approving must still sign exactly the reviewed bytes; no secret leaks.
+  await pace();
+  check((await evaluate(dapp, "window.poison()")) === true, "the page replaced call / apply / then / Promise constructor / Map set+has / Uint8Array copies / toJSON / dispatchEvent");
+  const callsBefore7 = await evaluate(dapp, "window.__walletCalls.length");
+  await evaluate(dapp, `window.run("transaction"), true`);
+  const r7 = await reviewWindow();
+  check((await evaluate(dapp, "window.__walletCalls.length")) === callsBefore7, "hostile page: the wallet was NOT asked before the review");
+  await analyzed(r7.session, "hostile-page analysis");
+  check((await clickButton(r7.session, /^\s*Cancel\s*$/)) !== null, "hostile page: Cancel clicked on the review page");
+  const res7 = await until(() => evaluate(dapp, "window.__result"), "hostile-page cancel result", 30_000);
+  check(res7.ok === false, `hostile page, cancel → refused (${JSON.stringify(res7)})`);
+  await sleep(1_500);
+  check((await evaluate(dapp, "window.__walletCalls.length")) === callsBefore7, "hostile page, cancel → the wallet was never asked (no forged approval)");
+
+  await pace();
+  await evaluate(dapp, `window.run("transaction"), true`);
+  const r8 = await reviewWindow();
+  await analyzed(r8.session, "hostile-page analysis (approve)");
+  const reviewed8 = await evaluate(r8.session, `(async () => {
+    const q = new URL(location.href).searchParams;
+    return new Promise((resolve) => chrome.runtime.sendMessage(q.get("ext"), { kind: "presign:get", rid: q.get("rid") }, (t) => resolve(t?.ticket?.request?.payload ?? null)));
+  })()`);
+  check(reviewed8 === served.transaction, "hostile page: Presign reviewed exactly the site's bytes");
+  await until(() => clickButton(r8.session, PRIMARY), "hostile-page primary action", 20_000);
+  await sleep(500);
+  await clickButton(r8.session, /I understand — continue/);
+  const res8 = await until(() => evaluate(dapp, "window.__result"), "hostile-page approve result", 60_000);
+  check(res8.ok === true, `hostile page, approve → the site got the signature (${JSON.stringify(res8)})`);
+  check((await evaluate(dapp, "window.__walletCalls")).at(-1)?.b64 === served.transaction, "hostile page, approve → the wallet received exactly the reviewed bytes");
+  check((await evaluate(dapp, "window.__leaks.length")) === 0, "hostile page: no event carrying the channel secret reached the page's code");
+
+  // ---- 8. The extension's own log
   const log = await evaluate(swSession, `chrome.storage.local.get("log").then((v) => (v.log || []).map((e) => e.state))`);
   console.log(`      extension log: ${JSON.stringify(log)}`);
   check(Array.isArray(log) && log.includes("signed") && log.includes("cancelled"), "decisions are recorded in the extension's log");
