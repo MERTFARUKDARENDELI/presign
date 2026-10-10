@@ -1,7 +1,7 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { ACCOUNT_SIZE, AuthorityType, createApproveInstruction, createInitializeAccount3Instruction, createSetAuthorityInstruction, NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { AppError } from "@/lib/api/errors";
 import { rpcCall } from "@/lib/solana/client";
 import { MEMO_PROGRAM_ID } from "@/lib/solana/constants";
@@ -38,6 +38,15 @@ const MEMO = new PublicKey(MEMO_PROGRAM_ID);
 /** Off-curve address nobody can sign for. */
 export const DEMO_UNUSABLE_DELEGATE = PublicKey.findProgramAddressSync([Buffer.from("presign-demo-unusable-delegate")], MEMO)[0];
 const U64_MAX = 18_446_744_073_709_551_615n;
+
+/**
+ * The demo dApp sets its own compute budget, as a well-behaved application should: wallets that add a
+ * priority fee to a transaction without one (Phantom does) would otherwise change the reviewed bytes,
+ * and Presign rightly withholds a signature for a transaction it did not review. 200k CU at 10k µlamports
+ * is at most 0.000002 SOL, far below TX_EXCESSIVE_PRIORITY_FEE (0.01 SOL).
+ */
+export const DEMO_COMPUTE_UNIT_LIMIT = 200_000;
+export const DEMO_COMPUTE_UNIT_PRICE_MICRO_LAMPORTS = 10_000;
 
 function memo(text: string): TransactionInstruction {
   return new TransactionInstruction({ programId: MEMO, keys: [], data: Buffer.from(text, "utf8") });
@@ -80,7 +89,11 @@ export async function buildDemoRequest(scenario: DemoScenario, walletAddress: st
 
   const tx = async (instructions: TransactionInstruction[]) => {
     const t = new Transaction({ feePayer: wallet, recentBlockhash: await latestBlockhash() });
-    t.add(...instructions);
+    t.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: DEMO_COMPUTE_UNIT_LIMIT }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: DEMO_COMPUTE_UNIT_PRICE_MICRO_LAMPORTS }),
+      ...instructions,
+    );
     return serialize(t);
   };
 

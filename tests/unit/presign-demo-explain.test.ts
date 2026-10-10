@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { enrichWithAnchorIdl } from "@/lib/anchor/source";
-import { PublicKey } from "@solana/web3.js";
-import { buildDemoRequest, DEMO_UNUSABLE_DELEGATE } from "@/lib/presign/demo";
+import { ComputeBudgetInstruction, ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";
+import { buildDemoRequest, DEMO_COMPUTE_UNIT_LIMIT, DEMO_COMPUTE_UNIT_PRICE_MICRO_LAMPORTS, DEMO_UNUSABLE_DELEGATE } from "@/lib/presign/demo";
 import { DEMO_SCENARIOS } from "@/lib/presign/demo-scenarios";
 import { explainSigningFindings } from "@/lib/presign/explain";
 import { analyzeSigning } from "@/lib/presign/signing";
@@ -64,8 +64,22 @@ describe("demo dApp requests go through the real pipeline", () => {
     const req = await buildDemoRequest("critical-transaction", W, "presign.test");
     const r = await analyzeSigning({ type: req.type, payload: req.payload, payloadEncoding: req.payloadEncoding, walletAddress: W }, SID);
     const tx = r.transaction as { decoded: { instructions: Array<{ type: string }> } };
-    expect(tx.decoded.instructions[0].type).toBe("system:createWithSeed");
+    expect(tx.decoded.instructions.find((i) => !i.type.startsWith("computeBudget:"))?.type).toBe("system:createWithSeed");
     expect(PublicKey.isOnCurve(DEMO_UNUSABLE_DELEGATE.toBytes())).toBe(false);
+  });
+
+  it("every demo transaction sets its own compute budget, so a fee-adjusting wallet has no reason to change the reviewed bytes", async () => {
+    for (const scenario of DEMO_SCENARIOS) {
+      const req = await buildDemoRequest(scenario, W, "presign.test");
+      if (req.type !== "TRANSACTION" || scenario === "invalid-transaction") continue;
+      const tx = Transaction.from(Buffer.from(req.payload, "base64"));
+      const budget = tx.instructions.filter((i) => i.programId.equals(ComputeBudgetProgram.programId)).map((i) => ComputeBudgetInstruction.decodeInstructionType(i));
+      expect(budget, scenario).toEqual(["SetComputeUnitLimit", "SetComputeUnitPrice"]);
+      // At most 0.000002 SOL: nowhere near the excessive-priority-fee rule.
+      expect((DEMO_COMPUTE_UNIT_LIMIT * DEMO_COMPUTE_UNIT_PRICE_MICRO_LAMPORTS) / 1e6).toBeLessThan(10_000);
+      const r = await analyzeSigning({ type: req.type, payload: req.payload, payloadEncoding: req.payloadEncoding, walletAddress: W }, SID);
+      expect(r.findings.signals.map((s) => s.code), scenario).not.toContain("TX_EXCESSIVE_PRIORITY_FEE");
+    }
   });
 });
 

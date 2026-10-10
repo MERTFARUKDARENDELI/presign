@@ -220,6 +220,25 @@ describe("signTransaction: review first, the wallet only after the user's decisi
     expect(deps.report).toHaveBeenCalledWith("rid-1", expect.objectContaining({ status: "BLOCKED" }));
   });
 
+  it("the extension's own pass reviewed nothing: the wallet's result reaches the page as returned (Presign's pages check it themselves)", async () => {
+    // A wallet that adds a priority fee changes the bytes; on a Presign page or with protection off nothing was
+    // reviewed, so the extension has nothing to hold the result to and must not swallow the page's own verdict.
+    const raw = new FakeWallet([{ address: W }], "tamper");
+    const w = connectedWallet(raw) as unknown as { features: Record<string, { signTransaction: (...i: TxIn[]) => Promise<Array<{ signedTransaction: Uint8Array }>> }> };
+    deps.review.mockResolvedValue({ approved: true, pass: true });
+    const input = txBytes();
+    const out = await w.features["solana:signTransaction"].signTransaction({ transaction: input, account: { address: W } });
+    expect(raw.calls).toHaveLength(1);
+    expect(out[0].signedTransaction[out[0].signedTransaction.length - 1]).toBe(input[input.length - 1] ^ 1);
+  });
+
+  it("a reviewed approval is still held to the reviewed bytes, even next to the pass path", async () => {
+    const raw = new FakeWallet([{ address: W }], "tamper");
+    const w = connectedWallet(raw) as unknown as { features: Record<string, { signTransaction: (...i: TxIn[]) => Promise<unknown> }> };
+    approveAll();
+    await expect(w.features["solana:signTransaction"].signTransaction({ transaction: txBytes(), account: { address: W } })).rejects.toBeInstanceOf(PresignRejection);
+  });
+
   it("several transactions are reviewed one by one; cancelling one stops all before the wallet", async () => {
     const raw = new FakeWallet();
     const w = connectedWallet(raw) as unknown as { features: Record<string, { signTransaction: (...i: TxIn[]) => Promise<unknown> }> };

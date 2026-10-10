@@ -27,6 +27,8 @@ export const metadata: Metadata = {
   applicationName: BRAND.name,
   openGraph: { title: TITLE, description: BRAND.description, siteName: BRAND.name, type: "website" },
   twitter: { card: "summary_large_image", title: TITLE, description: BRAND.description },
+  // See translate="no" below.
+  other: { google: "notranslate" },
 };
 
 export const viewport: Viewport = {
@@ -39,9 +41,12 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Render per request: the CSP nonce from proxy.ts exists only at request time (a static page has no nonce).
   await connection();
   return (
+    // Browser translation rewrites the text nodes React owns: reviews then stop updating (a clicked scenario
+    // showed nothing in a translated Chrome), and a machine translation could change what a warning says.
     <html
       lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      translate="no"
+      className={`notranslate dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-zinc-950 text-zinc-100">
         <WalletProviders>

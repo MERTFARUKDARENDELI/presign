@@ -360,6 +360,11 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           report(ids, { status: "BLOCKED", detail: changed });
           return rejectSite(new PresignRejection(changed));
         }
+        // The extension's own pass (Presign's own pages, protection off, a skipped site) reviewed nothing, so
+        // there is nothing to hold the wallet's result to: it goes to the page as the wallet returned it. On
+        // Presign's pages the page itself checks it and can say exactly what the wallet changed.
+        let unreviewed = approvals.length > 0;
+        for (let i = 0; i < approvals.length; i++) if (!approvals[i].pass) unreviewed = false;
         const held: string[] = [];
         for (let i = 0; i < keys.length; i++) if (keys[i] !== null) push(held, keys[i] as string);
         enter(held);
@@ -384,7 +389,7 @@ export function installInterceptor(win: HookWindow, deps: InterceptorDeps) {
           (out) => {
             let check: unknown = null;
             try {
-              check = verify ? verify(out) : null;
+              check = verify && !unreviewed ? verify(out) : null;
             } catch (error) {
               done();
               return rejectSite(error);
