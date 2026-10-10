@@ -37,10 +37,10 @@ describe("Gemini backup — the request", () => {
 
   it("uses GEMINI_MODEL, and refuses anything that is not a model name before any request", async () => {
     vi.stubEnv("GEMINI_API_KEY", FAKE_KEY);
-    vi.stubEnv("GEMINI_MODEL", "gemini-3.8-flash");
+    vi.stubEnv("GEMINI_MODEL", "gemini-3.5-flash-lite");
     const f = stubFetch(reply({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }));
     await generateWithGemini(REQUEST);
-    expect(f.mock.calls[0][0]).toContain("/models/gemini-3.8-flash:generateContent");
+    expect(f.mock.calls[0][0]).toContain("/models/gemini-3.5-flash-lite:generateContent");
     vi.stubEnv("GEMINI_MODEL", "../../evil?x=");
     await expect(generateWithGemini(REQUEST)).rejects.toThrow();
     expect(f).toHaveBeenCalledTimes(1);

@@ -9,9 +9,9 @@ import { logger } from "@/lib/api/logger";
  * a log or a response.
  */
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-// A model name only (e.g. "gemini-3.5-flash-lite"): it becomes part of the request path.
+// A model name only (e.g. "gemini-3.8-flash"): it becomes part of the request path.
 const MODEL_NAME = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 // The prompt or the answer was stopped by Gemini's own filters.
 const BLOCKED_FINISH = new Set(["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "RECITATION"]);
