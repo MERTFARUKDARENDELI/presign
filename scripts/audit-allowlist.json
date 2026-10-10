@@ -1,0 +1,27 @@
+{
+  "_comment": "High / critical advisories the dependency gate (scripts/audit-gate.mjs) accepts, each for a stated reason, until it is fixable or its review date. Only exact advisory ids; no package-wide or severity-wide exceptions.",
+  "advisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces@3.0.3",
+      "severity": "high",
+      "scope": "production and development tree",
+      "path": "@solana/wallet-adapter-react > @solana-mobile/wallet-adapter-mobile > react-native (peer dependency, installed automatically by npm) > @react-native/community-cli-plugin > metro > metro-file-map > micromatch > braces; dev: shadcn > fast-glob > micromatch > braces; eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch > braces",
+      "impact": "Stack exhaustion when expanding a deeply nested brace pattern. braces only expands glob patterns for build tools (React Native's bundler metro, the shadcn CLI, the ESLint plugin), from the project's own configuration; none of it is in the Next.js output (no braces, micromatch or metro in .next, checked 2026-10-10), so no request input reaches it.",
+      "reason": "No fixed release exists: 3.0.3 is the latest braces (registry, 2026-10-10) and the advisory covers <=3.0.3.",
+      "removeWhen": "A braces release outside the advisory's range exists (then: npm update braces), or no dependency pulls braces in.",
+      "reviewBy": "2027-01-10"
+    },
+    {
+      "id": "GHSA-3gc7-fjrx-p6mg",
+      "package": "bigint-buffer@1.1.5",
+      "severity": "high",
+      "scope": "production and development tree",
+      "path": "@solana/spl-token@0.4.15 > @solana/buffer-layout-utils@0.3.0 > bigint-buffer; dev: @sqds/multisig > @solana/spl-token@0.3.11 > @solana/buffer-layout-utils@0.2.0 > bigint-buffer",
+      "impact": "Buffer overflow in toBigIntLE(). It is in the server bundle: spl-token's layouts read u64 fields with it, from fixed-size slices of account and instruction data. On the machine that ran the 2026-10-10 checks its native addon was not built and the pure-JavaScript fallback ran ('bigint: Failed to load bindings'); whether the addon is built on Vercel is not verified.",
+      "reason": "No fixed release exists: 1.1.5 is the latest bigint-buffer. npm's only suggested fix is @solana/spl-token@0.1.8, a major downgrade to a release without the standalone instruction builders and decoder Presign imports (decodeInstruction, createTransferCheckedInstruction, createInitializeAccount3Instruction, createSetAuthorityInstruction, …).",
+      "removeWhen": "@solana/buffer-layout-utils or @solana/spl-token stop depending on bigint-buffer, or a fixed bigint-buffer is released.",
+      "reviewBy": "2027-01-10"
+    }
+  ]
+}

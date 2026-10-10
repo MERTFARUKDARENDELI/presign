@@ -12,6 +12,7 @@
     "build:extension": "node scripts/build-extension.mjs",
     "build:extension:dev": "node scripts/build-extension.mjs --dev",
     "test": "vitest run",
+    "audit:gate": "node scripts/audit-gate.mjs",
     "watchtower": "node --env-file-if-exists=.env.local watchtower/main.ts",
     "mcp": "node mcp/server.ts",
     "demo:guard": "node --no-warnings --experimental-transform-types --import ./scripts/devnet/register.mjs scripts/devnet/guard-demo.ts"

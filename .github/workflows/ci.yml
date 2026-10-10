@@ -26,10 +26,20 @@ jobs:
       # No secrets needed: tests mock the RPC edge and the build reads keys only at runtime.
       - run: npm run build
       - run: npm run build:extension
-      # Informational: reported in the log, does not fail the build (most findings are transitive).
-      - name: Dependency audit (production dependencies)
-        run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
+
+  audit:
+    name: Dependency gate (high / critical)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      # Blocking. npm audit over the whole tree (production and development dependencies), read from the lockfile.
+      # A high or critical advisory fails this job unless scripts/audit-allowlist.json accepts that exact advisory
+      # with its path, impact, reason, removal condition and an unexpired review date. Locally: npm run audit:gate
+      - run: node scripts/audit-gate.mjs
 
   guard:
     name: Guard program — build and LiteSVM tests
