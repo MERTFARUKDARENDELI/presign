@@ -7,10 +7,14 @@
 // is a real ed25519 signature; a funded devnet account pays the fee in the SIMULATION only (it never
 // signs anything). Nothing is broadcast.
 //
+// The test dApp also exposes a fake injected provider (window.solana), so both kinds of entry point are driven.
+//
 // Requirements: Chrome, and either Presign on http://localhost:3000 (devnet) with a development build
 // (`npm run build:extension:dev`), or E2E_INSTANCE=production with `npm run build:extension`.
+// `node scripts/e2e/local.mjs` runs it isolated: a local mock RPC instead of devnet, no outside network.
 // Usage: node scripts/extension-e2e.mjs [--headed]
 //   E2E_RPC        devnet RPC used for a current blockhash (default: OnFinality public devnet)
+//   E2E_RPC_KIND   how the run describes that RPC (scripts/e2e/local.mjs: "mock (local, deterministic)")
 //   E2E_FEE_PAYER  funded devnet system account used as fee payer in the simulation
 //   E2E_INSTANCE   "local" (default, http://localhost:3000) or "production" (devnet requests → presign-devnet.vercel.app)
 import { spawn } from "node:child_process";
@@ -49,12 +53,12 @@ const latestBlockhash = async () => {
   }
 };
 const serialize = (t) => Buffer.from(t.serialize({ requireAllSignatures: false, verifySignatures: false })).toString("base64");
-const memo = new TransactionInstruction({ programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"), keys: [{ pubkey: wallet, isSigner: true, isWritable: false }], data: Buffer.from("presign e2e") });
+const memoOf = (text) => new TransactionInstruction({ programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"), keys: [{ pubkey: wallet, isSigner: true, isWritable: false }], data: Buffer.from(text) });
 const served = {};
 async function buildTx(kind) {
   const t = new Transaction({ feePayer, recentBlockhash: await latestBlockhash() });
-  // CRITICAL: the wallet account itself is handed to another program.
-  t.add(kind === "critical" ? SystemProgram.assign({ accountPubkey: wallet, programId: Keypair.fromSeed(new Uint8Array(32).fill(43)).publicKey }) : memo);
+  // CRITICAL: the wallet account itself is handed to another program. "other": a second, different request.
+  t.add(kind === "critical" ? SystemProgram.assign({ accountPubkey: wallet, programId: Keypair.fromSeed(new Uint8Array(32).fill(43)).publicKey }) : memoOf(kind === "other" ? "presign e2e: other bytes" : "presign e2e"));
   return (served[kind] = serialize(t));
 }
 
@@ -94,6 +98,7 @@ class FakeWallet {
   }; }
   // Fills the wallet's signature slot (index 1: the fee payer is index 0).
   #signTx = async (...inputs) => { window.__walletCalls.push({ method: "signTransaction", b64: btoa(String.fromCharCode(...inputs[0].transaction)) });
+    if (window.__hold) await window.__hold; // the wallet's window stays open while the test needs it to
     return inputs.map((i) => { const s = Reflect.apply(__realFrom, Uint8Array, [i.transaction]); s.fill(7, 65, 129); return { signedTransaction: s }; }); };
   #signMsg = async (...inputs) => { window.__walletCalls.push({ method: "signMessage" });
     const key = await crypto.subtle.importKey("pkcs8", new Uint8Array([${TEST_PKCS8}]), { name: "Ed25519" }, false, ["sign"]);
@@ -107,6 +112,26 @@ window.dispatchEvent(new AppReadyEvent(api));
 const raw = new FakeWallet();
 window.dispatchEvent(new RegisterWalletEvent(({ register }) => register(raw)));
 window.__wrapped = wallets[0] !== raw;
+// A fake injected provider (window.solana, like an older wallet): a transaction object with serialize(), raw message bytes.
+const testKey = () => crypto.subtle.importKey("pkcs8", new Uint8Array([${TEST_PKCS8}]), { name: "Ed25519" }, false, ["sign"]);
+const injected = {
+  publicKey: { toBase58: () => "${wallet.toBase58()}", toString: () => "${wallet.toBase58()}" },
+  isConnected: true,
+  connect: async () => ({ publicKey: injected.publicKey }),
+  signTransaction: async (tx) => {
+    const bytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+    window.__walletCalls.push({ method: "injected:signTransaction", b64: btoa(String.fromCharCode(...bytes)) });
+    const signed = Reflect.apply(__realFrom, Uint8Array, [bytes]);
+    signed.fill(7, 65, 129);
+    return { serialize: () => Reflect.apply(__realFrom, Uint8Array, [signed]) };
+  },
+  signMessage: async (message) => {
+    window.__walletCalls.push({ method: "injected:signMessage" });
+    return { publicKey: injected.publicKey, signature: new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, await testKey(), message)) };
+  },
+};
+window.__injectedOriginal = { signTransaction: injected.signTransaction, signMessage: injected.signMessage };
+window.solana = injected;
 // A hostile page: after Presign's hook loaded, it replaces built-ins to forge approvals (Promise / Object.prototype.then,
 // Map.prototype.set / has), to swap the bytes (Uint8Array.from / slice / subarray, Object.prototype.toJSON) and to catch the
 // channel secret (Function.prototype.call / apply, dispatchEvent). window.__leaks records any event named with a secret.
@@ -136,13 +161,26 @@ window.poison = () => {
   });
   return true;
 };
-window.run = (kind) => {
-  window.__result = null;
+// opts.slot: where the outcome goes (default __result); opts.via: "injected" for window.solana; opts.mutate: the site
+// changes its own bytes right after the call; opts.againFrom: send again the exact transaction a previous slot sent.
+window.__txOf = {};
+window.run = (kind, opts) => {
+  opts = opts || {};
+  const slot = opts.slot || "__result";
+  window[slot] = null;
   const w = wallets[0], account = w.accounts[0];
   const p = kind === "message"
     ? w.features["solana:signMessage"].signMessage({ account, message: new TextEncoder().encode("Sign in to test dApp\\nNonce: 8f3a2c91\\nIssued At: 2026-10-04T00:00:00Z") })
-    : fetch("/tx/" + kind).then((r) => r.text()).then((tx) => w.features["solana:signTransaction"].signTransaction({ account, chain: "solana:devnet", transaction: b64(tx) }));
-  p.then((out) => (window.__result = { ok: true, n: out.length }), (e) => (window.__result = { ok: false, code: e.code ?? null, message: String(e.message) }));
+    : (opts.againFrom ? Promise.resolve(window.__txOf[opts.againFrom]) : fetch("/tx/" + kind).then((r) => r.text())).then((tx) => {
+        window.__txOf[slot] = tx;
+        const bytes = b64(tx);
+        const out = opts.via === "injected"
+          ? window.solana.signTransaction({ serialize: () => Reflect.apply(__realFrom, Uint8Array, [bytes]) })
+          : w.features["solana:signTransaction"].signTransaction({ account, chain: "solana:devnet", transaction: bytes });
+        if (opts.mutate) bytes[bytes.length - 1] ^= 1;
+        return out;
+      });
+  p.then((out) => (window[slot] = { ok: true, n: Array.isArray(out) ? out.length : 1 }), (e) => (window[slot] = { ok: false, code: e.code ?? null, message: String(e.message) }));
 };
 </script></body>`;
 
@@ -210,6 +248,7 @@ const check = (ok, label) => {
   if (!ok) failures++;
 };
 
+console.log(`Wallets: fake Wallet Standard and injected wallets, throwaway test key (no wallet extension) · RPC: ${process.env.E2E_RPC_KIND ?? new URL(RPC).host} · Presign: ${INSTANCE}\n`);
 try {
   const { id: extId } = await cdp("Extensions.loadUnpacked", { path: path.join(root, "extension", "dist") });
   check(/^[a-p]{32}$/.test(extId), `extension loaded (${extId})`);
@@ -385,7 +424,136 @@ try {
   check((await evaluate(dapp, "window.__walletCalls")).at(-1)?.b64 === served.transaction, "hostile page, approve → the wallet received exactly the reviewed bytes");
   check((await evaluate(dapp, "window.__leaks.length")) === 0, "hostile page: no event carrying the channel secret reached the page's code");
 
-  // ---- 8. The extension's own log
+  // ---- From here on, a fresh tab of the test dApp (built-ins intact): the other entry points and attacks on the approval.
+  const { targetId: dapp2Target } = await cdp("Target.createTarget", { url: `http://localhost:${DAPP_PORT}/` });
+  const site = await attach(dapp2Target);
+  await until(() => evaluate(site, `document.readyState === "complete" && typeof window.run === "function"`), "second test dApp tab");
+  check((await evaluate(site, "window.__wrapped")) === true, "second tab: the Wallet Standard wallet reached the site only wrapped");
+  await until(() => evaluate(site, "window.solana.signTransaction !== window.__injectedOriginal.signTransaction && window.solana.signMessage !== window.__injectedOriginal.signMessage"), "injected provider wrapped", 15_000).then(
+    () => check(true, "the injected provider's signing methods are wrapped by Presign"),
+    () => check(false, "the injected provider's signing methods are wrapped by Presign"),
+  );
+  const run = (kind, opts) => evaluate(site, `window.run(${JSON.stringify(kind)}, ${JSON.stringify(opts)}), true`);
+  const outcome = (slot, what) => until(() => evaluate(site, `window[${JSON.stringify(slot)}]`), what, 60_000);
+  const walletCalls = () => evaluate(site, "window.__walletCalls");
+  const approveInPage = async (s, what) => {
+    await until(() => clickButton(s, PRIMARY), what, 20_000);
+    await sleep(500);
+    await clickButton(s, /I understand — continue/);
+  };
+  // The request the extension holds for a review window (its rid and payload), asked the way the review page asks.
+  const ticketOf = (s) =>
+    evaluate(s, `(() => { const q = new URL(location.href).searchParams; const send = window.__realSend ?? chrome.runtime.sendMessage.bind(chrome.runtime);
+      return new Promise((resolve) => send(q.get("ext"), { kind: "presign:get", rid: q.get("rid") }, (t) => resolve({ rid: q.get("rid"), payload: t?.ticket?.request?.payload ?? null }))); })()`);
+  // A message to the extension from a review page, as script running on the Presign page could send it.
+  const sendFrom = (s, message) =>
+    evaluate(s, `(() => { const send = window.__realSend ?? chrome.runtime.sendMessage.bind(chrome.runtime); const ext = new URL(location.href).searchParams.get("ext");
+      return Promise.race([new Promise((resolve) => send(ext, ${JSON.stringify(message)}, resolve)), new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 30000))]); })()`);
+  // Records the approvals the review page sends to the extension; with hold, keeps them from the extension.
+  const recordApprovals = (s, hold) =>
+    evaluate(s, `(() => { const rt = chrome.runtime; const real = rt.sendMessage.bind(rt); window.__realSend = real; window.__approvals = [];
+      const wrapped = (ext, msg, cb) => { if (msg && msg.kind === "presign:approve") { window.__approvals.push(msg); if (${hold}) return void setTimeout(() => cb({ ok: false, error: "HELD_BY_TEST" }), 0); } return real(ext, msg, cb); };
+      try { rt.sendMessage = wrapped; } catch {} if (rt.sendMessage !== wrapped) Object.defineProperty(rt, "sendMessage", { value: wrapped, configurable: true, writable: true });
+      return rt.sendMessage === wrapped; })()`);
+
+  // ---- 9. Injected provider, approved — and the site's transaction object changes what it serializes right after the call
+  await pace();
+  const calls9 = (await walletCalls()).length;
+  await run("transaction", { via: "injected", slot: "__i1", mutate: true });
+  const r9 = await reviewWindow();
+  check((await walletCalls()).length === calls9, "injected provider: the wallet was NOT asked before the review");
+  await analyzed(r9.session, "injected-provider analysis");
+  check((await ticketOf(r9.session)).payload === served.transaction, "injected provider: Presign reviewed exactly the site's bytes as they were at the call");
+  await approveInPage(r9.session, "injected-provider primary action");
+  const res9 = await outcome("__i1", "injected-provider result");
+  check(res9.ok === true, `injected provider, approve → the site got the signed transaction (${JSON.stringify(res9)})`);
+  const after9 = await walletCalls();
+  check(after9.length === calls9 + 1 && after9.at(-1).method === "injected:signTransaction" && after9.at(-1).b64 === served.transaction, "injected provider: the wallet received exactly the reviewed bytes, not the site's changed ones, once");
+
+  // ---- 10. Injected provider, cancelled
+  await pace();
+  const calls10 = (await walletCalls()).length;
+  await run("transaction", { via: "injected", slot: "__i2" });
+  const r10 = await reviewWindow();
+  await analyzed(r10.session, "injected-provider analysis (cancel)");
+  await clickButton(r10.session, /^\s*Cancel\s*$/);
+  const res10 = await outcome("__i2", "injected-provider cancel result");
+  check(res10.ok === false && res10.code === 4001, `injected provider, cancel → user-rejected error (${JSON.stringify(res10)})`);
+  check((await walletCalls()).length === calls10, "injected provider, cancel → the wallet was never asked");
+
+  // ---- 11. Wallet Standard: the site changes its own byte array while the review is open
+  await pace();
+  await run("transaction", { slot: "__m", mutate: true });
+  const r11 = await reviewWindow();
+  await analyzed(r11.session, "analysis of a request whose bytes the site changed");
+  check((await ticketOf(r11.session)).payload === served.transaction, "site changes its array after the call: Presign reviewed the bytes as they were at the call");
+  await approveInPage(r11.session, "primary action (changed array)");
+  const res11 = await outcome("__m", "result (changed array)");
+  check(res11.ok === true && (await walletCalls()).at(-1).b64 === served.transaction, `site changes its array after the call → the wallet still signs exactly the reviewed bytes (${JSON.stringify(res11)})`);
+
+  // ---- 12. A genuine approval, but for OTHER bytes: request A is approved in Presign and the approval held back;
+  //          script on the Presign page then offers it for request B. The extension asks the server, which refuses it.
+  //          The same approval, given to A, is accepted: the refusal is about the bytes, not a broken token.
+  await pace();
+  const calls12 = (await walletCalls()).length;
+  await run("transaction", { slot: "__a" });
+  const rA = await reviewWindow();
+  await analyzed(rA.session, "analysis of request A");
+  check(await recordApprovals(rA.session, true), "request A: the test records and holds back the approval the review page sends");
+  await approveInPage(rA.session, "request A primary action");
+  const heldA = await until(() => evaluate(rA.session, "window.__approvals[0] ?? null"), "request A's approval", 30_000);
+  await run("other", { slot: "__b" });
+  const rB = await reviewWindow();
+  await analyzed(rB.session, "analysis of request B");
+  const ticketB = await ticketOf(rB.session);
+  check(ticketB.payload === served.other && ticketB.payload !== heldA.payload, "request B carries other bytes than request A");
+  const misused = await sendFrom(rB.session, { ...heldA, rid: ticketB.rid, payload: ticketB.payload });
+  check(misused?.ok === false && misused.error === "APPROVAL_UNCONFIRMED", `A's genuine approval offered for B's bytes is refused after asking Presign (${JSON.stringify(misused)})`);
+  const resB = await outcome("__b", "request B result");
+  check(resB.ok === false, `request B → the site got a refusal (${JSON.stringify(resB)})`);
+  check((await walletCalls()).length === calls12, "request B → the wallet was never asked");
+  const usedForA = await sendFrom(rA.session, heldA);
+  check(usedForA?.ok === true, `the same approval for A's own bytes is accepted (${JSON.stringify(usedForA)})`);
+  const resA = await outcome("__a", "request A result");
+  check(resA.ok === true && (await walletCalls()).at(-1).b64 === heldA.payload, `request A → the wallet signed exactly A's reviewed bytes (${JSON.stringify(resA)})`);
+
+  // ---- 13. Replays: the approval A already used, sent again for A, and offered for a new request with A's very bytes
+  await pace();
+  const calls13 = (await walletCalls()).length;
+  const again = await sendFrom(rA.session, heldA);
+  check(again?.ok === false, `a used approval sent again for its own request is refused (${JSON.stringify(again)})`);
+  await run("transaction", { slot: "__c", againFrom: "__a" });
+  const rC = await reviewWindow();
+  await analyzed(rC.session, "analysis of A's bytes sent again");
+  const ticketC = await ticketOf(rC.session);
+  check(ticketC.payload === heldA.payload, "the site sent A's exact bytes again, as a new request");
+  const replayed = await sendFrom(rC.session, { ...heldA, rid: ticketC.rid, payload: ticketC.payload });
+  check(replayed?.ok === false && replayed.error === "APPROVAL_UNCONFIRMED", `A's used approval offered for the same bytes again is refused: approvals are confirmed once (${JSON.stringify(replayed)})`);
+  const resC = await outcome("__c", "replayed-approval result");
+  check(resC.ok === false && (await walletCalls()).length === calls13, `replayed approval → refused, and the wallet was never asked (${JSON.stringify(resC)})`);
+
+  // ---- 14. Re-entrancy: while an approved request is still in the wallet, the site asks for OTHER bytes
+  await pace();
+  await evaluate(site, "window.__hold = new Promise((r) => (window.__release = r)), true");
+  const calls14 = (await walletCalls()).length;
+  await run("transaction", { slot: "__d" });
+  const rD = await reviewWindow();
+  await analyzed(rD.session, "analysis before the re-entrant call");
+  await approveInPage(rD.session, "primary action (held in the wallet)");
+  await until(async () => (await walletCalls()).length === calls14 + 1, "the approved request to reach the wallet", 30_000);
+  await run("other", { slot: "__e" });
+  const rE = await reviewWindow();
+  check((await walletCalls()).length === calls14 + 1, "re-entrant call with other bytes: a new review opened and the wallet was not asked for them");
+  await analyzed(rE.session, "analysis of the re-entrant call");
+  await clickButton(rE.session, /^\s*Cancel\s*$/);
+  const resE = await outcome("__e", "re-entrant call result");
+  check(resE.ok === false && resE.code === 4001, `re-entrant call, cancel → user-rejected error (${JSON.stringify(resE)})`);
+  await evaluate(site, "window.__release(), window.__hold = null, true");
+  const resD = await outcome("__d", "held request result");
+  const calls14After = await walletCalls();
+  check(resD.ok === true && calls14After.length === calls14 + 1 && calls14After.at(-1).b64 === served.transaction, `the held request completed with its own reviewed bytes; the other bytes never reached the wallet (${JSON.stringify(resD)})`);
+
+  // ---- 15. The extension's own log
   const log = await evaluate(swSession, `chrome.storage.local.get("log").then((v) => (v.log || []).map((e) => e.state))`);
   console.log(`      extension log: ${JSON.stringify(log)}`);
   check(Array.isArray(log) && log.includes("signed") && log.includes("cancelled"), "decisions are recorded in the extension's log");
