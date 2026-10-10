@@ -23,6 +23,8 @@ const NOT_TRUE: Array<[RegExp, string]> = [
   [/\breal[- ]time (alerts?|warnings?|protection)\b|\binstant (alerts?|warnings?)\b/i, "Watchtower polls; its alerts can be delayed"],
   [/\b(cannot|can't|can not) be bypassed\b|\bimpossible to bypass\b|\bbulletproof\b|\b100% (safe|secure|protection|protected)\b/i, "the hook can be bypassed through a wallet's own page code"],
   [/\b(you are|you're|keeps you|stay) (safe|protected)\b/i, "Presign shows evidence; it does not make a signature safe"],
+  [/\bwhat presign guarantees\b/i, "the hook's checks cover only the requests that pass through it"],
+  [/\bbefore the signature (went|goes|was|is) (back|returned) to the (application|site)\b/i, "the after-signing check runs after the wallet's own page code; withholding is best effort"],
 ];
 
 const SURFACES = /^(README\.md|extension\/README\.md|extension\/popup\.html|extension\/manifest\.json|app\/.*\.tsx|components\/.*\.tsx|lib\/brand\.ts|docs\/.*\.md)$/;
@@ -65,6 +67,8 @@ describe("Presign's own words make none of the claims the audit ruled out", () =
       "Watchtower sends real-time alerts.",
       "The review cannot be bypassed.",
       "With Presign you are safe.",
+      "What Presign guarantees is the order and the input.",
+      "Presign checked that your wallet signed exactly the reviewed bytes before the signature went back to the application.",
     ];
     for (const c of claims) expect(NOT_TRUE.some(([p]) => p.test(c)), c).toBe(true);
     // …and leave the true, careful wording alone.

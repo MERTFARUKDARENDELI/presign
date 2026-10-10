@@ -376,8 +376,8 @@ export function SigningReview({ review, allowSubmit = false, onClose, external }
           <div className="space-y-1 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm" role="status">
             <p className="flex items-center gap-2 text-emerald-300"><BadgeCheck className="size-4" aria-hidden /> {result.detail}</p>
             <p className="text-xs text-zinc-400">
-              Presign checked that your wallet signed exactly the reviewed bytes before the signature went back to the application
-              {external?.walletSends ? " (this request is broadcast by your wallet itself, so only what was sent to the wallet could be checked)" : ""}. You can close this window.
+              Your wallet was asked only after your decision, with bytes that hash to what Presign approved
+              {external?.walletSends ? " (this request is broadcast by your wallet itself, so only what was sent to the wallet could be checked)" : ""}. Presign then compared what the wallet returned with the reviewed bytes — a best-effort check, since the wallet&apos;s own page code handles its result first. You can close this window.
             </p>
           </div>
         )}

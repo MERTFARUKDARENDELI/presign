@@ -3,7 +3,7 @@
   "name": "Presign — Know exactly what you sign",
   "short_name": "Presign",
   "version": "0.1.0",
-  "description": "Reviews Solana wallet signing requests before your wallet opens: decode, simulate, deterministic risk rules, evidence. You decide.",
+  "description": "Reviews Solana signing requests that sites send through standard wallet interfaces, before your wallet opens. Evidence; you decide.",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon-16.png",
