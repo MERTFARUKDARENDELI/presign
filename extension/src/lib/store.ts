@@ -1,4 +1,4 @@
-import { isAllowedPresignOrigin, REVIEW_TTL_MS, type ExternalMessage, type Instance, type ReviewRequest, type ReviewState, type ReviewTicket } from "./protocol";
+import { isAllowedPresignOrigin, REVIEW_TTL_MS, type ExternalMessage, type Instance, type ReviewRequest, type ReviewState, type ReviewTicket, type UnnamedChain } from "./protocol";
 
 /**
  * The background's decision logic, free of chrome.* so it is unit-tested:
@@ -20,11 +20,13 @@ export interface PendingReview extends ReviewTicket {
 export interface Settings {
   enabled: boolean;
   instance: Instance;
+  /** Network for requests that name no chain (see presignBaseFor). */
+  unnamedChain: UnnamedChain;
   /** Sites the user chose to skip (exact origins). */
   skipSites: string[];
 }
 
-export const DEFAULT_SETTINGS: Settings = { enabled: true, instance: "production", skipSites: [] };
+export const DEFAULT_SETTINGS: Settings = { enabled: true, instance: "production", unnamedChain: "mainnet", skipSites: [] };
 
 export interface LogEntry {
   at: number;

@@ -1,5 +1,5 @@
 import { confirmApproval } from "./lib/approval";
-import { presignBaseFor, reviewableRequest, type ExternalMessage } from "./lib/protocol";
+import { DEV_BUILD, presignBaseFor, reviewableRequest, type ExternalMessage } from "./lib/protocol";
 import { applyConfirmation, applyOutcome, DEFAULT_SETTINGS, handleExternal, logEntryForUnreviewed, logEntryOf, modeFor, newPending, type LogEntry, type PendingReview, type Settings } from "./lib/store";
 
 /**
@@ -71,7 +71,7 @@ chrome.runtime.onMessage.addListener((msg: { kind?: string; id?: string; request
         await log({ at: Date.now(), origin, method: request.method, type: request.type, state: "passed", riskLevel: null, detail: m.why });
         return sendResponse({ ok: true, mode: "pass" });
       }
-      const base = presignBaseFor(request.chain, s.instance);
+      const base = presignBaseFor(request.chain, s.instance, DEV_BUILD, s.unnamedChain === "devnet" ? "devnet" : "mainnet");
       const rid = crypto.randomUUID();
       const r = newPending({ rid, origin, request, tabId, frameId: sender.frameId ?? 0, hookId: msg.id, presignOrigin: base, now: Date.now() });
       reviews.set(rid, r);

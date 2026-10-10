@@ -98,10 +98,19 @@ export function allowedPresignOrigins(dev: boolean = DEV_BUILD): readonly string
 
 export type Instance = "production" | "local";
 
-/** Which Presign instance reviews a request: by its chain, so a devnet request is simulated on devnet. "local" counts only in a development build. */
-export function presignBaseFor(chain: string | null, instance: Instance, dev: boolean = DEV_BUILD): string {
+/** The network for a request whose wallet API names no chain (injected providers such as window.solana, messages): the user's choice in the menu. */
+export type UnnamedChain = "mainnet" | "devnet";
+
+/**
+ * Which Presign instance reviews a request: by its chain, so a devnet request is simulated on devnet; a request
+ * that names no chain goes to the network the user picked (mainnet unless changed). A transaction reviewed on the
+ * wrong network usually cannot be verified there (its blockhash is unknown), so only Cancel is offered.
+ * "local" counts only in a development build.
+ */
+export function presignBaseFor(chain: string | null, instance: Instance, dev: boolean = DEV_BUILD, unnamed: UnnamedChain = "mainnet"): string {
   if (instance === "local" && dev) return PRESIGN_ORIGINS.local;
-  return chain === "solana:devnet" ? PRESIGN_ORIGINS.devnet : PRESIGN_ORIGINS.mainnet;
+  if (chain === "solana:devnet" || (chain === null && unnamed === "devnet")) return PRESIGN_ORIGINS.devnet;
+  return PRESIGN_ORIGINS.mainnet;
 }
 
 const METHODS = new Set<ReviewMethod>(Object.keys(REVIEW_METHOD_LABEL) as ReviewMethod[]);

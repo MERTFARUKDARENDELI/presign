@@ -79,6 +79,12 @@ describe("request validation (data from web pages is untrusted)", () => {
     // A production build never sends a review to localhost, even if the stored setting says "local".
     expect(presignBaseFor("solana:devnet", "local", false)).toBe(PRESIGN_ORIGINS.devnet);
     expect(presignBaseFor("solana:devnet", "local")).toBe(PRESIGN_ORIGINS.devnet);
+    // A request that names no chain goes to the network picked in the menu (mainnet by default); a named chain always wins.
+    expect(DEFAULT_SETTINGS.unnamedChain).toBe("mainnet");
+    expect(presignBaseFor(null, "production", false, "devnet")).toBe(PRESIGN_ORIGINS.devnet);
+    expect(presignBaseFor("solana:mainnet", "production", false, "devnet")).toBe(PRESIGN_ORIGINS.mainnet);
+    expect(presignBaseFor("solana:devnet", "production", false, "mainnet")).toBe(PRESIGN_ORIGINS.devnet);
+    expect(presignBaseFor(null, "local", true, "devnet")).toBe(PRESIGN_ORIGINS.local);
     expect(isAllowedPresignOrigin(PRESIGN_ORIGINS.local)).toBe(false);
     expect(isAllowedPresignOrigin(PRESIGN_ORIGINS.local, true)).toBe(true);
     expect(isAllowedPresignOrigin(PRESIGN_ORIGINS.mainnet)).toBe(true);

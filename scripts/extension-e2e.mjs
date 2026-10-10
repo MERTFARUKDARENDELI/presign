@@ -457,10 +457,14 @@ try {
       return rt.sendMessage === wrapped; })()`);
 
   // ---- 9. Injected provider, approved — and the site's transaction object changes what it serializes right after the call
+  // window.solana names no chain, so production reviews its requests on the network picked in the menu (mainnet by
+  // default). These transactions are devnet's: the test picks devnet there, as someone testing on devnet would.
+  if (INSTANCE === "production") await evaluate(swSession, `chrome.storage.local.get("settings").then((v) => chrome.storage.local.set({ settings: { ...v.settings, unnamedChain: "devnet" } })).then(() => true)`);
   await pace();
   const calls9 = (await walletCalls()).length;
   await run("transaction", { via: "injected", slot: "__i1", mutate: true });
   const r9 = await reviewWindow();
+  if (INSTANCE === "production") check(new URL(r9.target.url).origin === "https://presign-devnet.vercel.app", "a request that names no chain is reviewed on the network picked in the menu (devnet)");
   check((await walletCalls()).length === calls9, "injected provider: the wallet was NOT asked before the review");
   await analyzed(r9.session, "injected-provider analysis");
   check((await ticketOf(r9.session)).payload === served.transaction, "injected provider: Presign reviewed exactly the site's bytes as they were at the call");

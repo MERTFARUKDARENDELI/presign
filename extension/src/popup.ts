@@ -54,6 +54,7 @@ async function main() {
   const instance = $<HTMLSelectElement>("instance");
   // The local instance exists only in a development build.
   if (!DEV_BUILD) instance.querySelector('option[value="local"]')?.remove();
+  const unnamedChain = $<HTMLSelectElement>("unnamed-chain");
   const status = $("status");
   const statusText = $("status-text");
 
@@ -69,6 +70,9 @@ async function main() {
   const render = (x: Settings) => {
     enabled.checked = x.enabled;
     instance.value = DEV_BUILD ? x.instance : "production";
+    unnamedChain.value = x.unnamedChain === "devnet" ? "devnet" : "mainnet";
+    // The local instance reviews every request itself, whatever its chain.
+    unnamedChain.disabled = DEV_BUILD && x.instance === "local";
     site.disabled = !origin || !x.enabled;
     site.checked = !!origin && !x.skipSites.includes(origin);
     $("site-host").textContent = origin ? new URL(origin).host : "Not a website";
@@ -91,6 +95,11 @@ async function main() {
   });
   instance.addEventListener("change", async () => {
     s.instance = instance.value === "local" ? "local" : "production";
+    await saveSettings(s);
+    render(s);
+  });
+  unnamedChain.addEventListener("change", async () => {
+    s.unnamedChain = unnamedChain.value === "devnet" ? "devnet" : "mainnet";
     await saveSettings(s);
     render(s);
   });
