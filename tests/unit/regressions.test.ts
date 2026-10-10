@@ -167,6 +167,23 @@ describe("regression: CLAUDE.md rule 3 — a reported $0 liquidity is unknown ev
     expect(r.signals.find((x) => x.code === "TOKEN_LIQUIDITY_VERY_LOW")?.severity).toBe("HIGH");
   });
 
+  it("the other liquidity cases: not reported, no markets and negative are unknown; only a positive amount is rated", () => {
+    const rate = (raw: Record<string, unknown>) => {
+      const rc = parseRugcheck({ risks: [], totalHolders: 5_000, rugged: false, ...raw }, "full")!;
+      const r = evaluateTokenRisk({ mintAddress: mint, mint: parseMintAccount(mint, parsedMint({}))!, mintStatus: "OK", rugcheck: { ok: true, data: rc }, concentration: { top1Pct: 1, top10Pct: 5 }, concentrationStatus: "OK", metadata: null, metadataStatus: "SKIPPED" });
+      return [rc.liquidityUsd, rc.liquidityReportedZero, r.status, codes(r).includes("TOKEN_LIQUIDITY_VERY_LOW")];
+    };
+    // Markets listed, liquidity not reported: unknown, and not "reported $0" either.
+    expect(rate({ markets: [{}], totalMarketLiquidity: null })).toEqual([null, false, "PARTIAL", false]);
+    expect(rate({ markets: [{}] })).toEqual([null, false, "PARTIAL", false]);
+    // No markets: a $0 there is no reading at all.
+    expect(rate({ markets: null, totalMarketLiquidity: 0 })).toEqual([null, false, "PARTIAL", false]);
+    // A negative amount is malformed data, not low liquidity.
+    expect(rate({ markets: [{}], totalMarketLiquidity: -5 })).toEqual([null, false, "PARTIAL", false]);
+    // A positive amount under $1 is still very low liquidity.
+    expect(rate({ markets: [{}], totalMarketLiquidity: 0.5 })[3]).toBe(true);
+  });
+
   it("0 holders with markets listed is unknown, not 'very few holders'", () => {
     const { rc, r } = evaluate(1_000_000, 0);
     expect(rc.totalHolders).toBeNull();

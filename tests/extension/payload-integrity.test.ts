@@ -1,10 +1,11 @@
 import { SystemProgram } from "@solana/web3.js";
 import bs58 from "bs58";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { transactionMessage } from "@/extension/src/lib/bytes";
-import { createReviewer } from "@/extension/src/lib/channel";
+import { bytesToBase64, transactionMessage } from "@/extension/src/lib/bytes";
+import { createReviewer, pageTransport } from "@/extension/src/lib/channel";
 import { installInterceptor, PresignRejection, type HookWindow, type InterceptorDeps } from "@/extension/src/lib/intercept";
 import type { ReviewRequest } from "@/extension/src/lib/protocol";
+import { createSignInMessageText } from "@/extension/src/lib/siws";
 import { confirmedApproval, payloadHashOf } from "../helpers/approval";
 import { ATTACKER, buildTx, WALLET } from "../helpers/fixtures";
 
@@ -134,5 +135,153 @@ describe("the wallet receives only bytes whose hash Presign's server approved", 
     reviewer.settle({ kind: "decision", id: sent[1].id, approved: true, rid: "r2", payloadHash: payloadHashOf(sent[1].request)!.toUpperCase() });
     await expect(bad).rejects.toThrow(/could not confirm which bytes you approved/);
     expect(signed).toHaveLength(1);
+  });
+});
+
+describe("an approval confirmed for other bytes is refused on every other entry point too", () => {
+  // The cases above cover signTransaction / signMessage; these are the remaining entry points of both kinds of wallet.
+  const OTHER = { TRANSACTION: { type: "TRANSACTION" as const, payload: b64(txBytes(42)) }, MESSAGE: { type: "MESSAGE" as const, payload: b64(text("something else")) } };
+  const otherApproval = async (r: ReviewRequest) => ({ approved: true, id: "rid-1", payloadHash: payloadHashOf(r.type === "TRANSACTION" ? OTHER.TRANSACTION : OTHER.MESSAGE) });
+  const record = <T,>(name: string, out: T): T => (calls.push([name]), out);
+
+  const fullWallet = () =>
+    hook.wrapWallet({
+      version: "1.0.0", name: "Test", icon: "", chains: ["solana:mainnet"], accounts: [{ address: W }],
+      features: {
+        "solana:signAndSendTransaction": { version: "1.0.0", signAndSendTransaction: async (...i: unknown[]) => record("signAndSendTransaction", i.map(() => ({ signature: new Uint8Array(64) }))) },
+        "solana:signAndSendAllTransactions": { version: "1.0.0", signAndSendAllTransactions: async (i: unknown[]) => record("signAndSendAllTransactions", i.map(() => ({ status: "fulfilled" }))) },
+        "solana:signOffchainMessage": { version: "1.0.0", signOffchainMessage: async (...i: Array<{ message: string }>) => record("signOffchainMessage", i.map((x) => ({ signedOffchainMessage: text(x.message), signature: new Uint8Array(64) }))) },
+        "solana:signIn": { version: "1.0.0", signIn: async (...i: unknown[]) => record("signIn", i.map(() => ({ account: { address: W }, signedMessage: text("x"), signature: new Uint8Array(64) }))) },
+      },
+    }) as unknown as { features: Fns };
+
+  const fullProvider = () => {
+    const p = new (class Provider {
+      publicKey = { toBase58: () => W };
+      async signMessage() {
+        return record("signMessage", {});
+      }
+      async signAllTransactions(t: unknown) {
+        return record("signAllTransactions", t);
+      }
+      async signAndSendTransaction() {
+        return record("signAndSendTransaction", {});
+      }
+      async signIn() {
+        return record("signIn", {});
+      }
+      async request(a: { method: string }) {
+        return record(`request:${a.method}`, {});
+      }
+    })();
+    hook.patchProvider(p, "Test");
+    return p as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+  };
+
+  const ENTRY_POINTS: Array<[string, () => Promise<unknown>]> = [
+    ["Wallet Standard signAndSendTransaction", () => fullWallet().features["solana:signAndSendTransaction"].signAndSendTransaction({ transaction: txBytes(1), account: { address: W } })],
+    ["Wallet Standard signAndSendAllTransactions", () => fullWallet().features["solana:signAndSendAllTransactions"].signAndSendAllTransactions([{ transaction: txBytes(1), account: { address: W } }])],
+    ["Wallet Standard signOffchainMessage", () => fullWallet().features["solana:signOffchainMessage"].signOffchainMessage({ message: "hello", account: { address: W } })],
+    ["Wallet Standard signIn (account known in advance)", () => fullWallet().features["solana:signIn"].signIn({ statement: "hi", nonce: "abc12345" })],
+    ["injected signAllTransactions", () => fullProvider().signAllTransactions([txBytes(1), txBytes(2)])],
+    ["injected signAndSendTransaction", () => fullProvider().signAndSendTransaction(txBytes(1))],
+    ["injected signIn", () => fullProvider().signIn({ statement: "hi", nonce: "abc12345" })],
+    ["request signAllTransactions", () => fullProvider().request({ method: "signAllTransactions", params: { messages: [transactionMessage(txBytes(1)), transactionMessage(txBytes(2))] } })],
+    ["request signAndSendTransaction", () => fullProvider().request({ method: "signAndSendTransaction", params: { message: transactionMessage(txBytes(1)) } })],
+  ];
+
+  it.each(ENTRY_POINTS)("%s: reviewed, refused before the wallet, and the site is told why", async (_name, start) => {
+    deps.review.mockImplementation(otherApproval);
+    await expect(start()).rejects.toThrow(CHANGED);
+    expect(deps.review).toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it("a sign-in whose account the wallet chooses (signed first, by design): an approval for other text withholds the signature", async () => {
+    deps.review.mockImplementation(otherApproval);
+    const w = hook.wrapWallet({
+      version: "1.0.0", name: "Test", icon: "", chains: ["solana:mainnet"], accounts: [],
+      features: {
+        "solana:signIn": {
+          version: "1.0.0",
+          signIn: async (...i: Array<Record<string, string>>) =>
+            record("signIn", i.map((x) => ({ account: { address: W }, signedMessage: text(createSignInMessageText({ ...x, domain: x.domain ?? "dapp.example", address: W })), signature: new Uint8Array(64) }))),
+        },
+      },
+    }) as unknown as { features: Fns };
+    await expect(w.features["solana:signIn"].signIn({ statement: "hi", nonce: "abc12345" })).rejects.toThrow(CHANGED);
+    expect(calls).toEqual([["signIn"]]);
+  });
+});
+
+describe("re-entrancy and replayed decisions, over the real page channel", () => {
+  const tick = () => new Promise<void>((r) => setImmediate(r));
+  function channel() {
+    const doc = new EventTarget();
+    const secret = "cd".repeat(16);
+    const sent: Array<{ id: string; request: ReviewRequest }> = [];
+    const transport = pageTransport({ doc, secret, dispatch: EventTarget.prototype.dispatchEvent, listen: EventTarget.prototype.addEventListener, CustomEvent, detailOf: Object.getOwnPropertyDescriptor(CustomEvent.prototype, "detail")!.get! });
+    let n = 0;
+    const reviewer = createReviewer({ ready: () => true, send: transport.send, newId: () => `id-${++n}`, timeoutMs: 60_000, setTimer: () => 0, clearTimer: () => undefined });
+    transport.onMessage(reviewer.settle);
+    doc.addEventListener(`presign:${secret}:to-content`, (e) => {
+      const m = JSON.parse((e as CustomEvent).detail);
+      if (m.kind === "review") sent.push(m);
+    });
+    /** The decision the content script relays, as the DOM event it really is. */
+    const decide = (i: number) =>
+      doc.dispatchEvent(new CustomEvent(`presign:${secret}:to-page`, { detail: JSON.stringify({ kind: "decision", id: sent[i].id, approved: true, rid: "r", payloadHash: payloadHashOf(sent[i].request) }) }));
+    const h = installInterceptor(new EventTarget() as HookWindow, { review: reviewer.review, host: () => "dapp.example" });
+    return { sent, decide, hook: h };
+  }
+
+  it("while an approved call is in the wallet, a call with other bytes opens a new review and does not reach the wallet", async () => {
+    const { sent, decide, hook: h } = channel();
+    let release!: () => void;
+    const inWallet = new Promise<void>((r) => (release = r));
+    const got: string[] = [];
+    const p = {
+      publicKey: { toBase58: () => W },
+      async signTransaction(t: Uint8Array) {
+        got.push(bytesToBase64(t));
+        await inWallet;
+        return t;
+      },
+    };
+    h.patchProvider(p, "Test");
+    const first = p.signTransaction(txBytes(1));
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    decide(0);
+    await vi.waitFor(() => expect(got).toHaveLength(1)); // the approved call is now in the wallet
+    void p.signTransaction(txBytes(999_000_000)).catch(() => undefined);
+    await tick();
+    await tick();
+    expect(sent).toHaveLength(2); // reviewed, not passed through as the wallet's own re-entry
+    expect(got).toHaveLength(1);
+    release();
+    await first;
+    expect(got).toEqual([bytesToBase64(txBytes(1))]);
+  });
+
+  it("a decision replayed after it was used changes nothing: the wallet is asked once", async () => {
+    const { sent, decide, hook: h } = channel();
+    const got: Uint8Array[] = [];
+    const p = {
+      publicKey: { toBase58: () => W },
+      async signTransaction(t: Uint8Array) {
+        got.push(t);
+        return t;
+      },
+    };
+    h.patchProvider(p, "Test");
+    const one = p.signTransaction(txBytes(1));
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    decide(0);
+    await one;
+    decide(0);
+    decide(0);
+    await tick();
+    expect(got).toHaveLength(1);
+    expect(sent).toHaveLength(1);
   });
 });
