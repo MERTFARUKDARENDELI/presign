@@ -90,7 +90,72 @@ describe("AI explanation layer", () => {
   it("without a key the deterministic findings stand alone", async () => {
     const prev = process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
-    expect(await explainSigningFindings(findings)).toMatchObject({ available: false, unavailableReason: "NOT_CONFIGURED" });
+    vi.stubEnv("GEMINI_API_KEY", "");
+    expect(await explainSigningFindings(findings)).toMatchObject({ available: false, unavailableReason: "NOT_CONFIGURED", provider: null });
+    vi.unstubAllEnvs();
     if (prev !== undefined) process.env.ANTHROPIC_API_KEY = prev;
+  });
+});
+
+describe("AI explanation backup (Gemini) — only when Claude cannot answer", () => {
+  const findings: SigningFindings = { type: "TRANSACTION", application: "x", domain: null, riskLevel: "CRITICAL", riskScore: 90, analysisStatus: "COMPLETE", technicalValidation: "VALID", signals: [{ code: "TX_UNLIMITED_APPROVAL", severity: "CRITICAL", title: "Unlimited token approval", description: "d" }], whatHappens: [], assetMovements: [], authorityChanges: [], programs: [], simulation: "", multisig: [] };
+  const claudeSays = (text: string, stop: Anthropic.Beta.BetaMessage["stop_reason"] = "end_turn") => async () => ({ content: [{ type: "text", text }], stop_reason: stop }) as unknown as Anthropic.Beta.BetaMessage;
+  // What the Anthropic API answers when the account has no credit left.
+  const claudeFails = async (): Promise<Anthropic.Beta.BetaMessage> => {
+    throw new Error("400 invalid_request_error: Your credit balance is too low to access the Anthropic API.");
+  };
+  const backupSays = (text: string) => vi.fn(async () => ({ kind: "text" as const, text }));
+
+  it("Claude answers → Claude's text, and the backup is never asked", async () => {
+    const backup = backupSays("unused");
+    const r = await explainSigningFindings(findings, { createMessage: claudeSays("What you are signing: an unlimited approval."), backup });
+    expect(r).toMatchObject({ available: true, provider: "claude" });
+    expect(backup).not.toHaveBeenCalled();
+  });
+
+  it("Claude out of credit → the backup explains the same findings with the same instructions", async () => {
+    const backup = backupSays("What you are signing: an unlimited approval. Presign recommends cancelling.");
+    const r = await explainSigningFindings(findings, { createMessage: claudeFails, backup });
+    expect(r).toMatchObject({ available: true, provider: "gemini", unavailableReason: null });
+    const sent = backup.mock.calls[0] as unknown as [{ system: string; user: string }];
+    expect(sent[0].system).toContain("explanation layer of Presign");
+    expect(sent[0].user).toContain("TX_UNLIMITED_APPROVAL");
+  });
+
+  it("no Claude key → the backup explains", async () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    const r = await explainSigningFindings(findings, { backup: backupSays("What you are signing: an unlimited approval.") });
+    expect(r).toMatchObject({ available: true, provider: "gemini" });
+    if (prev !== undefined) process.env.ANTHROPIC_API_KEY = prev;
+  });
+
+  it("the backup's text goes through the same contradiction check", async () => {
+    const r = await explainSigningFindings(findings, { createMessage: claudeFails, backup: backupSays("This looks safe to sign.") });
+    expect(r).toMatchObject({ available: false, unavailableReason: "CONTRADICTED_VERDICT", provider: null });
+  });
+
+  it("a Claude refusal is final: the backup is not asked to say what Claude would not", async () => {
+    const backup = backupSays("unused");
+    expect(await explainSigningFindings(findings, { createMessage: claudeSays("", "refusal"), backup })).toMatchObject({ available: false, unavailableReason: "REFUSED" });
+    expect(backup).not.toHaveBeenCalled();
+  });
+
+  it("a contradiction from Claude is final too", async () => {
+    const backup = backupSays("unused");
+    expect(await explainSigningFindings(findings, { createMessage: claudeSays("This looks safe to sign."), backup })).toMatchObject({ unavailableReason: "CONTRADICTED_VERDICT" });
+    expect(backup).not.toHaveBeenCalled();
+  });
+
+  it("a backup blocked by its own filters is reported as refused", async () => {
+    const backup = vi.fn(async () => ({ kind: "blocked" as const }));
+    expect(await explainSigningFindings(findings, { createMessage: claudeFails, backup })).toMatchObject({ available: false, unavailableReason: "REFUSED" });
+  });
+
+  it("both unavailable → no explanation; the deterministic findings stand alone", async () => {
+    const backup = vi.fn(async () => {
+      throw new Error("Gemini answered HTTP 429.");
+    });
+    expect(await explainSigningFindings(findings, { createMessage: claudeFails, backup })).toMatchObject({ available: false, unavailableReason: "PROVIDER_ERROR", provider: null });
   });
 });

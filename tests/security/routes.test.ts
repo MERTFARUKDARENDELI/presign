@@ -4,6 +4,7 @@ import { POST as diagnoseRoute } from "@/app/api/ai/diagnose/route";
 import { POST as cleanupPrepareRoute } from "@/app/api/cleanup/prepare/route";
 import { POST as cleanupSubmitRoute } from "@/app/api/cleanup/submit/route";
 import { POST as txSubmitRoute } from "@/app/api/transaction/submit/route";
+import { resetGeminiDiagnostic } from "@/lib/ai/gemini";
 import { resetAiStatus } from "@/lib/ai/status";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { buildCleanupInstructions, messageHashOf, type CleanupIntent } from "@/lib/cleanup/intent";
@@ -58,6 +59,7 @@ beforeEach(() => {
   accounts.mockReset();
   resetRateLimits();
   resetAiStatus();
+  resetGeminiDiagnostic();
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -219,12 +221,25 @@ describe("POST /api/cleanup/prepare", () => {
 describe("POST /api/ai/diagnose", () => {
   it("returns NOT_CONFIGURED without a key and makes no provider call", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("GEMINI_API_KEY", "");
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
     const r = await json(await diagnoseRoute(post("/api/ai/diagnose", "")));
     expect(r.status).toBe(200);
     expect((r.body.data as { status: string }).status).toBe("NOT_CONFIGURED");
+    expect((r.body.data as { backup: { status: string } }).backup.status).toBe("NOT_CONFIGURED");
     expect(f).not.toHaveBeenCalled();
+  });
+
+  it("checks the backup key too, and never returns it", async () => {
+    const GEMINI_KEY = `AIza-test-${"z".repeat(30)}`;
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("GEMINI_API_KEY", GEMINI_KEY);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: `API key not valid: ${GEMINI_KEY}` } }), { status: 400 })));
+    const r = await json(await diagnoseRoute(post("/api/ai/diagnose", "")));
+    expect((r.body.data as { backup: { status: string } }).backup.status).toBe("INVALID_KEY");
+    expect(r.text).not.toContain(GEMINI_KEY);
+    expect(r.text).not.toContain("API key not valid");
   });
 
   it("never returns the key, even when the provider rejects it", async () => {

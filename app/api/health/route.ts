@@ -1,3 +1,4 @@
+import { geminiKey } from "@/lib/ai/gemini";
 import { getAiStatus } from "@/lib/ai/status";
 import { withApi } from "@/lib/api/handler";
 import { alertWebhook } from "@/lib/api/alerts";
@@ -15,6 +16,8 @@ export const GET = withApi({ name: "health", limit: 60, windowMs: 60_000 }, asyn
     // RugCheck indexes mainnet only, so it is inactive on devnet.
     rugcheck: process.env.RUGCHECK_DISABLED !== "true" && getCluster() === "mainnet-beta",
     ai: getAiStatus(),
+    // A backup model (Gemini) explains pre-sign reviews when Claude cannot; checked on demand by /api/ai/diagnose.
+    aiBackup: geminiKey() !== null,
     // Secure connect and the pre-sign review need it in production.
     presignSessionSecret: sessionSecretConfigured(),
     // Where client addresses and the served host come from; the public origin this deployment redirects to, if any.

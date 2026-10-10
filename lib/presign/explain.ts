@@ -2,6 +2,7 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import { logger } from "@/lib/api/logger";
 import { aiModel, configuredKey, createAnthropicClient } from "@/lib/ai/client";
+import { generateWithGemini, geminiKey, type GenerateFallback } from "@/lib/ai/gemini";
 import { wrapUntrusted } from "@/lib/ai/sanitize";
 import { getAiStatus, recordAiFailure, recordAiSuccess } from "@/lib/ai/status";
 import type { SigningFindings } from "./types";
@@ -12,12 +13,20 @@ import type { SigningFindings } from "./types";
  * and explains them; it cannot change the risk level, the evidence, the
  * simulation or what the user may do. Output that contradicts a HIGH or
  * CRITICAL verdict is discarded.
+ *
+ * Claude is asked first, every time. Only when it cannot answer (no or rejected
+ * key, credit or rate limit, outage) and a backup is configured (GEMINI_API_KEY)
+ * does the backup explain the same findings under the same instructions and the
+ * same contradiction check; the next request asks Claude again. A refusal or a
+ * dropped contradiction is final: the backup is not asked to say what Claude would not.
  */
 
 export interface SigningExplanation {
   available: boolean;
   text: string | null;
   unavailableReason: "NOT_CONFIGURED" | "INVALID_KEY" | "REFUSED" | "PROVIDER_ERROR" | "CONTRADICTED_VERDICT" | null;
+  /** Which model wrote the text; null when there is none. */
+  provider: "claude" | "gemini" | null;
 }
 
 export type CreateMessage = (params: Anthropic.Beta.MessageCreateParamsNonStreaming, options?: { signal?: AbortSignal }) => Promise<Anthropic.Beta.BetaMessage>;
@@ -39,6 +48,11 @@ Write at most 200 words, plain text, in five short labeled parts:
 
 const CONTRADICTION = /\b(safe to sign|is safe\b|no risk\b|nothing to worry|you can safely|harmless)\b/i;
 
+// Both calls fit in the route's maxDuration (45 s): Claude gets less time when a backup waits behind it.
+const CLAUDE_TIMEOUT_MS = 35_000;
+const CLAUDE_TIMEOUT_WITH_BACKUP_MS = 25_000;
+const BACKUP_TIMEOUT_MS = 15_000;
+
 function forModel(f: SigningFindings): unknown {
   const wrapAll = (xs: string[]) => xs.map((x) => wrapUntrusted(x));
   return {
@@ -52,11 +66,24 @@ function forModel(f: SigningFindings): unknown {
   };
 }
 
-export async function explainSigningFindings(findings: SigningFindings, options: { createMessage?: CreateMessage } = {}): Promise<SigningExplanation> {
-  const status = options.createMessage ? null : getAiStatus();
-  if (status === "NOT_CONFIGURED" || status === "INVALID_KEY") return { available: false, text: null, unavailableReason: status };
+const unavailable = (unavailableReason: SigningExplanation["unavailableReason"]): SigningExplanation => ({ available: false, text: null, unavailableReason, provider: null });
 
-  let createMessage = options.createMessage;
+/** The same check for every provider: an empty answer is no answer, and a HIGH / CRITICAL / unverifiable request is never called safe. */
+function checked(findings: SigningFindings, text: string, provider: "claude" | "gemini"): SigningExplanation {
+  if (!text) return unavailable("PROVIDER_ERROR");
+  if ((findings.riskLevel === "HIGH" || findings.riskLevel === "CRITICAL" || findings.technicalValidation !== "VALID") && CONTRADICTION.test(text)) {
+    logger.warn("presign.ai_contradiction_dropped", { risk: findings.riskLevel, provider });
+    return unavailable("CONTRADICTED_VERDICT");
+  }
+  return { available: true, text, unavailableReason: null, provider };
+}
+
+/** `retry`: Claude could not answer, so a backup may. A refusal or a contradiction is an answer. */
+async function askClaude(findings: SigningFindings, prompt: string, injected: CreateMessage | undefined, timeoutMs: number): Promise<{ result: SigningExplanation; retry: boolean }> {
+  const status = injected ? null : getAiStatus();
+  if (status === "NOT_CONFIGURED" || status === "INVALID_KEY") return { result: unavailable(status), retry: true };
+
+  let createMessage = injected;
   if (!createMessage) {
     const client = createAnthropicClient(configuredKey()!, { timeoutMs: 30_000, maxRetries: 1 });
     createMessage = (params, opts) => client.beta.messages.create(params, opts);
@@ -68,33 +95,50 @@ export async function explainSigningFindings(findings: SigningFindings, options:
         model: aiModel(),
         max_tokens: 2_000,
         system: [{ type: "text", text: SIGNING_EXPLAIN_INSTRUCTIONS, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: `Presign findings (JSON):\n${JSON.stringify(forModel(findings)).slice(0, 12_000)}` }],
+        messages: [{ role: "user", content: prompt }],
         output_config: { effort: "low" },
         // Security wording (drains, takeovers) can trip a classifier; the API then retries on its recommended model.
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
       },
-      { signal: AbortSignal.timeout(35_000) },
+      { signal: AbortSignal.timeout(timeoutMs) },
     );
     if (response.stop_reason === "refusal") {
-      if (!options.createMessage) recordAiSuccess();
-      return { available: false, text: null, unavailableReason: "REFUSED" };
+      if (!injected) recordAiSuccess();
+      return { result: unavailable("REFUSED"), retry: false };
     }
     const text = response.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n")
       .trim();
-    if (!options.createMessage) recordAiSuccess();
-    if (!text) return { available: false, text: null, unavailableReason: "PROVIDER_ERROR" };
-    if ((findings.riskLevel === "HIGH" || findings.riskLevel === "CRITICAL" || findings.technicalValidation !== "VALID") && CONTRADICTION.test(text)) {
-      logger.warn("presign.ai_contradiction_dropped", { risk: findings.riskLevel });
-      return { available: false, text: null, unavailableReason: "CONTRADICTED_VERDICT" };
-    }
-    return { available: true, text, unavailableReason: null };
+    if (!injected) recordAiSuccess();
+    if (!text) return { result: unavailable("PROVIDER_ERROR"), retry: true };
+    return { result: checked(findings, text, "claude"), retry: false };
   } catch (error) {
     logger.warn("presign.ai_unavailable", { error });
-    if (!options.createMessage) recordAiFailure(error);
-    return { available: false, text: null, unavailableReason: !options.createMessage && getAiStatus() === "INVALID_KEY" ? "INVALID_KEY" : "PROVIDER_ERROR" };
+    if (!injected) recordAiFailure(error);
+    return { result: unavailable(!injected && getAiStatus() === "INVALID_KEY" ? "INVALID_KEY" : "PROVIDER_ERROR"), retry: true };
   }
+}
+
+async function askBackup(findings: SigningFindings, prompt: string, backup: GenerateFallback): Promise<SigningExplanation> {
+  try {
+    const r = await backup({ system: SIGNING_EXPLAIN_INSTRUCTIONS, user: prompt, maxOutputTokens: 4_000 }, { signal: AbortSignal.timeout(BACKUP_TIMEOUT_MS) });
+    if (r.kind === "blocked") return unavailable("REFUSED");
+    logger.info("presign.ai_backup_used", { provider: "gemini" });
+    return checked(findings, r.text, "gemini");
+  } catch (error) {
+    logger.warn("presign.ai_backup_unavailable", { error });
+    return unavailable("PROVIDER_ERROR");
+  }
+}
+
+export async function explainSigningFindings(findings: SigningFindings, options: { createMessage?: CreateMessage; backup?: GenerateFallback | null } = {}): Promise<SigningExplanation> {
+  const prompt = `Presign findings (JSON):\n${JSON.stringify(forModel(findings)).slice(0, 12_000)}`;
+  // Injected test doubles never reach a real backup unless one is injected too.
+  const backup = options.backup !== undefined ? options.backup : !options.createMessage && geminiKey() ? generateWithGemini : null;
+  const claude = await askClaude(findings, prompt, options.createMessage, backup ? CLAUDE_TIMEOUT_WITH_BACKUP_MS : CLAUDE_TIMEOUT_MS);
+  if (!claude.retry || !backup) return claude.result;
+  return askBackup(findings, prompt, backup);
 }

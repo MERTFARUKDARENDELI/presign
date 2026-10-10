@@ -39,6 +39,7 @@ interface Explanation {
   available: boolean;
   text: string | null;
   unavailableReason: string | null;
+  provider?: "claude" | "gemini" | null;
 }
 
 const RECOMMENDATION: Record<Review["decision"]["recommendedAction"], { label: string; tone: string }> = {
@@ -313,7 +314,7 @@ export function SigningReview({ review, allowSubmit = false, onClose, external }
       <Section title="Presign recommendation">
         <p className={cn("text-base font-bold uppercase tracking-wide", rec.tone)}>{rec.label}</p>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-sm">
-          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-violet-300"><Sparkles className="size-3.5" aria-hidden /> AI explanation <span className="font-normal normal-case text-zinc-500">(explains the findings; cannot change them)</span></p>
+          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-violet-300"><Sparkles className="size-3.5" aria-hidden /> AI explanation <span className="font-normal normal-case text-zinc-500">(explains the findings; cannot change them){ai?.available && ai.provider === "gemini" ? " · backup model (Gemini)" : ""}</span></p>
           {ai === null ? <p className="flex items-center gap-2 text-zinc-500"><Loader2 className="size-3.5 animate-spin" aria-hidden /> Preparing explanation…</p>
           : ai.available && ai.text ? <p className="whitespace-pre-wrap text-zinc-300">{ai.text}</p>
           : <p className="text-zinc-500">AI explanation unavailable{ai.unavailableReason === "NOT_CONFIGURED" ? " (not configured)" : ""}. The deterministic findings above are complete and are what Presign&apos;s verdict is based on.</p>}
