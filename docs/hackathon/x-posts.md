@@ -4,7 +4,7 @@ Post from the team's accounts. Attach a screen recording or screenshot to each. 
 
 ## Day 1 — launch thread
 
-1/ April 1, 16:05:18 UTC: a proposal appears in Drift's Security Council. 16:05:19: it executes and hands the admin to an attacker. About $285M of users' funds followed.
+1/ April 1, 16:05:18 UTC: a proposal appears in Drift's Security Council. 16:05:19: it executes and hands the admin to an attacker. About $285M of users' funds followed (Drift later put the loss at $295M).
 
 No contract bug, no stolen key: two members blind-signed approvals after months of social engineering. 🧵
 
@@ -18,7 +18,7 @@ No contract bug, no stolen key: two members blind-signed approvals after months 
 
 Paste any Squads proposal: [link]/verify
 
-Open source, read-only, no keys. Built for #Colosseum Crypto World's Fair.
+Open source, read-only, no keys. Built for Colosseum's Crypto World's Fair.
 
 ## Day 2 — the census
 
@@ -44,7 +44,7 @@ Agents with wallets can be prompt-injected. So we made the pre-sign check determ
 
 ## Day 5 — Watchtower
 
-Every new Squads proposal → a plain-language brief to every signer on Telegram, before anyone approves. Independent of the UI that created the proposal. [video]
+Every new Squads proposal → a plain-language brief to all signers on Telegram, on Watchtower's next poll. Independent of the UI that created the proposal. [video]
 
 ## Day 6 — Presign Guard
 
