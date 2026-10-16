@@ -4,9 +4,17 @@ import { Address } from "@/components/security/badges";
 import { DRIFT_EXPLOIT_TXS, DRIFT_MULTISIG, DRIFT_NEW_ADMIN, DRIFT_NONCE_ACCOUNTS } from "@/lib/demo/drift";
 import { DriftReplay } from "./DriftReplay";
 
+const TITLE = "The Drift exploit, replayed · Presign";
+const DESCRIPTION = "The exact transactions two Drift Security Council members pre-signed, run through Presign. No wallet needed.";
+
+// Page-level share card: without it, links to this page show the home page's title and description.
+// A page's openGraph / twitter replace the layout's, image included, so the root share images are named again.
+const SHARE_IMAGE = { width: 1200, height: 630, alt: "Presign — Know exactly what you sign." };
 export const metadata: Metadata = {
-  title: "The Drift exploit, replayed · Presign",
-  description: "The exact transactions two Drift Security Council members pre-signed, run through Presign.",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Presign", type: "article", images: [{ url: "/opengraph-image.png", ...SHARE_IMAGE }] },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: [{ url: "/twitter-image.png", ...SHARE_IMAGE }] },
 };
 
 const utc = (s: number) => new Date(s * 1000).toISOString().replace("T", " ").slice(0, 19) + " UTC";

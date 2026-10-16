@@ -29,7 +29,7 @@ const PRINCIPLES = [
 
 const AUDIENCES = [
   { icon: Users, title: "Multisig signers & security councils", body: "Verify a proposal from a second, independent screen before approving it.", href: "/verify", cta: "Verify a proposal" },
-  { icon: BellRing, title: "Protocol & treasury teams", body: "Watchtower sends every new proposal's brief to all signers the moment it is created, checked against your own team policy.", href: "/docs#policy", cta: "Set up alerts & policy" },
+  { icon: BellRing, title: "Protocol & treasury teams", body: "Watchtower sends every new proposal's brief to all signers on its next poll, checked against your own team policy.", href: "/docs#policy", cta: "Set up alerts & policy" },
   { icon: Bot, title: "Wallets, custodians & AI agents", body: "The same engine over HTTP and MCP: a pre-sign check an LLM cannot talk its way past.", href: "/docs", cta: "Use the API" },
 ];
 
@@ -41,8 +41,8 @@ export default function Home() {
         <div className="mb-6 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-1.5 text-sm text-zinc-400">Pre-sign verification for Solana multisigs</div>
         <h2 className="max-w-4xl text-4xl font-bold tracking-tight sm:text-6xl">{BRAND.tagline}</h2>
         <p className="mt-6 max-w-2xl text-base leading-7 text-zinc-400 sm:text-lg">
-          On April 1, 2026, about $285M was drained from Drift&apos;s users. No contract bug, no stolen private key: after months of social engineering, two Security Council members had pre-signed approvals they did not fully understand.
-          {" "}{BRAND.name} decodes every multisig proposal, simulates it, and tells signers — in one sentence, with evidence — who controls what afterwards.
+          On April 1, 2026, about $285M was drained from Drift&apos;s users (Drift later put the loss at $295M). No contract bug, no stolen private key: after months of social engineering, two of its five Security Council members had pre-signed approvals they did not fully understand.
+          {" "}{BRAND.name} decodes Squads v4 multisig proposals, simulates them, and tells signers — in one sentence, with evidence — who controls what afterwards.
         </p>
         <div className="mt-10 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
           <Link href="/verify" className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-200">

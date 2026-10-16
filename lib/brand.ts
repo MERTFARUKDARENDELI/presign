@@ -2,5 +2,5 @@
 export const BRAND = {
   name: "Presign",
   tagline: "Know exactly what you sign.",
-  description: "Pre-sign verification for Solana multisigs: every proposal decoded, simulated and checked for who controls what afterwards — with evidence, before you approve.",
+  description: "Pre-sign verification for Solana multisigs: Squads v4 proposals decoded, simulated and checked for who controls what afterwards — with evidence, before you approve.",
 } as const;
