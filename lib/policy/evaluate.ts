@@ -296,10 +296,10 @@ export function evaluatePolicy(policy: TeamPolicy, subject: PolicySubject, ctx: 
     const c = new Check("forbidDurableNonce");
     if (subject.mode === "transaction") {
       c.applicable = true;
-      if (subject.usesDurableNonce) c.violate("This transaction uses a durable nonce: the signature does not expire and can be executed at any later time.");
+      if (subject.usesDurableNonce) c.violate("This transaction uses a durable nonce or one of its replacements: the signature does not expire and can be executed at any later time.");
     } else if (subject.mode === "proposal" && subject.history) {
       c.applicable = true;
-      for (const n of subject.history.nonceSigned) c.violate(`${n.actions.join(" + ")} landed in a durable-nonce transaction (${short(n.signature)}): it may have been signed long before.`);
+      for (const n of subject.history.nonceSigned) c.violate(`${n.actions.join(" + ")} landed ${n.envelope ? `through ${n.envelope}` : "in a durable-nonce transaction"} (${short(n.signature)}): it may have been signed long before.`);
       if (subject.history.status === "FAILED") c.unknown("The proposal's history could not be loaded, so its votes were not checked for durable nonces.");
     }
     checks.push(c.done());

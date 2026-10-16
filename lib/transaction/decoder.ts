@@ -34,6 +34,7 @@ import type {
   DecodedTransaction,
   InstructionAccountRef,
 } from "./types";
+import { detectOfflineSigner, envelopeLabel, isVectorProgram, PROGRAMMATIC_SIGNER_PROGRAM_ID } from "./offline-signers";
 import { authorityTypeName, decodeToken2022Extension, TOKEN_2022_FIRST_EXTENSION_IX } from "./token2022";
 
 /**
@@ -224,6 +225,7 @@ export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptio
       else if (programId === BPF_LOADER_UPGRADEABLE_ID) decoded = decodeBpfLoader(cix.data, accountKeys, index, out, base);
       else if (programId === SQUADS_V4_PROGRAM_ID) decoded = decodeSquads(cix.data, accountKeys, base);
       else if (programId === guardProgramId()) decoded = decodeGuard(cix.data, base);
+      else if (programId === PROGRAMMATIC_SIGNER_PROGRAM_ID || isVectorProgram(programId)) decoded = decodeOfflineSigner(programId, cix.data, accountKeys, base);
       else if (programId === MEMO_PROGRAM_ID || programId === MEMO_V1_PROGRAM_ID) {
         const text = new TextDecoder("utf-8", { fatal: false }).decode(cix.data).slice(0, 200);
         decoded = base("memo", true, [], { memo: text });
@@ -242,6 +244,12 @@ export function decodeTransaction(tx: VersionedTransaction, options: DecodeOptio
     }
     out.instructions.push(decoded);
   });
+
+  const envelope = detectOfflineSigner(msg.compiledInstructions.map((cix) => ({ programId: keys[cix.programIdIndex] ?? null, accounts: cix.accountKeyIndexes.map((ki) => keys[ki] ?? null), data: cix.data })));
+  if (envelope) {
+    out.offlineSigner = envelope;
+    out.usesDurableNonce = true;
+  }
 
   const seen = new Set<string>();
   for (const ixn of out.instructions) {
@@ -304,6 +312,8 @@ export function decodeInnerRaw(
     decoded = null;
   }
   if (!decoded) decoded = { ...base(p.trust === "unknown" ? "unknown" : `${p.name}:undecoded`, false), rawData: Buffer.from(data).toString("base64") };
+  // A Squads vote reached by CPI (e.g. through an offline-signer envelope) is read again by the multisig analysis.
+  else if (programId === SQUADS_V4_PROGRAM_ID) decoded.rawData = Buffer.from(data).toString("base64");
   mergeCpiEffects(out, scratch);
   return decoded;
 }
@@ -614,6 +624,32 @@ function decodeSquads(data: Uint8Array, accounts: Array<string | null>, base: Ba
   if (s.configActions.length) info.configActions = s.configActions.map((c) => c.type).join(", ");
   if (s.memo !== null) info.memo = s.memo;
   return base(`squads:${s.name}`, true, SQUADS_IX_ACCOUNTS[s.name] ?? [], info);
+}
+
+const VECTOR_IX: Record<number, { name: string; accounts: string[] }> = {
+  0: { name: "initialize", accounts: ["payer", "vector", "systemProgram"] },
+  1: { name: "advance", accounts: ["vector", "instructionsSysvar"] },
+  2: { name: "close", accounts: ["vector", "receiver"] },
+  3: { name: "withdraw", accounts: ["vector", "receiver"] },
+  4: { name: "passthrough", accounts: ["vector", "instructionsSysvar"] },
+};
+
+/**
+ * Offline-signer envelopes (lib/transaction/offline-signers.ts). A programmatic-signer `Submit` is
+ * decoded down to the instructions its execution message runs. Vector's `Passthrough` payload is
+ * not decoded here: its effects come from simulation.
+ */
+function decodeOfflineSigner(programId: string, data: Uint8Array, accounts: Array<string | null>, base: BaseFn): DecodedInstruction | null {
+  if (isVectorProgram(programId)) {
+    const ix = VECTOR_IX[data[0]];
+    if (!ix) return null;
+    return base(`vector:${ix.name}`, ix.name !== "passthrough", ix.accounts, { vector: accounts[ix.accounts.indexOf("vector")] ?? null });
+  }
+  const e = detectOfflineSigner([{ programId, accounts, data }]);
+  if (!e) return null;
+  const executes = e.executes ? `${e.executes.length} instruction(s): ${e.executes.map((x) => programInfo(x.programId).name).join(", ")}` : null;
+  const info = { authorities: e.authorities.join(", ") || null, nonceAccount: e.nonceAccount, nonceAuthority: e.nonceAuthority, nonceValue: e.nonceValue, executes, envelope: envelopeLabel(e) };
+  return base("programmatic-signer:submit", e.executes !== null, [], info);
 }
 
 /**

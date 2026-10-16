@@ -5,6 +5,7 @@ import type { MultisigAnalysis } from "@/lib/multisig/types";
 import type { PolicyReport } from "@/lib/policy/types";
 import type { RiskAssessment } from "@/lib/security/risk";
 import type { AnalysisStatus } from "@/lib/security/types";
+import type { OfflineSignerEnvelope } from "./offline-signers";
 
 /** All lamport/token amounts are raw u64 decimal strings. */
 
@@ -41,7 +42,10 @@ export interface DecodedInstruction {
   /** For inner (CPI) instructions: index of the top-level instruction that invoked it. */
   parentIndex?: number;
   stackHeight?: number | null;
-  /** Base64 instruction data, kept only for undecoded instructions so a later pass (Anchor IDL) can decode them. */
+  /**
+   * Base64 instruction data, kept for undecoded instructions so a later pass (Anchor IDL) can decode
+   * them, and for Squads CPI instructions so the multisig analysis can read votes cast through a program.
+   */
   rawData?: string;
 }
 
@@ -127,7 +131,13 @@ export interface DecodedTransaction {
   approvals: TokenApproval[];
   authorityChanges: AuthorityChange[];
   closes: AccountClose[];
+  /**
+   * The authorizing signature does not expire with a blockhash: a System durable nonce (first
+   * instruction AdvanceNonceAccount) or an offline-signer envelope (`offlineSigner`).
+   */
   usesDurableNonce: boolean;
+  /** Durable-nonce replacement that carries the authorizing signature (lib/transaction/offline-signers.ts); null or absent when none. */
+  offlineSigner?: OfflineSignerEnvelope | null;
   lookupTablesResolved: boolean;
   /** Instructions whose program is recognized but whose data could not be decoded. */
   undecodedInstructions: number[];

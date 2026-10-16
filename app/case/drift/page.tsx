@@ -113,7 +113,7 @@ export default function DriftCasePage() {
         <p>
           The trail was also public before the attack: the nonce accounts naming two council members as their authority were on chain {days(n1.blockTime, t1.blockTime)} days and{" "}
           {days(n2.blockTime, t2.blockTime)} day{days(n2.blockTime, t2.blockTime) === 1 ? "" : "s"} earlier, created by an address outside the council. Presign now flags any vote
-          that lands through a durable nonce (inspect <a href={`/verify?q=${DRIFT_MULTISIG}%20%237`} className="text-fuchsia-300 underline-offset-4 hover:underline">proposal #7</a>).
+          that lands through a durable nonce, or through the programs replacing them (inspect <a href={`/verify?q=${DRIFT_MULTISIG}%20%237`} className="text-fuchsia-300 underline-offset-4 hover:underline">proposal #7</a>).
           Watching for new nonce accounts that name a member is on our roadmap: it needs a full transaction stream, because about 240 transactions per second touch durable nonces on mainnet.
         </p>
       </section>

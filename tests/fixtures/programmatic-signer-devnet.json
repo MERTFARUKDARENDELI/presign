@@ -1,0 +1,179 @@
+{
+  "source": "Solana devnet, 2026-10-16. A Squads v4 vote cast through Anza's Ed25519 Programmatic Signer (devnet, pre-audit): the member is the cold key's programmatic-signer PDA; the cold key signed the authorization message offline and a relayer submitted it.",
+  "multisig": "8g9Mi9WKhBCXxj9NVDHDyDA83GY8SKR2jz63XV92kLKe",
+  "proposal": "9fdG5KxLW3coMMSSTNG44kkG5DEiFbdu7SLxh26cipxQ",
+  "transactionIndex": "1",
+  "coldAuthority": "8C2F4kEvRb6Rm3zY4i84AJSR47vCnA8wbG1AxWQtTC2S",
+  "programmaticSigner": "35BhcnAj5c8ufVsDXngjGCrTKaDeZkxzCag1cjrNG3bo",
+  "nonceAccount": "9DzpBwL6tpSabeuM3ghYeXYohbqyvdDMHJBjjgRLqwkc",
+  "relay": "4eGrZhXuGDYpX66X8pU6UKXcHNFPNjy1CVPbLiR7v5f9Aj48ed8BHrMcnkwfgpgKPdstYNiionpP7zHZ7R5nmEm9",
+  "transactions": [
+    {
+      "signature": "5JqmbxaYgzpwzoSq6HzDguh7VmuMYxbqDELq2ZPMk94T3am8LgwYGUXUREZCdgvcMzdT38TCyede4t3Rw2Dq8b2m",
+      "slot": 511695330,
+      "blockTime": 1792149969,
+      "transaction": "Add0COsTahidv14ULomrqJNwR3VMM85Xcv/3jd8cNvNlpfGG42h9Rsuv1Gz8aiJFr0ESrEVioiG/lca7GFu86gaAAQACBkM7AmRNS5CTxNzpa9ZG3Ld79J6o0yDvpgOa18ApS8ZWcgjozh98RhGtX/y5/Qcm7nn9j7vFkw+YMjum64gZTq2rClukYEOc2vPsN0ZXmJHNGEmajFn644wUWJhMtIi+foDCkLui6vO/xnrpfuKexTeKfTOgcgolxYd63VL10N8hBoHEzkfiI2i4sVVeyIevCS78fvu2bKP1L79o1Kyct6gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHqLABv5sbpRxs5yZY6JL20bZKb5gFGOwt2VPWhTOl4nAwQFAQIAAAWoATD6TqjQ4trTAAB4AAAAAQEBA6Acy99xyVnQ5L4vq6Wnu08EmgUd0ZNjSkgb2otnv0g1QzsCZE1LkJPE3Olr1kbct3v0nqjTIO+mA5rXwClLxlYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAgABDAACAAAAQEIPAAAAAAAAAR0AAABTZW5kIDAuMDAxIFNPTCBmcm9tIHRoZSB2YXVsdAQFAQMAAAUR3DxJ4B5sT58BAAAAAAAAAAAEAwEAAwmQJaSIvNgq+AAA",
+      "meta": {
+        "err": null,
+        "loadedAddresses": {
+          "readonly": [],
+          "writable": []
+        },
+        "innerInstructions": [
+          {
+            "index": 0,
+            "instructions": [
+              {
+                "accounts": [
+                  0,
+                  2
+                ],
+                "data": "11115QRJe6KjHy8kUg7gDaZ4NvKCjFJ7LRcF5Hjd3q9dgxLxqTMEPCB5hEyXH3okJAyYf1",
+                "programIdIndex": 5,
+                "stackHeight": 2
+              }
+            ]
+          },
+          {
+            "index": 1,
+            "instructions": [
+              {
+                "accounts": [
+                  0,
+                  3
+                ],
+                "data": "1111bXttJ6p7Z1K2LMxXSAx5SawGJzgqcMhSi1UzN8m9F2Lpdzp77X5qccTD66qrZFpyD",
+                "programIdIndex": 5,
+                "stackHeight": 2
+              }
+            ]
+          }
+        ],
+        "logMessages": [
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: VaultTransactionCreate",
+          "Program 11111111111111111111111111111111 invoke [2]",
+          "Program 11111111111111111111111111111111 success",
+          "Program log: transaction index: 1",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 26172 of 600000 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: ProposalCreate",
+          "Program 11111111111111111111111111111111 invoke [2]",
+          "Program 11111111111111111111111111111111 success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 14269 of 573828 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: ProposalApprove",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 8212 of 559559 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success"
+        ]
+      }
+    },
+    {
+      "signature": "4eGrZhXuGDYpX66X8pU6UKXcHNFPNjy1CVPbLiR7v5f9Aj48ed8BHrMcnkwfgpgKPdstYNiionpP7zHZ7R5nmEm9",
+      "slot": 511695450,
+      "blockTime": 1792149998,
+      "transaction": "AbYxsepJLY1j2hIz5F7B/AT2Vs91iuocNLwtLsV6YTTXWeE/a4seNWssr4FLltfnVQ2SA96J0CAzkmZCE72zvwSAAQAFCkM7AmRNS5CTxNzpa9ZG3Ld79J6o0yDvpgOa18ApS8ZWatSaLraqMkgJf7OJVBFlqqJNdYt4lb17XFlgvccNUD8eycvDJz5e8gg1E1U36Lbw4sQLZSV0jehTAhoIpdT4cnox1c0dMpFImjPJjLfG+4n2dR2HRYbWKuuHn/LO2TTpgMKQu6Lq87/Geul+4p7FN4p9M6ByCiXFh3rdUvXQ3yHKfetY23i6HEa6s9b7MV7JUgLOMGycD0LKSSJveG9u73II6M4ffEYRrV/8uf0HJu55/Y+7xZMPmDI7puuIGU6tz2lpX4+SWLitUjTqa/vkr1g7g7R6KNoQy2dAyGBUHDgFlhk+axvXy8A3K8Pp4IKu9dD5fkF4QPAyljPWgb1WbAaBxM5H4iNouLFVXsiHrwku/H77tmyj9S+/aNSsnLeoT1cCkT/NUe3zCTSPB+TpdA9xHE1teGwDhqBaf5EnXeEBBQgBAgMEBgcICbMEAAEBGX3sDQlMH67hSPl7xFk103RmSVy5ByoV4w52tdTy4Y7ljzZo1tp0a6Qb9xuHk/8/a5dBJ9vTJWM9bQGmVpOFCoEBAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABCGrUmi62qjJICX+ziVQRZaqiTXWLeJW9e1xZYL3HDVA/HsnLwyc+XvIINRNVN+i28OLEC2UldI3oUwIaCKXU+HJ6MdXNHTKRSJozyYy3xvuJ9nUdh0WG1irrh5/yztk06YDCkLui6vO/xnrpfuKexTeKfTOgcgolxYd63VL10N8hcgjozh98RhGtX/y5/Qcm7nn9j7vFkw+YMjum64gZTq3PaWlfj5JYuK1SNOpr++SvWDuDtHoo2hDLZ0DIYFQcOAWWGT5rG9fLwDcrw+nggq710Pl+QXhA8DKWM9aBvVZsBoHEzkfiI2i4sVVeyIevCS78fvu2bKP1L79o1Kyct6gFB7sAAQIGAQMEBwCBAQACAAAAAGrAv19meB118Cbz/8sxUeIaLXVkPoxmE9rr8N5mUe7cAQQeycvDJz5e8gg1E1U36Lbw4sQLZSV0jehTAhoIpdT4coDCkLui6vO/xnrpfuKexTeKfTOgcgolxYd63VL10N8hcgjozh98RhGtX/y5/Qcm7nn9j7vFkw+YMjum64gZTq0GgcTOR+IjaLixVV7Ih68JLvx++7Zso/Uvv2jUrJy3qAMDCQACAAGQJaSIvNgq+AAA",
+      "meta": {
+        "err": null,
+        "loadedAddresses": {
+          "readonly": [],
+          "writable": []
+        },
+        "innerInstructions": [
+          {
+            "index": 0,
+            "instructions": [
+              {
+                "accounts": [
+                  2,
+                  3,
+                  8,
+                  2,
+                  4,
+                  6,
+                  9
+                ],
+                "data": "1Xjxnsuu6yqwyTsZ2kgQebwnDhktJV4Lb7469GVP1CXMMFKAjy88gVQuV3Y6D2VtNunG5FjNzufq7cvcQAiUBFvBuJyqw3koYqgLygUt7YBjWFRGmKXmtgfrj67BxyMtaeinxUR1vodUiLi7wb4aoUFqVrC19bkhbuNn4haTBrPEWMZSY9tagNyskfJdCeLoBetrpHt32vRyYbpKcvAp5ahogxMX8hdKSVMXABU3aYk1LxCAAMmYPBo2W4hMNu5",
+                "programIdIndex": 7,
+                "stackHeight": 2
+              },
+              {
+                "accounts": [
+                  2,
+                  3
+                ],
+                "data": "8FeisuS1cco8vUX2pMjx2EVZnZCk5xnopCgCzpNGtMzWyYx3WQB2VV6sddvgWi15zpZjsj98pSkUwfBMDzK6w1mK",
+                "programIdIndex": 8,
+                "stackHeight": 3
+              },
+              {
+                "accounts": [
+                  6,
+                  2,
+                  4
+                ],
+                "data": "2qRHAEUKPa4CF",
+                "programIdIndex": 9,
+                "stackHeight": 3
+              }
+            ]
+          }
+        ],
+        "logMessages": [
+          "Program EdSigVfK1DkeMrjFNDMjwfQaJPhPTtX7jW8uPv3oKEgN invoke [1]",
+          "Program ExecxgyHYsAXB4c5dZodV1zJZ9hqfsDCYkRDRATrpkFR invoke [2]",
+          "Program Noncediea1fH12usShuQAz28UhgAeuE5Maf32LsMUQB invoke [3]",
+          "Program Noncediea1fH12usShuQAz28UhgAeuE5Maf32LsMUQB consumed 420 of 147000 compute units",
+          "Program Noncediea1fH12usShuQAz28UhgAeuE5Maf32LsMUQB success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [3]",
+          "Program log: Instruction: ProposalApprove",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 9145 of 145095 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success",
+          "Program ExecxgyHYsAXB4c5dZodV1zJZ9hqfsDCYkRDRATrpkFR consumed 13968 of 149890 compute units",
+          "Program ExecxgyHYsAXB4c5dZodV1zJZ9hqfsDCYkRDRATrpkFR success",
+          "Program EdSigVfK1DkeMrjFNDMjwfQaJPhPTtX7jW8uPv3oKEgN consumed 64093 of 200000 compute units",
+          "Program EdSigVfK1DkeMrjFNDMjwfQaJPhPTtX7jW8uPv3oKEgN success"
+        ]
+      }
+    },
+    {
+      "signature": "3p1nbScjnF4qZsM6ZKo8LGSNES8CeqJY8KLdMbxHRArrLomuERbGFZneBiufSECDSfNqSHCqTfXzYx8mDpEX9UFP",
+      "slot": 511695455,
+      "blockTime": 1792149999,
+      "transaction": "AYyToqfw0BH+Ps+ZE5ipPuxjACoITFXwUY72qUwPJlAq5ma0ZDLShe0hhHoVN845NlVOfC3ycyU1R2AoqyUpIg6AAQAEB0M7AmRNS5CTxNzpa9ZG3Ld79J6o0yDvpgOa18ApS8ZWgMKQu6Lq87/Geul+4p7FN4p9M6ByCiXFh3rdUvXQ3yGgHMvfcclZ0OS+L6ulp7tPBJoFHdGTY0pIG9qLZ79INQaBxM5H4iNouLFVXsiHrwku/H77tmyj9S+/aNSsnLeocgjozh98RhGtX/y5/Qcm7nn9j7vFkw+YMjum64gZTq2rClukYEOc2vPsN0ZXmJHNGEmajFn644wUWJhMtIi+fgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAhtPN/dgsFrmgv42G8VbePWTKODYbiqhrXvNhNJzalkYBAwcEAQUAAgAGCMIIoVeZpBmrAA==",
+      "meta": {
+        "err": null,
+        "loadedAddresses": {
+          "readonly": [],
+          "writable": []
+        },
+        "innerInstructions": [
+          {
+            "index": 0,
+            "instructions": [
+              {
+                "accounts": [
+                  2,
+                  0
+                ],
+                "data": "3Bxs4Bc3VYuGVB19",
+                "programIdIndex": 6,
+                "stackHeight": 2
+              }
+            ]
+          }
+        ],
+        "logMessages": [
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+          "Program log: Instruction: VaultTransactionExecute",
+          "Program 11111111111111111111111111111111 invoke [2]",
+          "Program 11111111111111111111111111111111 success",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf consumed 20455 of 200000 compute units",
+          "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success"
+        ]
+      }
+    }
+  ]
+}

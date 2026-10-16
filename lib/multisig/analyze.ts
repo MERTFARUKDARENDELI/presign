@@ -131,16 +131,28 @@ export async function analyzeMultisig(tx: VersionedTransaction, decoded: Decoded
   const keys = decoded.accounts.map((a) => a.address);
   const squads: Array<{ index: number; ix: SquadsInstruction }> = [];
   const malformed: number[] = [];
-  tx.message.compiledInstructions.forEach((cix, index) => {
-    if (keys[cix.programIdIndex] !== SQUADS_V4_PROGRAM_ID) return;
+  const read = (index: number, data: Uint8Array, accounts: Array<string | null>) => {
     try {
-      const ix = decodeSquadsInstruction(cix.data, cix.accountKeyIndexes.map((k) => keys[k] ?? null));
+      const ix = decodeSquadsInstruction(data, accounts);
       if (ix) squads.push({ index, ix });
       else malformed.push(index);
     } catch {
       malformed.push(index);
     }
+  };
+  tx.message.compiledInstructions.forEach((cix, index) => {
+    if (keys[cix.programIdIndex] === SQUADS_V4_PROGRAM_ID) read(index, cix.data, cix.accountKeyIndexes.map((k) => keys[k] ?? null));
   });
+  // Votes inside an offline-signer envelope: the envelope's authorities signed them and they run by CPI.
+  // Read from the signed bytes when the envelope decodes, otherwise from simulation or the executed record.
+  const envelope = decoded.offlineSigner;
+  if (envelope?.executes) {
+    for (const x of envelope.executes) if (x.programId === SQUADS_V4_PROGRAM_ID) read(envelope.instruction, x.data, x.accounts);
+  } else if (envelope) {
+    for (const x of decoded.innerInstructions) {
+      if (x.programId === SQUADS_V4_PROGRAM_ID && x.rawData) read(envelope.instruction, Buffer.from(x.rawData, "base64"), x.accounts.map((a) => a.address));
+    }
+  }
   if (squads.length === 0 && malformed.length === 0) return null;
 
   const multisig = squads.find((s) => s.ix.accounts.multisig)?.ix.accounts.multisig ?? null;

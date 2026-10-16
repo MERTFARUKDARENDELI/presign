@@ -25,7 +25,7 @@ Every rule cites the evidence it fires on (decoded instruction, simulated state,
 | Metaplex Core NFTs moved | Partial | `TX_NFT_PROGRAM_UNDECODED` | Instruction involving the wallet is flagged; not decoded |
 | Standard / programmable NFTs moved | Covered | outflow rules | They are token accounts, so the simulation shows them |
 | Token-2022 tricks (CPI guard off, transfer hook, permanent delegate, pause, default frozen, confidential transfers, fee changes) | Covered | `TX_CPI_GUARD_DISABLED`, `TX_CPI_GUARD_DISABLED_WITH_UNKNOWN_PROGRAM`, `TX_TOKEN2022_CONFIDENTIAL` and the token rules (section 4) | Token-2022 extension instructions decoded |
-| Never-expiring signatures (durable nonce) | Covered | `TX_DURABLE_NONCE`, `TX_NONCE_AUTHORITY_CHANGE`, `TX_UNKNOWN_PROGRAM_DURABLE_NONCE`, `MS_DURABLE_NONCE_GOVERNANCE` | AdvanceNonceAccount as first instruction (the Drift vector) |
+| Never-expiring signatures (durable nonce) | Covered | `TX_DURABLE_NONCE`, `TX_NONCE_AUTHORITY_CHANGE`, `TX_UNKNOWN_PROGRAM_DURABLE_NONCE`, `MS_DURABLE_NONCE_GOVERNANCE` | AdvanceNonceAccount as first instruction (the Drift vector); the replacement programs' envelopes at the top level: Anza programmatic-signer `Submit` (decoded down to its execution message) and Blueshift Vector `Advance` (passthrough payload not decoded) |
 | Program code replaced, closed, or upgrade authority moved | Covered | `TX_UPGRADE_AUTHORITY_CHANGE`, `TX_PROGRAM_UPGRADE`, `TX_PROGRAM_CLOSE` | BPF upgradeable loader decoded |
 | Mint authority misused | Covered | `TX_MINT_AUTHORITY_CHANGE`, `TX_MINT_TO_OTHER` | Decoded SetAuthority(MintTokens) / MintTo |
 | Phishing links in memos | Covered | `TX_MEMO_SUSPICIOUS_LINK` | URL pattern checks on memo text |
@@ -86,7 +86,7 @@ Stablecoin issuer controls (USDC, USDT) are reported as documented issuer contro
 
 | Threat | Status | Rules |
 |---|---|---|
-| Squads v4 takeover: authority leaves the multisig, threshold cut, config authority set, members swapped, time lock removed, votes pre-signed with durable nonces | Covered | 27 `MS_*` rules, `VAULT_TX_*` (the transaction rules applied to the vault payload) |
+| Squads v4 takeover: authority leaves the multisig, threshold cut, config authority set, members swapped, time lock removed, votes pre-signed with durable nonces or through their replacements | Covered | 27 `MS_*` rules, `VAULT_TX_*` (the transaction rules applied to the vault payload) |
 | Weak setup (single signature, controlled multisig, minority threshold, no time lock) | Covered | `POSTURE_*` |
 | Presign Guard (time-locked execution with guardian veto) weakened or bypassed | Covered | `GUARD_*` |
 | Upgrade to code that does not match a verified build | Covered (external registry) | `UPGRADE_CODE_UNAVAILABLE`, `UPGRADE_UNVERIFIED_CODE`, `UPGRADE_MATCHES_VERIFIED_BUILD` (OtterSec verified builds) |
