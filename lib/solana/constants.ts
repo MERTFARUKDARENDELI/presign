@@ -1,4 +1,5 @@
 import { guardProgramId } from "@/lib/guard/constants";
+import { MESSAGE_EXECUTOR_PROGRAM_ID, PROGRAMMATIC_SIGNER_PROGRAM_ID, SPL_NONCE_PROGRAM_ID, VECTOR_PROGRAMS } from "@/lib/transaction/offline-signers";
 
 /** Well-known Solana program ids. Pure constants — safe for client and server. */
 
@@ -60,6 +61,11 @@ export const KNOWN_PROGRAMS: Record<string, KnownProgram> = {
   CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: { name: "Raydium CLMM", trust: "known" },
   LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: { name: "Meteora DLMM", trust: "known" },
   "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P": { name: "Pump.fun", trust: "known" },
+  // Durable-nonce replacements: messages signed with no blockhash, valid until used or cancelled.
+  [PROGRAMMATIC_SIGNER_PROGRAM_ID]: { name: "Anza Ed25519 Programmatic Signer (pre-audit)", trust: "known" },
+  [MESSAGE_EXECUTOR_PROGRAM_ID]: { name: "Anza Message Executor (pre-audit)", trust: "known" },
+  [SPL_NONCE_PROGRAM_ID]: { name: "SPL Nonce (pre-audit)", trust: "known" },
+  ...Object.fromEntries(Object.entries(VECTOR_PROGRAMS).map(([id, scheme]) => [id, { name: `Blueshift Vector (${scheme})`, trust: "known" as const }])),
 };
 
 export function programInfo(programId: string): KnownProgram {

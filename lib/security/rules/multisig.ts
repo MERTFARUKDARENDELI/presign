@@ -1,6 +1,7 @@
 import type { ScheduledActions } from "@/lib/guard/types";
 import type { MultisigAnalysis, PrivilegedAction, ProposalHistory } from "@/lib/multisig/types";
 import type { MultisigAccount } from "@/lib/squads/types";
+import { envelopeLabel, type OfflineSignerEnvelope } from "@/lib/transaction/offline-signers";
 import { formatLamports } from "@/lib/token/amount";
 import { buildAssessment } from "../engine";
 import type { RiskAssessment, RiskSignal } from "../risk";
@@ -165,7 +166,7 @@ export interface MultisigRuleInput {
   /** The member this analysis is for (perspective wallet), when known. */
   signer: string | null;
   /** Durable nonce of the analyzed transaction; null when it has none or there is no transaction (proposal inspection). */
-  nonce: { nonce: string | null; authority: string | null } | null;
+  nonce: { nonce: string | null; authority: string | null; /** Set when an offline-signer envelope replaces the System nonce. */ via?: OfflineSignerEnvelope } | null;
   /** Proposal inspection: the durable-nonce check of the votes already on chain. */
   history?: ProposalHistory | null;
 }
@@ -188,29 +189,37 @@ export function multisigSignals(input: MultisigRuleInput, ev: EvFn, signals: Ris
   // 1. Durable nonce + governance action: the signature can be held and replayed at any later time.
   const governance = ms.instructions.filter((i) => GOVERNANCE_KINDS.has(i.kind) || i.vote === "approve");
   if (nonce && governance.length > 0) {
-    const nonceId = ev({ source: "TRANSACTION_DECODER", label: "Instruction #0 AdvanceNonceAccount", observed: `nonce ${nonce.nonce ?? "?"}, authority ${nonce.authority ?? "?"}`, condition: "durable nonce: the signed transaction does not expire" });
+    const nonceId = nonce.via
+      ? ev({ source: "TRANSACTION_DECODER", label: `Instruction #${nonce.via.instruction} ${envelopeLabel(nonce.via)}`, observed: `nonce ${nonce.nonce ?? "?"}, authority ${nonce.authority ?? "?"}`, condition: "offline signature with no blockhash: it does not expire" })
+      : ev({ source: "TRANSACTION_DECODER", label: "Instruction #0 AdvanceNonceAccount", observed: `nonce ${nonce.nonce ?? "?"}, authority ${nonce.authority ?? "?"}`, condition: "durable nonce: the signed transaction does not expire" });
+    const how = nonce.via ? `signed offline through ${envelopeLabel(nonce.via)}, a durable-nonce replacement` : "signed with a durable nonce";
     signals.push({
       code: "MS_DURABLE_NONCE_GOVERNANCE",
       title: "Multisig approval that never expires",
-      description: `This ${governance.map((g) => g.name).join(" + ")} is signed with a durable nonce. Once signed it stays valid until the nonce is advanced: whoever holds it can submit it days or weeks later, after circumstances change. Pre-signed durable-nonce approvals are how the Drift Security Council was taken over in April 2026.`,
+      description: `This ${governance.map((g) => g.name).join(" + ")} is ${how}. Once signed it stays valid until the nonce is advanced: whoever holds it can submit it days or weeks later, after circumstances change. Pre-signed durable-nonce approvals are how the Drift Security Council was taken over in April 2026.`,
       severity: "CRITICAL",
       evidenceIds: [nonceId, squadsIxEvidence],
     });
   }
 
-  // 1b. Votes already on chain that landed inside a durable nonce: they may have been signed long before.
+  // 1b. Votes already on chain that landed inside a durable nonce (or a replacement): they may have been signed long before.
   if (history) {
     sources.push({ source: "ONCHAIN_RPC", status: history.status === "FAILED" ? "FAILED" : "OK", detail: history.status === "FAILED" ? "Proposal history could not be loaded: votes were not checked for durable nonces" : `Proposal history: ${history.checked} transaction(s) checked for durable nonces${history.status === "PARTIAL" ? " (not all of them)" : ""}` });
     if (history.nonceSigned.length) {
       const when = (t: number | null) => (t === null ? "unknown time" : new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC");
-      const ids = history.nonceSigned.map((n) => ev({ source: "ONCHAIN_RPC", label: `Transaction ${short(n.signature)}`, observed: `${n.actions.join(" + ")} at slot ${n.slot}, instruction #0 AdvanceNonceAccount (nonce ${n.nonceAccount}, authority ${n.nonceAuthority})`, condition: "durable nonce: the signature may predate the transaction by days or weeks" }));
+      const ids = history.nonceSigned.map((n) =>
+        n.envelope
+          ? ev({ source: "ONCHAIN_RPC", label: `Transaction ${short(n.signature)}`, observed: `${n.actions.join(" + ")} at slot ${n.slot}, sent through ${n.envelope} (nonce ${n.nonceAccount}, authority ${n.nonceAuthority})`, condition: "offline signature with no blockhash: it may predate the transaction by days or weeks" })
+          : ev({ source: "ONCHAIN_RPC", label: `Transaction ${short(n.signature)}`, observed: `${n.actions.join(" + ")} at slot ${n.slot}, instruction #0 AdvanceNonceAccount (nonce ${n.nonceAccount}, authority ${n.nonceAuthority})`, condition: "durable nonce: the signature may predate the transaction by days or weeks" }),
+      );
       const idle = (n: (typeof history.nonceSigned)[number]) => (n.nonceIdleSince !== null && n.blockTime !== null && n.blockTime - n.nonceIdleSince >= 3_600 ? `; its nonce account had sat unused for ${roughDuration(n.blockTime - n.nonceIdleSince)}` : "");
-      const lines = history.nonceSigned.map((n) => `${n.actions.join(" + ")} by ${n.members.map((m) => short(m)).join(", ") || "unknown"} (${when(n.blockTime)}, nonce authority ${short(n.nonceAuthority)}${idle(n)})`);
+      const lines = history.nonceSigned.map((n) => `${n.actions.join(" + ")} by ${n.members.map((m) => short(m)).join(", ") || "unknown"} (${when(n.blockTime)}, ${n.envelope ? `through ${n.envelope}, ` : ""}nonce authority ${short(n.nonceAuthority)}${idle(n)})`);
       const who = [...new Set(history.nonceSigned.flatMap((n) => n.members))].map((m) => short(m));
+      const envelopes = history.nonceSigned.some((n) => n.envelope);
       signals.push({
         code: "MS_VOTE_SIGNED_IN_ADVANCE",
-        title: "Votes signed in advance with a durable nonce",
-        description: `${lines.join("; ")}. A durable-nonce transaction can be signed long before it lands, so these votes may not reflect what the member saw, or when. Pre-signed durable-nonce votes are how the Drift Security Council was taken over in April 2026. Confirm with ${who.join(", ") || "the members"} directly that they meant this before approving or executing.`,
+        title: envelopes ? "Votes signed in advance, with no expiry" : "Votes signed in advance with a durable nonce",
+        description: `${lines.join("; ")}. A durable-nonce transaction can be signed long before it lands, so these votes may not reflect what the member saw, or when.${envelopes ? " The same holds for a vote sent through a durable-nonce replacement: the authority signed a message with no blockhash, valid until used or cancelled." : ""} Pre-signed durable-nonce votes are how the Drift Security Council was taken over in April 2026. Confirm with ${who.join(", ") || "the members"} directly that they meant this before approving or executing.`,
         severity: "HIGH",
         evidenceIds: ids,
       });

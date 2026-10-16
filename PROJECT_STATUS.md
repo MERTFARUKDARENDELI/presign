@@ -1,12 +1,23 @@
 # Project Status — Presign
 
-Last updated: 2026-10-10. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
+Last updated: 2026-10-16. States: NOT_STARTED · IN_PROGRESS · IMPLEMENTED · TESTING · VERIFIED · PARTIAL · BLOCKED.
 
 "VERIFIED" = implemented, unit/integration tested, typecheck + lint + build passing, and (where noted) exercised against real mainnet data through the API. Nothing here means "production-ready".
 
 The project was renamed from "AI Web3 Security Agent & Defender" to **Presign** and refocused on pre-sign verification for Solana multisigs. The history below the Presign section describes the original engine, which Presign builds on.
 
 ## Presign (2026-09-27 →)
+
+### Durable-nonce replacements (2026-10-16)
+
+| Item | Status |
+|---|---|
+| Recognize the programs replacing durable nonces (`lib/transaction/offline-signers.ts`) | IMPLEMENTED · TESTING — Anza Ed25519 Programmatic Signer, Message Executor and SPL Nonce (devnet, pre-audit) and the four published Blueshift Vector program ids are named programs. A programmatic-signer `Submit` is decoded: its authorization message (v1) gives the authorities and the nonce account, its execution message the nonce value and the instructions it runs. A Vector `Advance` names the vector account; its `Passthrough` payload is not decoded |
+| Before signing | IMPLEMENTED · TESTING — an envelope sets `usesDurableNonce` (`TX_DURABLE_NONCE`, "Signature that never expires", evidence names the envelope); Squads votes inside it reach the multisig analysis (from the signed bytes, else from simulation), so an approval through an envelope is `MS_DURABLE_NONCE_GOVERNANCE` (CRITICAL) and the brief says it never expires. Same rule codes: the catalog stays at 111 |
+| After landing | IMPLEMENTED · TESTING — the proposal-history check reads votes run by CPI from the executed record (or the envelope's signed bytes) and flags them as signed in advance (`MS_VOTE_SIGNED_IN_ADVANCE`, HIGH), naming the envelope; brief and `forbidDurableNonce` policy wording follow |
+| Devnet test | VERIFIED on devnet, 2026-10-16 — 2-of-2 Squads v4 multisig `8g9Mi9WKhBCXxj9NVDHDyDA83GY8SKR2jz63XV92kLKe`, members: the relayer and cold key `8C2F…TC2S`'s programmatic-signer PDA `35Bh…G3bo`; SPL Nonce account `9Dzp…qwkc`. Proposal #1: the deployed devnet Presign rated the unsubmitted relay transaction LOW (unknown programs, no expiry warning) and, after the [vote landed](https://explorer.solana.com/tx/4eGrZhXuGDYpX66X8pU6UKXcHNFPNjy1CVPbLiR7v5f9Aj48ed8BHrMcnkwfgpgKPdstYNiionpP7zHZ7R5nmEm9?cluster=devnet), found no vote signed in advance; the same proposal on a local server with this change: HIGH, gate `block`. Proposal #2: the unsubmitted relay transaction CRITICAL (gate `block`) on a local server; [relayed 92 s after the offline signature](https://explorer.solana.com/tx/3z1LdKEGKNmCuXs3KdJkk9szQXfJpga2yFAYt44pp7j15cfsmqus65TyfCF8ewzrBRqhtZnShrMtRkbYRJ6qK8Sz?cluster=devnet); HIGH after landing. Test script kept outside the repository; fixture `tests/fixtures/programmatic-signer-devnet.json` |
+| Tests | 9 new in `tests/unit/offline-signers.test.ts` (the guide's example v1 message, refusals, the real devnet envelope, risk, multisig, history, brief; a built Vector vote): 840 in 63 files pass |
+| Not covered | Vector is not deployed, so it is tested only with transactions built in the tests; the authorization message an authority signs on its own is not reviewed (only the transaction carrying it); a `Submit` reached by CPI is not treated as an envelope |
 
 ### Release readiness pass (2026-10-10, local working tree, not committed)
 

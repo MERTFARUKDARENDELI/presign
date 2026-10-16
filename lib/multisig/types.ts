@@ -103,13 +103,15 @@ export interface MultisigAnalysis {
   malformed: number[];
 }
 
-/** A landed transaction that acted on a proposal inside a durable nonce (see lib/multisig/history.ts). */
+/** A landed transaction that acted on a proposal inside a durable nonce or one of its replacements (see lib/multisig/history.ts). */
 export interface NonceSignedAction {
   signature: string;
   slot: number;
   blockTime: number | null;
   nonceAccount: string;
   nonceAuthority: string;
+  /** The offline-signer envelope that carried the signature, e.g. "Anza Ed25519 Programmatic Signer"; null for a System durable nonce. */
+  envelope: string | null;
   /** Squads instructions in that transaction that act on the proposal, e.g. proposalCreate, proposalApprove. */
   actions: string[];
   /** Members (or creators) named by those instructions. */

@@ -2,6 +2,7 @@ import type { MultisigAnalysis } from "@/lib/multisig/types";
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@/lib/solana/constants";
 import { formatLamports, formatRawAmount } from "@/lib/token/amount";
 import { estimatePriorityFeeLamports, formatTxVersion } from "@/lib/transaction/decoder";
+import { envelopeEvidence, envelopeLabel } from "@/lib/transaction/offline-signers";
 import { boundedOutflow, walletNetChanges } from "@/lib/transaction/effects";
 import type { DecodedTransaction, TransactionEffects } from "@/lib/transaction/types";
 import { buildAssessment } from "../engine";
@@ -109,7 +110,11 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
     statuses.push("COMPLETE");
   }
 
-  if (decoded.usesDurableNonce) {
+  const envelope = decoded.offlineSigner ?? null;
+  if (envelope) {
+    const id = ev({ source: "TRANSACTION_DECODER", label: `Instruction #${envelope.instruction} ${envelopeLabel(envelope)}`, observed: envelopeEvidence(envelope), condition: "offline signature with no blockhash: valid until used or cancelled" });
+    signals.push({ code: "TX_DURABLE_NONCE", title: "Signature that never expires", description: `The authorizing signature travels in ${envelopeLabel(envelope)}, a durable-nonce replacement: it has no blockhash and stays valid until it is used or cancelled, so whoever holds it can submit it later, a technique used by drainers.`, severity: "MEDIUM", evidenceIds: [id] });
+  } else if (decoded.usesDurableNonce) {
     const id = ev({ source: "TRANSACTION_DECODER", label: "First instruction", observed: "AdvanceNonceAccount", condition: "durable nonce" });
     signals.push({ code: "TX_DURABLE_NONCE", title: "Durable nonce transaction", description: "This signed transaction never expires and could be submitted later, a technique used by drainers.", severity: "MEDIUM", evidenceIds: [id] });
   }
@@ -168,7 +173,11 @@ export function evaluateTransactionRisk(input: TxRuleInput): RiskAssessment {
   extraTransactionSignals({ decoded, effects, wallet, ownedByWallet, ev, signals });
   memoLinkSignals(decoded, ev, signals);
   if (input.multisig) {
-    const nonce = decoded.usesDurableNonce ? { nonce: decoded.instructions[0]?.info.nonce ?? null, authority: decoded.instructions[0]?.info.authority ?? null } : null;
+    const nonce = envelope
+      ? { nonce: envelope.nonceAccount, authority: envelope.nonceAuthority, via: envelope }
+      : decoded.usesDurableNonce
+        ? { nonce: decoded.instructions[0]?.info.nonce ?? null, authority: decoded.instructions[0]?.info.authority ?? null }
+        : null;
     multisigSignals({ ms: input.multisig, signer: wallet, nonce }, ev, signals, statuses, sources);
   }
 

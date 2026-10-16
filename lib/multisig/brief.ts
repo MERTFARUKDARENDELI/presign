@@ -158,7 +158,7 @@ function signedInAdvance(history: ProposalHistory | null | undefined): string[] 
     const who = n.members.map((m) => short(m)).join(", ") || "Unknown member";
     const verbs = [...new Set(n.actions.map((a) => VOTE_VERB[a] ?? a))].join(" + ");
     const idle = n.nonceIdleSince !== null && n.blockTime !== null && n.blockTime - n.nonceIdleSince >= 3_600 ? `; its nonce account had sat unused for ${roughDuration(n.blockTime - n.nonceIdleSince)}` : "";
-    return `${who}: ${verbs} landed inside a durable nonce${idle}.`;
+    return `${who}: ${verbs} landed ${n.envelope ? `through ${n.envelope}, signed offline with no blockhash` : "inside a durable nonce"}${idle}.`;
   });
 }
 
