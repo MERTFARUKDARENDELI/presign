@@ -132,8 +132,9 @@ export default function DocsPage() {
       <Section id="extension" title="Browser extension (any site)">
         <p className="text-sm text-zinc-400">
           The extension reviews signing requests on any website, with no link to share: when a site asks your wallet to sign through the wallet APIs it wraps, {BRAND.name} opens its
-          review first, and the wallet opens only after your decision. Not yet on the Chrome Web Store. So far there has been one devnet run with Phantom (October 10, 2026): the review
-          opened before the wallet for sign message, sign transaction and sign-and-send, and Cancel never reached the wallet; Sign In is still open, and Solflare and Backpack have not been tried.
+          review first, and the wallet opens only after your decision. Not yet on the Chrome Web Store. So far there have been two devnet runs with Phantom on a third-party site. On
+          October 10, 2026 the review opened before the wallet for sign message, sign transaction and sign-and-send, and Cancel never reached the wallet. On October 17, Sign In went
+          through: reviewed before the wallet when the account was known, and held by {BRAND.name} until approved when the wallet chose the account. Solflare and Backpack have not been tried.
         </p>
         <ul className="space-y-2 text-sm text-zinc-300">
           <li className="rounded-lg border border-zinc-800 p-3"><span className="font-semibold">What it wraps</span> — Wallet Standard wallets (Phantom, Solflare, Backpack and most others, including the legacy <span className="font-mono text-xs">navigator.wallets</span> registration) and injected providers such as <span className="font-mono text-xs">window.phantom.solana</span>: sign transaction(s), sign and send (one or several), sign message, off-chain message, Sign-In With Solana. Any other signing entry point is refused.</li>
