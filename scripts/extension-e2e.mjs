@@ -209,6 +209,9 @@ const toChrome = chrome.stdio[3];
 let buf = "";
 let nextId = 0;
 const pending = new Map();
+// Uncaught errors on the test dApp's pages, with the context they came from (the page, or an extension's isolated world).
+const contexts = new Map();
+const thrown = [];
 chrome.stdio[4].on("data", (d) => {
   buf += d.toString("utf8");
   let i;
@@ -220,6 +223,12 @@ chrome.stdio[4].on("data", (d) => {
       pending.delete(msg.id);
       if (msg.error) reject(new Error(`${msg.error.message} ${msg.error.data ?? ""}`));
       else resolve(msg.result);
+    } else if (msg.method === "Runtime.executionContextCreated") {
+      const c = msg.params.context;
+      contexts.set(`${msg.sessionId}:${c.id}`, `${c.auxData?.type === "isolated" ? "isolated" : "page"} ${c.origin}`);
+    } else if (msg.method === "Runtime.exceptionThrown") {
+      const e = msg.params.exceptionDetails;
+      thrown.push({ context: contexts.get(`${msg.sessionId}:${e.executionContextId}`) ?? "unknown", text: String(e.exception?.description ?? e.text).split("\n")[0] });
     }
   }
 });
@@ -260,7 +269,18 @@ try {
 
   const { targetId: dappTarget } = await cdp("Target.createTarget", { url: `http://localhost:${DAPP_PORT}/` });
   const dapp = await attach(dappTarget);
+  await cdp("Runtime.enable", {}, dapp);
   await until(() => evaluate(dapp, `document.readyState === "complete" && typeof window.run === "function"`), "test dApp");
+  // The capture itself works: an uncaught error from the page, and an error and a rejected promise from an isolated world
+  // (where content scripts run), are all seen.
+  await evaluate(dapp, `setTimeout(() => { throw new Error("e2e capture probe (page)"); }, 0), true`);
+  const { executionContextId: probeWorld } = await cdp("Page.createIsolatedWorld", { frameId: (await cdp("Page.getFrameTree", {}, dapp)).frameTree.frame.id, worldName: "e2e-probe" }, dapp);
+  await cdp("Runtime.evaluate", { expression: `setTimeout(() => { throw new Error("e2e capture probe (isolated)"); }, 0); Promise.reject(new Error("e2e capture probe (isolated rejection)")); true`, contextId: probeWorld }, dapp);
+  const probes = ["probe (page)", "probe (isolated)", "probe (isolated rejection)"];
+  await until(async () => probes.every((p) => thrown.some((t) => t.text.includes(p))), "capture probes", 10_000).then(
+    () => check(true, "uncaught errors and rejections are captured from the page and from isolated worlds"),
+    () => check(false, `uncaught errors and rejections are captured from the page and from isolated worlds (${JSON.stringify(thrown)})`),
+  );
   check((await evaluate(dapp, "window.__wrapped")) === true, "the site received the wallet only wrapped by Presign");
   check((await evaluate(dapp, "window.__probe.every((d) => !/^[0-9a-f]{32}$/.test(d))")) === true, "a site script that restarts the handshake hears no secret");
   check((await evaluate(dapp, "window.__channelSeen !== 'open' && document.querySelector('presign-channel') === null")) === true, "the secret's element is closed to the page and gone after the handshake");
@@ -427,6 +447,7 @@ try {
   // ---- From here on, a fresh tab of the test dApp (built-ins intact): the other entry points and attacks on the approval.
   const { targetId: dapp2Target } = await cdp("Target.createTarget", { url: `http://localhost:${DAPP_PORT}/` });
   const site = await attach(dapp2Target);
+  await cdp("Runtime.enable", {}, site);
   await until(() => evaluate(site, `document.readyState === "complete" && typeof window.run === "function"`), "second test dApp tab");
   check((await evaluate(site, "window.__wrapped")) === true, "second tab: the Wallet Standard wallet reached the site only wrapped");
   await until(() => evaluate(site, "window.solana.signTransaction !== window.__injectedOriginal.signTransaction && window.solana.signMessage !== window.__injectedOriginal.signMessage"), "injected provider wrapped", 15_000).then(
@@ -561,6 +582,13 @@ try {
   const log = await evaluate(swSession, `chrome.storage.local.get("log").then((v) => (v.log || []).map((e) => e.state))`);
   console.log(`      extension log: ${JSON.stringify(log)}`);
   check(Array.isArray(log) && log.includes("signed") && log.includes("cancelled"), "decisions are recorded in the extension's log");
+
+  // ---- 16. Nothing Presign runs in the site's pages throws uncaught (the hostile page's own scripts may).
+  await sleep(1500);
+  const real = thrown.filter((t) => !t.text.includes("e2e capture probe"));
+  if (real.length) console.log(`      uncaught on the test dApp pages: ${JSON.stringify(real.map((t) => `${t.context}: ${t.text}`))}`);
+  const fromPresign = real.filter((t) => t.context.includes(`chrome-extension://${extId}`) || /Receiving end does not exist/.test(t.text));
+  check(fromPresign.length === 0, `no uncaught error on the site's pages from Presign's content script (${fromPresign.length})`);
 } catch (error) {
   failures++;
   console.error("ERROR", error.message);

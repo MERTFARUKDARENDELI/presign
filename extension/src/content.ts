@@ -81,8 +81,10 @@ import { answerFor } from "./lib/protocol";
         apply(answerFor(undefined, true));
       }
     } else if (m.kind === "outcome") {
+      // The outcome only feeds the extension's own log. A callback that reads lastError keeps a missing receiver
+      // (extension reloaded) from surfacing as an uncaught rejection in the site's console; try/catch alone does not.
       try {
-        chrome.runtime.sendMessage({ kind: "presign:outcome", rid: m.rid ?? null, outcome: m.outcome });
+        chrome.runtime.sendMessage({ kind: "presign:outcome", rid: m.rid ?? null, outcome: m.outcome }, () => void chrome.runtime.lastError);
       } catch {
         // extension reloaded: nothing to report to
       }
