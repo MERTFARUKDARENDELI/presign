@@ -141,3 +141,23 @@ API reference, the gate, MCP client configuration and Watchtower setup: [`/docs`
 ## License
 
 [Apache-2.0](LICENSE). Results are evidence-based signals, not guarantees; the decision to sign is yours.
+
+
+---
+
+## 🏆 Hackathon Achievements
+
+### Colosseum Crypto World's Fair 2026
+
+**🥈 2nd Place – University Track**
+
+- **Project:** PreSign
+- **Award:** 750 USDG
+- **Ecosystem:** Solana
+- **Organizers:** Colosseum, Arf & Superteam Türkiye
+
+PreSign was awarded 2nd place in the University Track at Colosseum's Crypto World's Fair.
+
+The project focuses on improving multisig transaction security and transparency through instruction decoding, transaction simulation, and on-chain authority protection.
+
+This achievement represents an important milestone in developing security-focused solutions within the Solana ecosystem.
